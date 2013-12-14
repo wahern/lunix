@@ -16,12 +16,15 @@
 #include <sys/types.h>  /* gid_t mode_t off_t pid_t uid_t */
 #include <sys/stat.h>   /* S_ISDIR() */
 #include <sys/time.h>   /* struct timeval gettimeofday(2) */
+#if __linux
 #include <sys/sysctl.h> /* CTL_KERN KERN_RANDOM RANDOM_UUID sysctl(2) */
+#endif
 #include <sys/wait.h>   /* waitpid(2) */
 #include <unistd.h>     /* chdir(2) chroot(2) close(2) chdir(2) chown(2) chroot(2) getpid(2) link(2) rename(2) rmdir(2) setegid(2) seteuid(2) setgid(2) setuid(2) setsid(2) symlink(2) truncate(2) umask(2) unlink(2) */
 #include <fcntl.h>      /* F_GETFD F_SETFD FD_CLOEXEC fcntl(2) open(2) */
 #include <pwd.h>        /* struct passwd getpwnam_r(3) */
 #include <grp.h>        /* struct group getgrnam_r(3) */
+
 
 #if __APPLE__
 #include <mach/mach_time.h> /* mach_timebase_info() mach_absolute_time() */
@@ -37,6 +40,11 @@
  *
  * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
 #if LUA_VERSION_NUM < 502
+
+#ifndef LUA_FILEHANDLE
+#define LUA_FILEHANDLE "FILE*"
+#endif
+
 
 static void *luaL_testudata(lua_State *L, int index, const char *tname) {
 	void *p = lua_touserdata(L, index);
