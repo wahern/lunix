@@ -389,7 +389,7 @@ static int arc4_getbyte(unixL_Random *R) {
 
 	++R->i;
 	si = R->s[R->i];
-	++R->j;
+	R->j += si;
 	sj = R->s[R->j];
 	R->s[R->i] = sj;
 	R->s[R->j] = si;
@@ -445,11 +445,10 @@ static void arc4_stir(unixL_Random *R, int force) {
 		unsigned char bytes[sizeof rnd.bytes];
 		size_t count = 0;
 		ssize_t n;
+		int error;
 
-		if (R->fd == -1) {
-			if (-1 == (R->fd = open("/dev/urandom", O_RDONLY|U_CLOEXEC)))
-				goto stir;
-		}
+		if (R->fd == -1 && (error = u_open(&R->fd, "/dev/urandom", O_RDONLY|U_CLOEXEC, 0)))
+			goto stir;
 
 		while (count < sizeof bytes) {
 			n = read(R->fd, &bytes[count], sizeof bytes - count);
@@ -467,7 +466,7 @@ static void arc4_stir(unixL_Random *R, int force) {
 			count += n;
 		}
 
-		for (n = 0; n < (ssize_t)sizeof(rnd.bytes); n++) {
+		for (n = 0; n < (ssize_t)sizeof rnd.bytes; n++) {
 			rnd.bytes[n] ^= bytes[n];
 		}
 	}
