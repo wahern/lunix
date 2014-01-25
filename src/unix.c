@@ -5,9 +5,10 @@
 #include <limits.h>    /* NL_TEXTMAX */
 #include <stdarg.h>    /* va_list va_start va_arg va_end */
 #include <stdint.h>    /* SIZE_MAX */
-#include <stdlib.h>    /* arc4random(3) free(3) realloc(3) */
+#include <stdlib.h>    /* arc4random(3) free(3) realloc(3) strtoul(3) */
 #include <stdio.h>     /* snprintf(3) */
 #include <string.h>    /* memset(3) strerror_r(3) */
+#include <signal.h>    /* sigset_t sigfillset(3) sigemptyset(3) sigprocmask(2) */
 
 #include <sys/types.h> /* gid_t pid_t uid_t */
 #include <unistd.h>    /* chdir(2) chroot(2) close(2) getpid(3) setegid(2) seteuid(2) setgid(2) setuid(2) */
@@ -23,7 +24,6 @@
 #ifndef countof
 #define countof(a) (sizeof (a) / sizeof *(a))
 #endif
-
 
 
 static size_t power2(size_t i) {
@@ -66,6 +66,11 @@ static int growbuf(char **buf, size_t *size, size_t minsiz) {
 
 	return 0;
 } /* growbuf() */
+
+
+static int ascii_isspace(unsigned char ch) {
+	return (ch == '\t' || ch == '\n' || ch == '\v' || ch == '\f' || ch == '\r' || ch == ' ');
+} /* ascii_isspace() */
 
 
 static void closefd(int *fd) {
@@ -120,6 +125,14 @@ static int open_cloexec(const char *path, int flags, ...) {
 
 	return fd;
 } /* open_cloexec() */
+
+
+static mode_t getumask(void) {
+	sigset_t set, oset;
+
+	sigfillset(&set);
+	sigemptyset(&oset);
+} /* getumask() */
 
 
 #ifndef HAVE_ARC4RANDOM
@@ -532,6 +545,155 @@ static uid_t unixL_checkgid(lua_State *L, int index) {
 } /* unixL_checkgid() */
 
 
+/*
+ * Rough attempt to match POSIX chmod(2) semantics.
+ *
+ * NOTE: umask(2) is not thread-safe. The only thread-safe way I can think
+ * of to query the file creation mask is to create a file with mode 0777 and
+ * check which bits were masked. However, we can't rely on being able to
+ * create a file at runtime. Therefore, the mode 0777 is used when the who
+ * component is unspecified, rather than (0777 & umask()) as specified by
+ * POSIX.
+ */
+static mode_t unixL_optmode(lua_State *L, int index, mode_t def, mode_t omode) {
+	const char *fmt, *end;
+	mode_t svtx, omask, mask, perm, mode;
+	int op;
+
+	if (lua_isnoneornil(L, index))
+		return def;
+
+	fmt = luaL_checkstring(L, index);
+
+	mode = 07777 & strtoul(fmt, &ent, 0);
+
+	if (*end == '\0' && end != fmt)
+		return mode;
+
+	svtx = (S_ISDIR(omode))? 01000 : 0000;
+	mode = 0;
+	mask = 0777;
+
+	while (*fmt) {
+		omask = ~01000 & mask;
+		mask = 0;
+		op = 0;
+		perm = 0;
+
+		for (; *fmt; ++fmt) {
+			switch (*fmt) {
+			case 'u':
+				mask |= 04700;
+
+				continue;
+			case 'g':
+				mask |= 02070;
+
+				continue;
+			case 'o':
+				mask |= 00007; /* no svtx/sticky bit */
+
+				continue;
+			case 'a':
+				mask |= 06777 | svtx;
+
+				continue;
+			case '+':
+			case '-':
+			case '=':
+				op = *fmt++;
+
+				goto perms;
+			case ',':
+				omask = 0;
+
+				continue;
+			default:
+				continue;
+			} /* switch() */
+		} /* for() */
+
+perms:
+		for (; *fmt; ++fmt) {
+			switch (*fmt) {
+			case 'r':
+				perm |= 00444;
+
+				continue;
+			case 'w':
+				perm |= 00222;
+
+				continue;
+			case 'x':
+				perm |= 00111;
+
+				continue;
+			case 'X':
+				if (S_ISDIR(omode) || (omode & 00111))
+					perm |= 00111;
+
+				continue;
+			case 's':
+				perm |= 06000;
+
+				continue;
+			case 't':
+				perm |= 01000;
+
+				continue;
+			case 'u':
+				perm |= (00700 & omode);
+				perm |= (00700 & omode) >> 3;
+				perm |= (00700 & omode) >> 6;
+
+				continue;
+			case 'g':
+				perm |= (00070 & omode) << 3;
+				perm |= (00070 & omode);
+				perm |= (00070 & omode) >> 3;
+
+				continue;
+			case 'o':
+				perm |= (00007 & omode);
+				perm |= (00007 & omode) << 3;
+				perm |= (00007 & omode) << 6;
+
+				continue;
+			default:
+				if (ascii_isspace(*fmt))
+					continue;
+
+				goto apply;
+			} /* switch() */
+		} /* for() */
+
+apply:
+		if (!mask)
+			mask = svtx | omask;
+
+		switch (op) {
+		case '+':
+			mode |= mask & perm;
+
+			break;
+		case '-':
+			mode &= ~(mask & perm);
+
+			break;
+		case '=':
+			mode = mask & perm;
+
+			break;
+		default:
+			break;
+		}
+	} /* while() */
+
+	return mode;
+} /* unixL_optmode() */
+
+
+
 #if HAVE_ARC4RANDOM
 #define ARC4RANDOM() arc4random()
 #else
@@ -770,3 +932,4 @@ int luaopen_unix(lua_State *L) {
 
 	return 1;
 } /* luaopen_unix() */
+
