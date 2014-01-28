@@ -677,10 +677,10 @@ static uid_t unixL_optuid(lua_State *L, int index, uid_t def) {
 	user = luaL_checkstring(L, index);
 
 	if ((error = unixL_getpwnam(L, user, &pw)))
-		return luaL_error(L, "%s: %s", user, unixL_strerror(L, error)), -1;
+		return luaL_error(L, "%s: %s", user, unixL_strerror(L, error));
 
 	if (!pw)
-		return luaL_error(L, "%s: no such user", user), -1;
+		return luaL_error(L, "%s: no such user", user);
 
 	return pw->pw_uid;
 } /* unixL_optuid() */
@@ -707,10 +707,10 @@ static gid_t unixL_optgid(lua_State *L, int index, gid_t def) {
 	group = luaL_checkstring(L, index);
 
 	if ((error = unixL_getgrnam(L, group, &gr)))
-		return luaL_error(L, "%s: %s", group, unixL_strerror(L, error)), -1;
+		return luaL_error(L, "%s: %s", group, unixL_strerror(L, error));
 
 	if (!gr)
-		return luaL_error(L, "%s: no such group", group), -1;
+		return luaL_error(L, "%s: no such group", group);
 
 	return gr->gr_gid;
 } /* unixL_optgid() */
@@ -725,8 +725,41 @@ static uid_t unixL_checkgid(lua_State *L, int index) {
 
 static mode_t unixL_getumask(lua_State *L) {
 	unixL_State *U = unixL_getstate(L);
+	pid_t pid;
+	mode_t mask;
+	int status;
+	ssize_t n;
 
-	
+	do {
+		n = read(U->ts.fd[0], &mask, sizeof mask);
+	} while (n > 0);
+
+	switch ((pid = fork())) {
+	case -1:
+		return luaL_error(L, "getumask: %s", unixL_strerror(L, errno));
+	case 0:
+		mask = umask(0777);
+
+		write(U->ts.fd[1], &mask, sizeof mask);
+
+		_Exit(0);
+
+		break;
+	default:
+		while (-1 == waitpid(pid, &status, 0)) {
+			if (errno == ECHILD)
+				break; /* somebody else caught it */
+			else if (errno == EINTR)
+				continue;
+
+			return luaL_error(L, "getumask: %s", unixL_strerror(L, errno));
+		}
+
+		if (sizeof mask != (n = read(U->ts.fd[0], &mask, sizeof mask)))
+			return luaL_error(L, "getumask: %s", (n == -1)? unixL_strerror(L, errno) : "short read");
+
+		return mask;
+	}
 
 	return 0;
 } /* unixL_getumask() */
@@ -1063,8 +1096,15 @@ static int unix_setuid(lua_State *L) {
 } /* unix_setuid() */
 
 
+static int unix_umask(lua_State *L) {
+	lua_pushnumber(L, unixL_getumask(L));
+
+	return 1;
+} /* unix_umask() */
+
+
 static int unix__gc(lua_State *L) {
-	unixL_destroy(unixL_getstate(L));
+	unixL_destroy(lua_touserdata(L, 1));
 
 	return 0;
 } /* unix__gc() */
@@ -1083,6 +1123,7 @@ static const luaL_Reg unix_routines[] = {
 	{ "setgid",             &unix_setgid },
 	{ "setuid",             &unix_setuid },
 	{ "setsid",             &unix_setsid },
+	{ "umask",              &unix_umask },
 	{ NULL,                 NULL }
 }; /* unix_routines[] */
 
