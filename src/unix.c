@@ -9,12 +9,54 @@
 #include <stdio.h>     /* snprintf(3) */
 #include <string.h>    /* memset(3) strerror_r(3) */
 #include <signal.h>    /* sigset_t sigfillset(3) sigemptyset(3) sigprocmask(2) */
+#include <ctype.h>     /* isspace(3) */
+#include <errno.h>     /* ENOMEM errno */
 
-#include <sys/types.h> /* gid_t pid_t uid_t */
+#include <sys/types.h> /* gid_t mode_t pid_t uid_t */
+#include <sys/stat.h>  /* S_ISDIR() */
 #include <unistd.h>    /* chdir(2) chroot(2) close(2) getpid(3) setegid(2) seteuid(2) setgid(2) setuid(2) */
 #include <fcntl.h>     /* F_GETFD F_SETFD FD_CLOEXEC fcntl(2) open(2) */
 #include <pwd.h>       /* struct passwd getpwnam_r(3) */
 #include <grp.h>       /* struct group getgrnam_r(3) */
+
+#include <lua.h>
+#include <lualib.h>
+#include <lauxlib.h>
+
+
+/*
+ * F E A T U R E  D E T E C T I O N
+ *
+ * In lieu of external detection do our best to detect features using the
+ * preprocessor environment.
+ *
+ * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
+
+#ifndef __GNUC_PREREQ
+#define __GNUC_PREREQ(m, n) 0
+#endif
+
+#ifndef HAVE_ARC4RANDOM
+#define HAVE_ARC4RANDOM (defined __OpenBSD__ || defined __FreeBSD__ || defined __NetBSD__ || defined __MirBSD__ || defined __APPLE__)
+#endif
+
+#ifndef HAVE_PIPE2
+#define HAVE_PIPE2 (__GNUC_PREREQ(2, 9) || __FreeBSD__ >= 10)
+#endif
+
+
+/*
+ * C O M P I L E R  A N N O T A T I O N S
+ *
+ * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
+
+#ifndef NOTUSED
+#if __GNUC__
+#define NOTUSED __attribute__((unused))
+#else
+#define NOTUSED
+#endif
+#endif
 
 
 #ifndef howmany
@@ -25,8 +67,12 @@
 #define countof(a) (sizeof (a) / sizeof *(a))
 #endif
 
+#ifndef MIN
+#define MIN(a, b) (((a) < (b))? (a) : (b))
+#endif
 
-static size_t power2(size_t i) {
+
+static size_t u_power2(size_t i) {
 #if defined SIZE_MAX
 	i--;
 	i |= i >> 1;
@@ -41,10 +87,12 @@ static size_t power2(size_t i) {
 #else
 #error No SIZE_MAX defined
 #endif
-} /* power2() */
+} /* u_power2() */
 
 
-static int growbuf(char **buf, size_t *size, size_t minsiz) {
+#define u_error_t int
+
+static u_error_t u_realloc(char **buf, size_t *size, size_t minsiz) {
 	void *tmp;
 	size_t tmpsiz;
 
@@ -54,7 +102,7 @@ static int growbuf(char **buf, size_t *size, size_t minsiz) {
 	if (*size > ~((size_t)-1 >> 1)) {
 		tmpsiz = (size_t)-1;
 	} else {
-		tmpsiz = power2(*size + 1);
+		tmpsiz = u_power2(*size + 1);
 		tmpsiz = MIN(tmpsiz, minsiz);
 	}
 
@@ -65,79 +113,182 @@ static int growbuf(char **buf, size_t *size, size_t minsiz) {
 	*size = tmpsiz;
 
 	return 0;
-} /* growbuf() */
+} /* u_realloc() */
 
 
-static int ascii_isspace(unsigned char ch) {
-	return (ch == '\t' || ch == '\n' || ch == '\v' || ch == '\f' || ch == '\r' || ch == ' ');
-} /* ascii_isspace() */
+/*
+ * T H R E A D - S A F E  I / O  O P E R A T I O N S
+ *
+ * Principally we're concerned with atomically setting the
+ * FD_CLOEXEC/O_CLOEXEC flag. O_CLOEXEC was added to POSIX 2008 and the BSDs
+ * took awhile to catch up. But POSIX only defined it for open(2). Some
+ * systems have non-portable extensions to support O_CLOEXEC for pipe
+ * and socket creation.
+ *
+ * Also, very old systems do not support modern O_NONBLOCK semantics on
+ * open. As it's easy to cover this case we do, otherwise such old systems
+ * are beyond our purview.
+ *
+ * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
 
-
-static void closefd(int *fd) {
-	if (*fd != -1) {
-		int error = errno;
-
-		(void)close(*fd);
-		*fd = -1;
-
-		errno = error;
-	}
-} /* closefd() */
-
-
-static int open_cloexec(const char *path, int flags, ...) {
-	mode_t mode = 0;
-	int fd;
-
-	if (flags & O_CREAT) {
-		va_list ap;
-
-		va_start(ap, flags);
-		mode = va_arg(ap, mode_t);
-		va_end(ap);
-	}
-
-#if defined O_CLOEXEC
-	flags |= O_CLOEXEC;
+#ifndef O_CLOEXEC
+#define U_CLOEXEC (1LL << 32)
+#else
+#define U_CLOEXEC (O_CLOEXEC)
 #endif
 
-	fd = open(path, flags, mode);
+#define u_flags_t long long
 
-#if !defined O_CLOEXEC
-	if (fd != -1) {
-		int fflags;
 
-		if (-1 == (fflags = fcntl(fd, F_GETFD))) {
-			closefd(&fd);
+static u_error_t u_close(int *fd) {
+	int error;
 
-			return -1;
+	if (*fd != -1)
+		return errno;
+
+	error = errno;
+
+	(void)close(*fd);
+	*fd = -1;
+
+	errno = error;
+
+	return error;
+} /* u_close() */
+
+
+static u_error_t u_setflag(int fd, u_flags_t flag, int enable) {
+	int flags;
+
+	if (flag & U_CLOEXEC) {
+		if (-1 == (flags = fcntl(fd, F_GETFD)))
+			return errno;
+
+		if (enable)
+			flags |= FD_CLOEXEC;
+		else
+			flags &= ~FD_CLOEXEC;
+
+		if (0 != fcntl(fd, F_SETFD, flags))
+			return errno;
+	} else {
+		if (-1 == (flags = fcntl(fd, F_GETFL)))
+			return errno;
+
+		if (enable)
+			flags |= flag;
+		else
+			flags &= ~flag;
+
+		if (0 != fcntl(fd, F_SETFL, flags))
+			return errno;
+	}
+
+	return 0;
+} /* u_setflag() */
+
+
+static u_error_t u_getflags(int fd, u_flags_t *flags) {
+	int _flags;
+
+	if (-1 == (_flags = fcntl(fd, F_GETFL)))
+		return errno;
+
+	*flags = _flags;
+
+	if (!(*flags & U_CLOEXEC)) {
+		if (-1 == (_flags = fcntl(fd, F_GETFD)))
+			return errno;
+
+		if (_flags & FD_CLOEXEC)
+			*flags |= U_CLOEXEC;
+	}
+
+	return 0;
+} /* u_getflags() */
+
+
+static u_error_t u_fixflags(int fd, u_flags_t flags) {
+	u_flags_t _flags;
+	int error;
+
+	if ((flags & U_CLOEXEC) || (flags & O_NONBLOCK)) {
+		if ((error = u_getflags(fd, &_flags)))
+			return error;
+
+		if ((flags & U_CLOEXEC) && !(_flags & U_CLOEXEC)) {
+			if ((error = u_setflag(fd, U_CLOEXEC, 1)))
+				return error;
 		}
 
-		fflags |= FD_CLOEXEC;
-
-		if (0 != fcntl(fd, F_SETFD, fflags)) {
-			closefd(&fd);
-
-			return -1;
+		if ((flags & O_NONBLOCK) && !(_flags & O_NONBLOCK)) {
+			if ((error = u_setflag(fd, O_NONBLOCK, 1)))
+				return error;
 		}
 	}
+
+	return 0;
+} /* u_fixflags() */
+
+
+static u_error_t u_open(int *fd, const char *path, u_flags_t flags, mode_t mode) {
+	u_flags_t _flags;
+	int error;
+
+	if (-1 == (*fd = open(path, flags, mode))) {
+		if (errno != EINVAL || !(flags & U_CLOEXEC))
+			goto syerr;
+
+		if (-1 == (*fd = open(path, (flags & ~U_CLOEXEC), mode)))
+			goto syerr;
+	}
+
+	if ((error = u_fixflags(*fd, flags)))
+		goto error;
+
+	return 0;
+syerr:
+	error = errno;
+error:
+	u_close(fd);
+
+	return error;
+} /* u_open() */
+
+
+static u_error_t u_pipe(int *fd, u_flags_t flags) {
+#if HAVE_PIPE2
+	if (0 != pipe2(fd, flags))) {
+		fd[0] = -1;
+		fd[1] = -1;
+
+		return errno;
+	}
+
+	return 0;
+#else
+	int i, error;
+
+	if (0 != pipe(fd)) {
+		fd[0] = -1;
+		fd[1] = -1;
+
+		return errno;
+	}
+
+	for (i = 0; i < 2; i++) {
+		if ((error = u_fixflags(fd[i], flags))) {
+			u_close(&fd[0]);
+			u_close(&fd[1]);
+
+			return error;
+		}
+	}
+
+	return 0;
 #endif
+} /* u_pipe() */
 
-	return fd;
-} /* open_cloexec() */
-
-
-static mode_t getumask(void) {
-	sigset_t set, oset;
-
-	sigfillset(&set);
-	sigemptyset(&oset);
-} /* getumask() */
-
-
-#ifndef HAVE_ARC4RANDOM
-#define HAVE_ARC4RANDOM (defined __OpenBSD__ || defined __FreeBSD__ || defined __NetBSD__ || defined __MirBSD__ || defined __APPLE__)
-#endif
 
 #if !HAVE_ARC4RANDOM
 
@@ -168,7 +319,7 @@ static void arc4_init(unixL_Random *R) {
 
 
 static void arc4_destroy(unixL_Random *R) {
-	closefd(&R->fd);
+	u_close(&R->fd);
 } /* arc4_destroy() */
 
 
@@ -253,7 +404,7 @@ static void arc4_stir(unixL_Random *R, int force) {
 		ssize_t n;
 
 		if (R->fd == -1) {
-			if (-1 == (R->fd = open_cloexec("/dev/urandom", O_RDONLY)))
+			if (-1 == (R->fd = open("/dev/urandom", O_RDONLY|U_CLOEXEC)))
 				goto stir;
 		}
 
@@ -265,7 +416,7 @@ static void arc4_stir(unixL_Random *R, int force) {
 					continue;
 				break;
 			} else if (n == 0) {
-				closefd(&R->fd);
+				u_close(&R->fd);
 
 				break;
 			}
@@ -303,10 +454,22 @@ static uint32_t arc4_getword(unixL_Random *R) {
 
 	return r;
 } /* arc4_getword() */
+
+#else
+
+#define UNIXL_RANDOM_INITIALIZER { 0 }
+
+typedef struct unixL_Random {
+	int _;
+} unixL_Random;
+
 #endif /* !HAVE_ARC4RANDOM */
 
 
-#define UNIXL_STATE_INITIALIZER { .random = UNIXL_RANDOM_INITIALIZER, }
+#define UNIXL_STATE_INITIALIZER { \
+	.ts = { { -1, -1 } }, \
+	.random = UNIXL_RANDOM_INITIALIZER, \
+}
 
 typedef struct unixL_State {
 	int error; /* errno value from last failed syscall */
@@ -325,13 +488,20 @@ typedef struct unixL_State {
 		size_t bufsiz;
 	} gr;
 
-#if !HAVE_ARC4RANDOM
+	struct {
+		int fd[2];
+	} ts;
+
 	unixL_Random random;
-#endif
 } unixL_State;
 
 
 static int unixL_init(unixL_State *U) {
+	int error;
+
+	if ((error = u_pipe(U->ts.fd, O_NONBLOCK|U_CLOEXEC)))
+		return error;
+
 #if !HAVE_ARC4RANDOM
 	arc4_init(&U->random);
 #endif
@@ -352,7 +522,15 @@ static void unixL_destroy(unixL_State *U) {
 	free(U->pw.buf);
 	U->pw.buf = NULL;
 	U->pw.bufsiz = 0;
+
+	u_close(&U->ts.fd[0]);
+	u_close(&U->ts.fd[1]);
 } /* unixL_destroy() */
+
+
+static unixL_State *unixL_getstate(lua_State *L) {
+	return lua_touserdata(L, lua_upvalueindex(1));
+} /* unixL_getstate() */
 
 
 static const char *unixL_strerror3(lua_State *L, unixL_State *U, int error) {
@@ -361,20 +539,20 @@ static const char *unixL_strerror3(lua_State *L, unixL_State *U, int error) {
 			luaL_error(L, "snprintf failure");
 	}
 
-	return L->errmsg;
+	return U->errmsg;
 } /* unixL_strerror3() */
 
 
 static const char *unixL_strerror(lua_State *L, int error) {
-	unixL_State *U = lua_touserdata(L, lua_upvalueindex(L, 1));
+	unixL_State *U = unixL_getstate(L);
 
 	return unixL_strerror3(L, U, error);
 } /* unixL_strerror() */
 
 
-static int unixL_pusherror(lua_State *L, const char *fun, const char *fmt) {
+static int unixL_pusherror(lua_State *L, const char *fun NOTUSED, const char *fmt) {
 	int error = errno, top = lua_gettop(L), fc;
-	unixL_State *U = lua_touserdata(L, lua_upvalueindex(L, 1));
+	unixL_State *U = unixL_getstate(L);
 
 	U->error = error;
 
@@ -406,16 +584,16 @@ static int unixL_pusherror(lua_State *L, const char *fun, const char *fmt) {
 
 
 static int unixL_getpwnam(lua_State *L, const char *user, struct passwd **ent) {
-	unixL_State *U = lua_touserdata(L, lua_upvalueindex(L, 1));
+	unixL_State *U = unixL_getstate(L);
 	int error;
 
 	*ent = NULL;
 
-	while (0 != getpwnam_r(user, &U->pw.ent, U->pw.buf, U->pw.bufsiz, ent))) {
+	while (0 != getpwnam_r(user, &U->pw.ent, U->pw.buf, U->pw.bufsiz, ent)) {
 		if (errno != ERANGE)
 			return errno;
 
-		if ((error = growbuf(&U->pw.buf, &U->pw.bufsiz, 128)))
+		if ((error = u_realloc(&U->pw.buf, &U->pw.bufsiz, 128)))
 			return error;
 
 		*ent = NULL;
@@ -426,16 +604,16 @@ static int unixL_getpwnam(lua_State *L, const char *user, struct passwd **ent) {
 
 
 static int unixL_getpwuid(lua_State *L, uid_t uid, struct passwd **ent) {
-	unixL_State *U = lua_touserdata(L, lua_upvalueindex(L, 1));
+	unixL_State *U = unixL_getstate(L);
 	int error;
 
 	*ent = NULL;
 
-	while (0 != getpwuid_r(uid, &U->pw.ent, U->pw.buf, U->pw.bufsiz, ent))) {
+	while (0 != getpwuid_r(uid, &U->pw.ent, U->pw.buf, U->pw.bufsiz, ent)) {
 		if (errno != ERANGE)
 			return errno;
 
-		if ((error = growbuf(&U->pw.buf, &U->pw.bufsiz, 128)))
+		if ((error = u_realloc(&U->pw.buf, &U->pw.bufsiz, 128)))
 			return error;
 
 		*ent = NULL;
@@ -446,16 +624,16 @@ static int unixL_getpwuid(lua_State *L, uid_t uid, struct passwd **ent) {
 
 
 static int unixL_getgrnam(lua_State *L, const char *group, struct group **ent) {
-	unixL_State *U = lua_touserdata(L, lua_upvalueindex(L, 1));
+	unixL_State *U = unixL_getstate(L);
 	int error;
 
 	*ent = NULL;
 
-	while (0 != getgrnam_r(group, &U->gr.ent, U->gr.buf, U->gr.bufsiz, ent))) {
+	while (0 != getgrnam_r(group, &U->gr.ent, U->gr.buf, U->gr.bufsiz, ent)) {
 		if (errno != ERANGE)
 			return errno;
 
-		if ((error = growbuf(&U->gr.buf, &U->gr.bufsiz, 128)))
+		if ((error = u_realloc(&U->gr.buf, &U->gr.bufsiz, 128)))
 			return error;
 
 		*ent = NULL;
@@ -466,16 +644,16 @@ static int unixL_getgrnam(lua_State *L, const char *group, struct group **ent) {
 
 
 static int unixL_getgruid(lua_State *L, gid_t gid, struct group **ent) {
-	unixL_State *U = lua_touserdata(L, lua_upvalueindex(L, 1));
+	unixL_State *U = unixL_getstate(L);
 	int error;
 
 	*ent = NULL;
 
-	while (0 != getgruid_r(gid, &U->gr.ent, U->gr.buf, U->gr.bufsiz, ent))) {
+	while (0 != getgrgid_r(gid, &U->gr.ent, U->gr.buf, U->gr.bufsiz, ent)) {
 		if (errno != ERANGE)
 			return errno;
 
-		if ((error = growbuf(&U->gr.buf, &U->gr.bufsiz, 128)))
+		if ((error = u_realloc(&U->gr.buf, &U->gr.bufsiz, 128)))
 			return error;
 
 		*ent = NULL;
@@ -501,7 +679,7 @@ static uid_t unixL_optuid(lua_State *L, int index, uid_t def) {
 	if ((error = unixL_getpwnam(L, user, &pw)))
 		return luaL_error(L, "%s: %s", user, unixL_strerror(L, error)), -1;
 
-	if (!ent)
+	if (!pw)
 		return luaL_error(L, "%s: no such user", user), -1;
 
 	return pw->pw_uid;
@@ -531,7 +709,7 @@ static gid_t unixL_optgid(lua_State *L, int index, gid_t def) {
 	if ((error = unixL_getgrnam(L, group, &gr)))
 		return luaL_error(L, "%s: %s", group, unixL_strerror(L, error)), -1;
 
-	if (!ent)
+	if (!gr)
 		return luaL_error(L, "%s: no such group", group), -1;
 
 	return gr->gr_gid;
@@ -545,6 +723,16 @@ static uid_t unixL_checkgid(lua_State *L, int index) {
 } /* unixL_checkgid() */
 
 
+static mode_t unixL_getumask(lua_State *L) {
+	unixL_State *U = unixL_getstate(L);
+
+	
+
+	return 0;
+} /* unixL_getumask() */
+
+
+
 /*
  * Rough attempt to match POSIX chmod(2) semantics.
  *
@@ -556,7 +744,8 @@ static uid_t unixL_checkgid(lua_State *L, int index) {
  * POSIX.
  */
 static mode_t unixL_optmode(lua_State *L, int index, mode_t def, mode_t omode) {
-	const char *fmt, *end;
+	const char *fmt;
+	char *end;
 	mode_t svtx, omask, mask, perm, mode;
 	int op;
 
@@ -565,14 +754,14 @@ static mode_t unixL_optmode(lua_State *L, int index, mode_t def, mode_t omode) {
 
 	fmt = luaL_checkstring(L, index);
 
-	mode = 07777 & strtoul(fmt, &ent, 0);
+	mode = 07777 & strtoul(fmt, &end, 0);
 
 	if (*end == '\0' && end != fmt)
 		return mode;
 
 	svtx = (S_ISDIR(omode))? 01000 : 0000;
 	mode = 0;
-	mask = 0777;
+	mask = 0755;
 
 	while (*fmt) {
 		omask = ~01000 & mask;
@@ -605,7 +794,7 @@ static mode_t unixL_optmode(lua_State *L, int index, mode_t def, mode_t omode) {
 
 				goto perms;
 			case ',':
-				omask = 0;
+				omask = 0755;
 
 				continue;
 			default:
@@ -660,7 +849,7 @@ perms:
 
 				continue;
 			default:
-				if (ascii_isspace(*fmt))
+				if (isspace((unsigned char)*fmt))
 					continue;
 
 				goto apply;
@@ -702,7 +891,7 @@ apply:
 
 static int unix_arc4random(lua_State *L) {
 #if !HAVE_ARC4RANDOM
-	unixL_State *U = lua_touserdata(L, lua_upvalueindex(L, 1));
+	unixL_State *U = unixL_getstate(L);
 #endif
 
 	lua_pushnumber(L, ARC4RANDOM());
@@ -713,7 +902,7 @@ static int unix_arc4random(lua_State *L) {
 
 static int unix_arc4random_buf(lua_State *L) {
 #if !HAVE_ARC4RANDOM
-	unixL_State *U = lua_touserdata(L, lua_upvalueindex(L, 1));
+	unixL_State *U = unixL_getstate(L);
 #endif
 	size_t count = luaL_checkinteger(L, 1), n = 0;
 	union {
@@ -732,7 +921,7 @@ static int unix_arc4random_buf(lua_State *L) {
 			tmp.r[i] = ARC4RANDOM();
 		}
 
-		luaL_addlstring(&B, tmp.c, m);
+		luaL_addlstring(&B, (char *)tmp.c, m);
 		n += m;
 	}
 
@@ -744,7 +933,7 @@ static int unix_arc4random_buf(lua_State *L) {
 
 static int unix_arc4random_uniform(lua_State *L) {
 #if !HAVE_ARC4RANDOM
-	unixL_State *U = lua_touserdata(L, lua_upvalueindex(L, 1));
+	unixL_State *U = unixL_getstate(L);
 #endif
 
 	if (lua_isnoneornil(L, 1)) {
@@ -875,7 +1064,7 @@ static int unix_setuid(lua_State *L) {
 
 
 static int unix__gc(lua_State *L) {
-	unixL_destroy(lua_touserdata(L, 1));
+	unixL_destroy(unixL_getstate(L));
 
 	return 0;
 } /* unix__gc() */
@@ -899,10 +1088,10 @@ static const luaL_Reg unix_routines[] = {
 
 
 int luaopen_unix(lua_State *L) {
-	static const U_init = UNIXL_STATE_INITIALIZER;
+	static const unixL_State U_init = UNIXL_STATE_INITIALIZER;
 	unixL_State *U;
 	int error;
-	luaL_Reg *f;
+	const luaL_Reg *f;
 
 	/*
 	 * setup unixL_State context
@@ -927,7 +1116,7 @@ int luaopen_unix(lua_State *L) {
 	for (f = &unix_routines[0]; f->func; f++) {
 		lua_pushvalue(L, -2);
 		lua_pushcclosure(L, f->func, 1);
-		lua_setfield(L, -2, "unix_routines", f->name);
+		lua_setfield(L, -2, f->name);
 	}
 
 	return 1;
