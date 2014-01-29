@@ -7,7 +7,7 @@
 #include <stdint.h>    /* SIZE_MAX */
 #include <stdlib.h>    /* arc4random(3) free(3) realloc(3) strtoul(3) */
 #include <stdio.h>     /* fileno(3) snprintf(3) */
-#include <string.h>    /* memset(3) strerror_r(3) */
+#include <string.h>    /* memset(3) strerror_r(3) strspn(3) strcspn(3) */
 #include <signal.h>    /* sigset_t sigfillset(3) sigemptyset(3) sigprocmask(2) */
 #include <ctype.h>     /* isspace(3) */
 #include <time.h>      /* struct tm struct timespec gmtime_r(3) clock_gettime(3) */
@@ -1267,6 +1267,87 @@ static int unix_link(lua_State *L) {
 } /* unix_link() */
 
 
+/*
+ * NOTE: Patterned after the mkpath routine from BSD mkdir implementations
+ * for POSIX mkdir(1). As we're not strictly following POSIX mkdir(1)
+ * semantics, chmod intermediate and target directories to precisely
+ * what the user requested.
+ *
+ * Differences from BSD mkpath:
+ *
+ * 1) On BSD intermediate permissions are always 0777 & ~umask(). (But see
+ *    #3).
+ *
+ * 2) On BSD permissions might be more restrictive than specified if the
+ *    umask is more restrictive.
+ *
+ * 3) On BSD if the SUID or SGID bit is set in the specified mode value, the
+ *    target directory is chmod'd using that mode value, unaltered by the
+ *    umask. On OpenBSD intermediate directories are also chmod'd with that
+ *    mode value.
+ *
+ * In other words, POSIX/BSD is all over the map in terms of potential
+ * resultant permissions.
+ */
+static int unix_mkpath(lua_State *L) {
+	size_t len;
+	const char *path = luaL_checklstring(L, 1, &len);
+	mode_t cmask, mode, imode, _mode;
+	char *dir, *slash;
+	int lc;
+
+	cmask = unixL_getumask(L);
+	mode = 0777 & ~cmask;
+	imode = 0300 | mode;
+
+	mode = unixL_optmode(L, 2, mode, mode);
+	imode = unixL_optmode(L, 3, imode, imode);
+
+	dir = lua_newuserdata(L, len + 1);
+	memcpy(dir, path, len + 1);
+
+	slash = dir + len;
+	while (--slash > dir && *slash == '/')
+		*slash = '\0';
+
+	slash = dir;
+
+	while (*slash) {
+		slash += strspn(slash, "/");
+		slash += strcspn(slash, "/");
+
+		lc = *slash;
+		*slash = '\0';
+
+		_mode = (lc == '\0')? mode : imode;
+
+		if (0 == mkdir(dir, _mode)) {
+			if (0 != chmod(dir, _mode))
+				return unixL_pusherror(L, "mkpath", "0$#");
+		} else {
+			int error = errno;
+			struct stat st;
+
+			if (0 != stat(dir, &st)) {
+				errno = error;
+				return unixL_pusherror(L, "mkpath", "0$#");
+			}
+
+			if (!S_ISDIR(st.st_mode)) {
+				errno = ENOTDIR;
+				return unixL_pusherror(L, "mkpath", "0$#");
+			}
+		}
+
+		*slash = lc;
+	}
+
+	lua_pushboolean(L, 1);
+
+	return 1;
+} /* unix_mkpath() */
+
+
 static int unix_rename(lua_State *L) {
 	const char *opath = luaL_checkstring(L, 1);
 	const char *npath = luaL_checkstring(L, 2);
@@ -1487,6 +1568,7 @@ static const luaL_Reg unix_routines[] = {
 	{ "getpid",             &unix_getpid },
 	{ "gettimeofday",       &unix_gettimeofday },
 	{ "link",               &unix_link },
+	{ "mkpath",             &unix_mkpath },
 	{ "rename",             &unix_rename },
 	{ "rmdir",              &unix_rmdir },
 	{ "setegid",            &unix_setegid },
