@@ -1235,6 +1235,25 @@ static int unix_getpid(lua_State *L) {
 } /* unix_getpid() */
 
 
+static int unix_gettimeofday(lua_State *L) {
+	struct timeval tv;
+
+	if (0 != gettimeofday(&tv, NULL))
+		return unixL_pusherror(L, "gettimeofday", "~$#");
+
+	if (lua_isnoneornil(L, 1) || !lua_toboolean(L, 1)) {
+		lua_pushnumber(L, (double)tv.tv_sec + ((double)tv.tv_usec / 1000000L));
+
+		return 1;
+	} else {
+		lua_pushinteger(L, tv.tv_sec);
+		lua_pushinteger(L, tv.tv_usec);
+
+		return 2;
+	}
+} /* unix_gettimeofday() */
+
+
 static int unix_link(lua_State *L) {
 	const char *src = luaL_checkstring(L, 1);
 	const char *dst = luaL_checkstring(L, 2);
@@ -1466,6 +1485,7 @@ static const luaL_Reg unix_routines[] = {
 	{ "chroot",             &unix_chroot },
 	{ "clock_gettime",      &unix_clock_gettime },
 	{ "getpid",             &unix_getpid },
+	{ "gettimeofday",       &unix_gettimeofday },
 	{ "link",               &unix_link },
 	{ "rename",             &unix_rename },
 	{ "rmdir",              &unix_rmdir },
