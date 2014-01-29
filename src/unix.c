@@ -10,15 +10,20 @@
 #include <string.h>    /* memset(3) strerror_r(3) */
 #include <signal.h>    /* sigset_t sigfillset(3) sigemptyset(3) sigprocmask(2) */
 #include <ctype.h>     /* isspace(3) */
-#include <time.h>      /* struct tm gmtime_r(3) */
+#include <time.h>      /* struct tm struct timespec gmtime_r(3) clock_gettime(3) */
 #include <errno.h>     /* ENOMEM errno */
 
 #include <sys/types.h> /* gid_t mode_t off_t pid_t uid_t */
 #include <sys/stat.h>  /* S_ISDIR() */
+#include <sys/time.h>  /* struct timeval gettimeofday(2) */
 #include <unistd.h>    /* chdir(2) chroot(2) close(2) chdir(2) chown(2) chroot(2) getpid(2) link(2) rename(2) rmdir(2) setegid(2) seteuid(2) setgid(2) setuid(2) setsid(2) symlink(2) truncate(2) umask(2) unlink(2) */
 #include <fcntl.h>     /* F_GETFD F_SETFD FD_CLOEXEC fcntl(2) open(2) */
 #include <pwd.h>       /* struct passwd getpwnam_r(3) */
 #include <grp.h>       /* struct group getgrnam_r(3) */
+
+#if __APPLE__
+#include <mach/mach_time.h> /* mach_timebase_info() mach_absolute_time() */
+#endif
 
 #include <lua.h>
 #include <lualib.h>
@@ -483,21 +488,8 @@ static uint32_t arc4_getword(unixL_Random *R) {
 	return r;
 } /* arc4_getword() */
 
-#else
-
-#define UNIXL_RANDOM_INITIALIZER { 0 }
-
-typedef struct unixL_Random {
-	int _;
-} unixL_Random;
-
 #endif /* !HAVE_ARC4RANDOM */
 
-
-#define UNIXL_STATE_INITIALIZER { \
-	.ts = { { -1, -1 } }, \
-	.random = UNIXL_RANDOM_INITIALIZER, \
-}
 
 typedef struct unixL_State {
 	int error; /* errno value from last failed syscall */
@@ -520,8 +512,21 @@ typedef struct unixL_State {
 		int fd[2];
 	} ts;
 
+#if !HAVE_ARC4RANDOM
 	unixL_Random random;
+#endif
+
+#if __APPLE__
+	mach_timebase_info_data_t timebase;
+#endif
 } unixL_State;
+
+static const unixL_State unixL_initializer = {
+	.ts = { { -1, -1 } },
+#if !HAVE_ARC4RANDOM
+	.random = UNIXL_RANDOM_INITIALIZER,
+#endif
+};
 
 
 static int unixL_init(unixL_State *U) {
@@ -532,6 +537,11 @@ static int unixL_init(unixL_State *U) {
 
 #if !HAVE_ARC4RANDOM
 	arc4_init(&U->random);
+#endif
+
+#if __APPLE__
+	if (KERN_SUCCESS != mach_timebase_info(&U->timebase))
+		return (errno)? errno : ENOTSUP;
 #endif
 
 	return 0;
@@ -1031,6 +1041,35 @@ static struct tm *unixL_opttm(lua_State *L, int index, const struct tm *def, str
 } /* unixL_opttm() */
 
 
+#if __APPLE__
+#define U_CLOCK_REALTIME  1
+#define U_CLOCK_MONOTONIC 2
+#else
+#define U_CLOCK_REALTIME  CLOCK_REALTIME
+#define U_CLOCK_MONOTONIC CLOCK_MONOTONIC
+#endif
+
+static int unixL_optclockid(lua_State *L, int index, int def) {
+	const char *id;
+
+	if (lua_isnoneornil(L, index))
+		return def;
+	if (lua_isnumber(L, index))
+		return luaL_checkint(L, index);
+
+	id = luaL_checkstring(L, index);
+
+	switch (*((*id == '*')? id+1 : id)) {
+	case 'r':
+		return U_CLOCK_REALTIME;
+	case 'm':
+		return U_CLOCK_MONOTONIC;
+	default:
+		return luaL_argerror(L, index, lua_pushfstring(L, "%s: invalid clock", id));
+	}
+} /* unixL_optclockid() */
+
+
 static int unix_arc4random(lua_State *L) {
 	lua_pushnumber(L, unixL_random(L));
 
@@ -1139,6 +1178,54 @@ static int unix_chroot(lua_State *L) {
 
 	return 1;
 } /* unix_chroot() */
+
+
+static int unix_clock_gettime(lua_State *L) {
+#if __APPLE__
+	unixL_State *U = unixL_getstate(L);
+	int id = unixL_optclockid(L, 1, U_CLOCK_REALTIME);
+	struct timeval tv;
+	struct timespec ts;
+	uint64_t abt;
+
+	switch (id) {
+	case U_CLOCK_REALTIME:
+		if (0 != gettimeofday(&tv, NULL))
+			return unixL_pusherror(L, "clock_gettime", "~$#");
+
+		TIMEVAL_TO_TIMESPEC(&tv, &ts);
+
+		break;
+	case U_CLOCK_MONOTONIC:
+		abt = mach_absolute_time();
+		abt = abt * U->timebase.numer / U->timebase.denom;
+
+		ts.tv_sec = abt / 1000000000L;
+		ts.tv_nsec = abt % 1000000000L;
+
+		break;
+	default:
+		return luaL_argerror(L, 1, "invalid clock");
+	}
+#else
+	int id = unixL_optclockid(L, 1, U_CLOCK_REALTIME);
+	struct timespec ts;
+
+	if (0 != clock_gettime(id, &ts))
+		return unixL_pusherror(L, "clock_gettime", "~$#");
+#endif
+
+	if (lua_isnoneornil(L, 2) || !lua_toboolean(L, 2)) {
+		lua_pushnumber(L, (double)ts.tv_sec + ((double)ts.tv_nsec / 1000000000L));
+
+		return 1;
+	} else {
+		lua_pushinteger(L, ts.tv_sec);
+		lua_pushinteger(L, ts.tv_nsec);
+
+		return 2;
+	}
+} /* unix_clock_gettime() */
 
 
 static int unix_getpid(lua_State *L) {
@@ -1377,6 +1464,7 @@ static const luaL_Reg unix_routines[] = {
 	{ "chdir",              &unix_chdir },
 	{ "chown",              &unix_chown },
 	{ "chroot",             &unix_chroot },
+	{ "clock_gettime",      &unix_clock_gettime },
 	{ "getpid",             &unix_getpid },
 	{ "link",               &unix_link },
 	{ "rename",             &unix_rename },
@@ -1396,7 +1484,6 @@ static const luaL_Reg unix_routines[] = {
 
 
 int luaopen_unix(lua_State *L) {
-	static const unixL_State U_init = UNIXL_STATE_INITIALIZER;
 	unixL_State *U;
 	int error;
 	const luaL_Reg *f;
@@ -1405,7 +1492,7 @@ int luaopen_unix(lua_State *L) {
 	 * setup unixL_State context
 	 */
 	U = lua_newuserdata(L, sizeof *U);
-	*U = U_init;
+	*U = unixL_initializer;
 
 	lua_newtable(L);
 	lua_pushcfunction(L, &unix__gc);
