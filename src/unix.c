@@ -12,9 +12,9 @@
 #include <ctype.h>     /* isspace(3) */
 #include <errno.h>     /* ENOMEM errno */
 
-#include <sys/types.h> /* gid_t mode_t pid_t uid_t */
+#include <sys/types.h> /* gid_t mode_t off_t pid_t uid_t */
 #include <sys/stat.h>  /* S_ISDIR() */
-#include <unistd.h>    /* chdir(2) chroot(2) close(2) getpid(3) setegid(2) seteuid(2) setgid(2) setuid(2) */
+#include <unistd.h>    /* chdir(2) chroot(2) close(2) chdir(2) chown(2) chroot(2) getpid(2) link(2) rename(2) rmdir(2) setegid(2) seteuid(2) setgid(2) setuid(2) setsid(2) symlink(2) truncate(2) umask(2) unlink(2) */
 #include <fcntl.h>     /* F_GETFD F_SETFD FD_CLOEXEC fcntl(2) open(2) */
 #include <pwd.h>       /* struct passwd getpwnam_r(3) */
 #include <grp.h>       /* struct group getgrnam_r(3) */
@@ -22,6 +22,29 @@
 #include <lua.h>
 #include <lualib.h>
 #include <lauxlib.h>
+
+
+/*
+ * L U A  C O M P A T A B I L I T Y
+ *
+ * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
+#if LUA_VERSION_NUM < 502
+
+static void *luaL_testudata(lua_State *L, int index, const char *tname) {
+	void *p = lua_touserdata(L, index);
+	int eq;
+
+	if (!p || !lua_getmetatable(L, index))
+		return 0;
+
+	luaL_getmetatable(L, tname);
+	eq = lua_rawequal(L, -2, -1);
+	lua_pop(L, 2);
+
+	return (eq)? p : 0;
+} /* luaL_testudate() */
+
+#endif
 
 
 /*
@@ -533,6 +556,17 @@ static unixL_State *unixL_getstate(lua_State *L) {
 } /* unixL_getstate() */
 
 
+#if !HAVE_ARC4RANDOM
+static uint32_t unixL_random(lua_State *L) {
+	return arc4_getword(&(unixL_getstate(L))->random);
+}
+#else
+static uint32_t unixL_random(lua_State *L NOTUSED) {
+	return arc4random();
+}
+#endif
+
+
 static const char *unixL_strerror3(lua_State *L, unixL_State *U, int error) {
 	if (0 != strerror_r(error, U->errmsg, sizeof U->errmsg) || U->errmsg[0] == '\0') {
 		if (0 > snprintf(U->errmsg, sizeof U->errmsg, "%s: %d", ((error)? "Unknown error" : "Undefined error"), error))
@@ -765,7 +799,6 @@ static mode_t unixL_getumask(lua_State *L) {
 } /* unixL_getumask() */
 
 
-
 /*
  * Rough attempt to match POSIX chmod(2) semantics.
  *
@@ -779,7 +812,7 @@ static mode_t unixL_getumask(lua_State *L) {
 static mode_t unixL_optmode(lua_State *L, int index, mode_t def, mode_t omode) {
 	const char *fmt;
 	char *end;
-	mode_t svtx, omask, mask, perm, mode;
+	mode_t svtx, cmask, omask, mask, perm, mode;
 	int op;
 
 	if (lua_isnoneornil(L, index))
@@ -793,8 +826,9 @@ static mode_t unixL_optmode(lua_State *L, int index, mode_t def, mode_t omode) {
 		return mode;
 
 	svtx = (S_ISDIR(omode))? 01000 : 0000;
+	cmask = 0;
 	mode = 0;
-	mask = 0755;
+	mask = 0;
 
 	while (*fmt) {
 		omask = ~01000 & mask;
@@ -827,7 +861,7 @@ static mode_t unixL_optmode(lua_State *L, int index, mode_t def, mode_t omode) {
 
 				goto perms;
 			case ',':
-				omask = 0755;
+				omask = 0;
 
 				continue;
 			default:
@@ -890,8 +924,18 @@ perms:
 		} /* for() */
 
 apply:
-		if (!mask)
+		if (!mask) {
+			if (!omask) {
+				if (!cmask) {
+					/* only query once */
+					cmask = 01000 | (0777 & unixL_getumask(L));
+				}
+
+				omask = 0777 & ~(~01000 & cmask);
+			}
+
 			mask = svtx | omask;
+		}
 
 		switch (op) {
 		case '+':
@@ -915,28 +959,14 @@ apply:
 } /* unixL_optmode() */
 
 
-
-#if HAVE_ARC4RANDOM
-#define ARC4RANDOM() arc4random()
-#else
-#define ARC4RANDOM() arc4_getword(&U->random)
-#endif
-
 static int unix_arc4random(lua_State *L) {
-#if !HAVE_ARC4RANDOM
-	unixL_State *U = unixL_getstate(L);
-#endif
-
-	lua_pushnumber(L, ARC4RANDOM());
+	lua_pushnumber(L, unixL_random(L));
 
 	return 1;
 } /* unix_arc4random() */
 
 
 static int unix_arc4random_buf(lua_State *L) {
-#if !HAVE_ARC4RANDOM
-	unixL_State *U = unixL_getstate(L);
-#endif
 	size_t count = luaL_checkinteger(L, 1), n = 0;
 	union {
 		uint32_t r[16];
@@ -951,7 +981,7 @@ static int unix_arc4random_buf(lua_State *L) {
 		size_t i = howmany(m, sizeof tmp.r);
 
 		while (i-- > 0) {
-			tmp.r[i] = ARC4RANDOM();
+			tmp.r[i] = unixL_random(L);
 		}
 
 		luaL_addlstring(&B, (char *)tmp.c, m);
@@ -965,12 +995,8 @@ static int unix_arc4random_buf(lua_State *L) {
 
 
 static int unix_arc4random_uniform(lua_State *L) {
-#if !HAVE_ARC4RANDOM
-	unixL_State *U = unixL_getstate(L);
-#endif
-
 	if (lua_isnoneornil(L, 1)) {
-		lua_pushnumber(L, ARC4RANDOM());
+		lua_pushnumber(L, unixL_random(L));
 	} else {
 		uint32_t n = (uint32_t)luaL_checknumber(L, 1);
 		uint32_t r, min;
@@ -978,7 +1004,7 @@ static int unix_arc4random_uniform(lua_State *L) {
 		min = -n % n;
 
 		for (;;) {
-			r = ARC4RANDOM();
+			r = unixL_random(L);
 
 			if (r >= min)
 				break;
@@ -1034,6 +1060,44 @@ static int unix_getpid(lua_State *L) {
 
 	return 1;
 } /* unix_getpid() */
+
+
+static int unix_link(lua_State *L) {
+	const char *src = luaL_checkstring(L, 1);
+	const char *dst = luaL_checkstring(L, 2);
+
+	if (0 != link(src, dst))
+		return unixL_pusherror(L, "link", "0$#");
+
+	lua_pushboolean(L, 1);
+
+	return 1;
+} /* unix_link() */
+
+
+static int unix_rename(lua_State *L) {
+	const char *opath = luaL_checkstring(L, 1);
+	const char *npath = luaL_checkstring(L, 2);
+
+	if (0 != rename(opath, npath))
+		return unixL_pusherror(L, "rename", "0$#");
+
+	lua_pushboolean(L, 1);
+
+	return 1;
+} /* unix_rename() */
+
+
+static int unix_rmdir(lua_State *L) {
+	const char *path = luaL_checkstring(L, 1);
+
+	if (0 != rmdir(path))
+		return unixL_pusherror(L, "rmdir", "0$#");
+
+	lua_pushboolean(L, 1);
+
+	return 1;
+} /* unix_rmdir() */
 
 
 static int unix_setegid(lua_State *L) {
@@ -1096,11 +1160,73 @@ static int unix_setuid(lua_State *L) {
 } /* unix_setuid() */
 
 
+static int unix_symlink(lua_State *L) {
+	const char *src = luaL_checkstring(L, 1);
+	const char *dst = luaL_checkstring(L, 2);
+
+	if (0 != symlink(src, dst))
+		return unixL_pusherror(L, "symlink", "0$#");
+
+	lua_pushboolean(L, 1);
+
+	return 1;
+} /* unix_symlink() */
+
+
+static int unix_truncate(lua_State *L) {
+	const char *path;
+	FILE *fp;
+	int fd;
+	off_t len;
+
+	/* TODO: check overflow */
+	len = (off_t)luaL_optnumber(L, 2, 0);
+
+	if ((fp = luaL_testudata(L, 1, LUA_FILEHANDLE))) {
+		luaL_argcheck(L, fp != NULL, 1, "attempt to truncate a closed file");
+
+		fd = fileno(fp);
+
+		luaL_argcheck(L, fd >= 0, 1, "attempt to truncate irregular file (no descriptor)");
+
+		if (0 != ftruncate(fd, len))
+			return unixL_pusherror(L, "truncate", "0$#");
+	} else {
+		path = luaL_checkstring(L, 1);
+
+		if (0 != truncate(path, len))
+			return unixL_pusherror(L, "truncate", "0$#");
+	}
+
+	lua_pushboolean(L, 1);
+
+	return 1;
+} /* unix_truncate() */
+
+
 static int unix_umask(lua_State *L) {
-	lua_pushnumber(L, unixL_getumask(L));
+	mode_t cmask = unixL_getumask(L);
+
+	if (lua_isnoneornil(L, 1)) {
+		lua_pushnumber(L, cmask);
+	} else {
+		lua_pushnumber(L, umask(unixL_optmode(L, 1, cmask, cmask)));
+	}
 
 	return 1;
 } /* unix_umask() */
+
+
+static int unix_unlink(lua_State *L) {
+	const char *path = luaL_checkstring(L, 1);
+
+	if (0 != unlink(path))
+		return unixL_pusherror(L, "unlink", "0$#");
+
+	lua_pushboolean(L, 1);
+
+	return 1;
+} /* unix_unlink() */
 
 
 static int unix__gc(lua_State *L) {
@@ -1118,12 +1244,18 @@ static const luaL_Reg unix_routines[] = {
 	{ "chown",              &unix_chown },
 	{ "chroot",             &unix_chroot },
 	{ "getpid",             &unix_getpid },
+	{ "link",               &unix_link },
+	{ "rename",             &unix_rename },
+	{ "rmdir",              &unix_rmdir },
 	{ "setegid",            &unix_setegid },
 	{ "seteuid",            &unix_seteuid },
 	{ "setgid",             &unix_setgid },
 	{ "setuid",             &unix_setuid },
 	{ "setsid",             &unix_setsid },
+	{ "symlink",            &unix_symlink },
+	{ "truncate",           &unix_truncate },
 	{ "umask",              &unix_umask },
+	{ "unlink",             &unix_unlink },
 	{ NULL,                 NULL }
 }; /* unix_routines[] */
 
