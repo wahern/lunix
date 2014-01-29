@@ -10,6 +10,7 @@
 #include <string.h>    /* memset(3) strerror_r(3) */
 #include <signal.h>    /* sigset_t sigfillset(3) sigemptyset(3) sigprocmask(2) */
 #include <ctype.h>     /* isspace(3) */
+#include <time.h>      /* struct tm gmtime_r(3) */
 #include <errno.h>     /* ENOMEM errno */
 
 #include <sys/types.h> /* gid_t mode_t off_t pid_t uid_t */
@@ -92,6 +93,10 @@ static void *luaL_testudata(lua_State *L, int index, const char *tname) {
 
 #ifndef MIN
 #define MIN(a, b) (((a) < (b))? (a) : (b))
+#endif
+
+#ifndef CLAMP
+#define CLAMP(i, m, n) (((i) < (m))? (m) : ((i) > (n))? (n) : (i))
 #endif
 
 
@@ -976,6 +981,56 @@ static int unixL_optfileno(lua_State *L, int index, int def) {
 } /* unixL_optfileno() */
 
 
+static int unixL_optfint(lua_State *L, int index, const char *name, int def) {
+	int i;
+
+	lua_getfield(L, index, name);
+	i = (lua_isnil(L, -1))? def : luaL_checkint(L, -1);
+	lua_pop(L, 1);
+
+	return i;
+} /* unixL_optfint() */
+
+
+static struct tm *unixL_checktm(lua_State *L, int index, struct tm *tm) {
+	luaL_checktype(L, 1, LUA_TTABLE);
+
+	tm->tm_year = unixL_optfint(L, index, "year", tm->tm_year + 1900) - 1900;
+	tm->tm_mon = unixL_optfint(L, index, "month", tm->tm_mon + 1) - 1;
+	tm->tm_mday = unixL_optfint(L, index, "day", tm->tm_mday);
+	tm->tm_hour = unixL_optfint(L, index, "hour", tm->tm_hour);
+	tm->tm_min = unixL_optfint(L, index, "min", tm->tm_min);
+	tm->tm_sec = unixL_optfint(L, index, "sec", tm->tm_sec);
+	tm->tm_wday = unixL_optfint(L, index, "wday", tm->tm_wday + 1) - 1;
+	tm->tm_yday = unixL_optfint(L, index, "yday", tm->tm_yday + 1) - 1;
+
+	lua_getfield(L, 1, "isdst");
+	if (!lua_isnil(L, -1)) {
+		tm->tm_isdst = lua_toboolean(L, -1);
+	}
+	lua_pop(L, 1);
+
+	return tm;
+} /* unixL_checktm() */
+
+
+static struct tm *unixL_opttm(lua_State *L, int index, const struct tm *def, struct tm *tm) {
+	if (lua_isnoneornil(L, index)) {
+		if (def) {
+			*tm = *def;
+		} else {
+			time_t now = time(NULL);
+
+			gmtime_r(&now, tm);
+		}
+
+		return tm;
+	} else {
+		return unixL_checktm(L, index, tm);
+	}
+} /* unixL_opttm() */
+
+
 static int unix_arc4random(lua_State *L) {
 	lua_pushnumber(L, unixL_random(L));
 
@@ -1204,6 +1259,61 @@ static int unix_symlink(lua_State *L) {
 } /* unix_symlink() */
 
 
+static int yr_isleap(int year) {
+	if (year >= 0)
+		return !(year % 4) && ((year % 100) || !(year % 400));
+	else
+		return yr_isleap(-(year + 1));
+} /* yr_isleap() */
+
+
+static int tm_yday(const struct tm *tm) {
+	static const int past[12] = { 0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334 };
+	int yday;
+
+	if (tm->tm_yday)
+		return tm->tm_yday;
+	
+	yday = past[CLAMP(tm->tm_mon, 0, 11)] + CLAMP(tm->tm_mday, 1, 31) - 1;
+
+	return yday + (tm->tm_mon > 1 && yr_isleap(1900 + tm->tm_year));
+} /* tm_yday() */
+
+
+static int yr_nleaps(int year) {
+	if (year >= 0)
+		return (year / 400) + (year / 4) - (year / 100);
+	else
+		return -(yr_nleaps(-(year + 1)) + 1);
+} /* yr_nleaps() */
+
+
+static double tm2unix(const struct tm *tm) {
+	int year = tm->tm_year + 1900;
+	double ts;
+
+	ts = 86400.0 * 365.0 * (year - 1970);
+	ts += 86400.0 * (yr_nleaps(year - 1) - yr_nleaps(1969));
+	ts += 86400 * tm_yday(tm);
+	ts += 3600 * tm->tm_hour;
+	ts += 60 * tm->tm_min;
+	ts += CLAMP(tm->tm_sec, 0, 59);
+
+	return ts;
+} /* tm2unix() */
+
+
+static int unix_timegm(lua_State *L) {
+	struct tm tm = { 0 };
+
+	unixL_opttm(L, 1, NULL, &tm);
+
+	lua_pushnumber(L, tm2unix(&tm));
+
+	return 1;
+} /* unix_timegm() */
+
+
 static int unix_truncate(lua_State *L) {
 	const char *path;
 	int fd;
@@ -1277,6 +1387,7 @@ static const luaL_Reg unix_routines[] = {
 	{ "setuid",             &unix_setuid },
 	{ "setsid",             &unix_setsid },
 	{ "symlink",            &unix_symlink },
+	{ "timegm",             &unix_timegm },
 	{ "truncate",           &unix_truncate },
 	{ "umask",              &unix_umask },
 	{ "unlink",             &unix_unlink },
