@@ -1268,26 +1268,19 @@ static int unix_link(lua_State *L) {
 
 
 /*
- * NOTE: Patterned after the mkpath routine from BSD mkdir implementations
- * for POSIX mkdir(1). As we're not strictly following POSIX mkdir(1)
- * semantics, chmod intermediate and target directories to precisely
- * what the user requested.
+ * Patterned after the mkpath routine from BSD mkdir implementations for
+ * POSIX mkdir(1). The basic idea is to mimic a recursive mkdir(2) call.
  *
  * Differences from BSD mkpath:
  *
- * 1) On BSD intermediate permissions are always 0777 & ~umask(). (But see
- *    #3).
+ * 1) On BSD intermediate permissions are always (0300 | (0777 & ~umask())).
+ *    But see #2. Whereas here we obey any specified intermediate mode
+ *    value.
  *
- * 2) On BSD permissions might be more restrictive than specified if the
- *    umask is more restrictive.
- *
- * 3) On BSD if the SUID or SGID bit is set in the specified mode value, the
+ * 2) On BSD if the SUID or SGID bit is set in the target mode value, the
  *    target directory is chmod'd using that mode value, unaltered by the
  *    umask. On OpenBSD intermediate directories are also chmod'd with that
  *    mode value.
- *
- * In other words, POSIX/BSD is all over the map in terms of potential
- * resultant permissions.
  */
 static int unix_mkpath(lua_State *L) {
 	size_t len;
@@ -1300,8 +1293,8 @@ static int unix_mkpath(lua_State *L) {
 	mode = 0777 & ~cmask;
 	imode = 0300 | mode;
 
-	mode = unixL_optmode(L, 2, mode, mode);
-	imode = unixL_optmode(L, 3, imode, imode);
+	mode = unixL_optmode(L, 2, mode, mode) & ~cmask;
+	imode = unixL_optmode(L, 3, imode, imode) & ~cmask;
 
 	dir = lua_newuserdata(L, len + 1);
 	memcpy(dir, path, len + 1);
@@ -1321,7 +1314,7 @@ static int unix_mkpath(lua_State *L) {
 
 		_mode = (lc == '\0')? mode : imode;
 
-		if (0 == mkdir(dir, _mode)) {
+		if (0 == mkdir(dir, 0300 & _mode)) {
 			if (0 != chmod(dir, _mode))
 				return unixL_pusherror(L, "mkpath", "0$#");
 		} else {
