@@ -6,7 +6,7 @@
 #include <stdarg.h>    /* va_list va_start va_arg va_end */
 #include <stdint.h>    /* SIZE_MAX */
 #include <stdlib.h>    /* arc4random(3) free(3) realloc(3) strtoul(3) */
-#include <stdio.h>     /* snprintf(3) */
+#include <stdio.h>     /* fileno(3) snprintf(3) */
 #include <string.h>    /* memset(3) strerror_r(3) */
 #include <signal.h>    /* sigset_t sigfillset(3) sigemptyset(3) sigprocmask(2) */
 #include <ctype.h>     /* isspace(3) */
@@ -959,6 +959,23 @@ apply:
 } /* unixL_optmode() */
 
 
+static int unixL_optfileno(lua_State *L, int index, int def) {
+	FILE *fp;
+	int fd;
+
+	if (!(fp = luaL_testudata(L, 1, LUA_FILEHANDLE)))
+		return def;
+
+	luaL_argcheck(L, fp != NULL, index, "attempt to use a closed file");
+
+	fd = fileno(fp);
+
+	luaL_argcheck(L, fd >= 0, index, "attempt to use irregular file (no descriptor)");
+
+	return fd;
+} /* unixL_optfileno() */
+
+
 static int unix_arc4random(lua_State *L) {
 	lua_pushnumber(L, unixL_random(L));
 
@@ -1018,10 +1035,17 @@ static int unix_arc4random_uniform(lua_State *L) {
 
 
 static int unix_chdir(lua_State *L) {
-	const char *path = luaL_checkstring(L, 1);
+	int fd;
 
-	if (0 != chdir(path))
-		return unixL_pusherror(L, "chdir", "0$#");
+	if (-1 != (fd = unixL_optfileno(L, 1, -1))) {
+		if (0 != fchdir(fd))
+			return unixL_pusherror(L, "chdir", "0$#");
+	} else {
+		const char *path = luaL_checkstring(L, 1);
+
+		if (0 != chdir(path))
+			return unixL_pusherror(L, "chdir", "0$#");
+	}
 
 	lua_pushboolean(L, 1);
 
@@ -1030,12 +1054,19 @@ static int unix_chdir(lua_State *L) {
 
 
 static int unix_chown(lua_State *L) {
-	const char *path = luaL_checkstring(L, 1);
 	uid_t uid = unixL_optuid(L, 2, -1);
 	gid_t gid = unixL_optgid(L, 3, -1);
+	int fd;
 
-	if (0 != chown(path, uid, gid))
-		return unixL_pusherror(L, "chown", "0$#");
+	if (-1 != (fd = unixL_optfileno(L, 1, -1))) {
+		if (0 != fchown(fd, uid, gid))
+			return unixL_pusherror(L, "chown", "0$#");
+	} else {
+		const char *path = luaL_checkstring(L, 1);
+
+		if (0 != chown(path, uid, gid))
+			return unixL_pusherror(L, "chown", "0$#");
+	}
 
 	lua_pushboolean(L, 1);
 
@@ -1175,20 +1206,13 @@ static int unix_symlink(lua_State *L) {
 
 static int unix_truncate(lua_State *L) {
 	const char *path;
-	FILE *fp;
 	int fd;
 	off_t len;
 
 	/* TODO: check overflow */
 	len = (off_t)luaL_optnumber(L, 2, 0);
 
-	if ((fp = luaL_testudata(L, 1, LUA_FILEHANDLE))) {
-		luaL_argcheck(L, fp != NULL, 1, "attempt to truncate a closed file");
-
-		fd = fileno(fp);
-
-		luaL_argcheck(L, fd >= 0, 1, "attempt to truncate irregular file (no descriptor)");
-
+	if (-1 != (fd = unixL_optfileno(L, 1, -1))) {
 		if (0 != ftruncate(fd, len))
 			return unixL_pusherror(L, "truncate", "0$#");
 	} else {
