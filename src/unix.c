@@ -2,24 +2,26 @@
 #define _POSIX_PTHREAD_SEMANTICS 1 /* Solaris */
 #endif
 
-#include <limits.h>    /* NL_TEXTMAX */
-#include <stdarg.h>    /* va_list va_start va_arg va_end */
-#include <stdint.h>    /* SIZE_MAX */
-#include <stdlib.h>    /* arc4random(3) free(3) realloc(3) strtoul(3) */
-#include <stdio.h>     /* fileno(3) snprintf(3) */
-#include <string.h>    /* memset(3) strerror_r(3) strspn(3) strcspn(3) */
-#include <signal.h>    /* sigset_t sigfillset(3) sigemptyset(3) sigprocmask(2) */
-#include <ctype.h>     /* isspace(3) */
-#include <time.h>      /* struct tm struct timespec gmtime_r(3) clock_gettime(3) */
-#include <errno.h>     /* ENOMEM errno */
+#include <limits.h>     /* NL_TEXTMAX */
+#include <stdarg.h>     /* va_list va_start va_arg va_end */
+#include <stdint.h>     /* SIZE_MAX */
+#include <stdlib.h>     /* arc4random(3) free(3) realloc(3) strtoul(3) */
+#include <stdio.h>      /* fileno(3) snprintf(3) */
+#include <string.h>     /* memset(3) strerror_r(3) strspn(3) strcspn(3) */
+#include <signal.h>     /* sigset_t sigfillset(3) sigemptyset(3) sigprocmask(2) */
+#include <ctype.h>      /* isspace(3) */
+#include <time.h>       /* struct tm struct timespec gmtime_r(3) clock_gettime(3) */
+#include <errno.h>      /* ENOMEM errno */
 
-#include <sys/types.h> /* gid_t mode_t off_t pid_t uid_t */
-#include <sys/stat.h>  /* S_ISDIR() */
-#include <sys/time.h>  /* struct timeval gettimeofday(2) */
-#include <unistd.h>    /* chdir(2) chroot(2) close(2) chdir(2) chown(2) chroot(2) getpid(2) link(2) rename(2) rmdir(2) setegid(2) seteuid(2) setgid(2) setuid(2) setsid(2) symlink(2) truncate(2) umask(2) unlink(2) */
-#include <fcntl.h>     /* F_GETFD F_SETFD FD_CLOEXEC fcntl(2) open(2) */
-#include <pwd.h>       /* struct passwd getpwnam_r(3) */
-#include <grp.h>       /* struct group getgrnam_r(3) */
+#include <sys/types.h>  /* gid_t mode_t off_t pid_t uid_t */
+#include <sys/stat.h>   /* S_ISDIR() */
+#include <sys/time.h>   /* struct timeval gettimeofday(2) */
+#include <sys/sysctl.h> /* CTL_KERN KERN_RANDOM RANDOM_UUID sysctl(2) */
+#include <sys/wait.h>   /* waitpid(2) */
+#include <unistd.h>     /* chdir(2) chroot(2) close(2) chdir(2) chown(2) chroot(2) getpid(2) link(2) rename(2) rmdir(2) setegid(2) seteuid(2) setgid(2) setuid(2) setsid(2) symlink(2) truncate(2) umask(2) unlink(2) */
+#include <fcntl.h>      /* F_GETFD F_SETFD FD_CLOEXEC fcntl(2) open(2) */
+#include <pwd.h>        /* struct passwd getpwnam_r(3) */
+#include <grp.h>        /* struct group getgrnam_r(3) */
 
 #if __APPLE__
 #include <mach/mach_time.h> /* mach_timebase_info() mach_absolute_time() */
@@ -291,7 +293,7 @@ error:
 
 static u_error_t u_pipe(int *fd, u_flags_t flags) {
 #if HAVE_PIPE2
-	if (0 != pipe2(fd, flags))) {
+	if (0 != pipe2(fd, flags)) {
 		fd[0] = -1;
 		fd[1] = -1;
 
@@ -789,7 +791,8 @@ static mode_t unixL_getumask(lua_State *L) {
 	case 0:
 		mask = umask(0777);
 
-		write(U->ts.fd[1], &mask, sizeof mask);
+		if (sizeof mask != write(U->ts.fd[1], &mask, sizeof mask))
+			_Exit(1);
 
 		_Exit(0);
 
