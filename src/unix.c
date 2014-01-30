@@ -252,7 +252,7 @@ static u_error_t u_getflags(int fd, u_flags_t *flags) {
 
 
 static u_error_t u_fixflags(int fd, u_flags_t flags) {
-	u_flags_t _flags;
+	u_flags_t _flags = 0;
 	int error;
 
 	if ((flags & U_CLOEXEC) || (flags & O_NONBLOCK)) {
