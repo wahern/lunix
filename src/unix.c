@@ -1268,6 +1268,27 @@ static int unix_link(lua_State *L) {
 
 
 /*
+ * Emulate mkdir except with well-defined SUID, SGID, SVTIX behavior. If you
+ * want to set bits restricted by the umask you must manually use chmod.
+ */
+static int unix_mkdir(lua_State *L) {
+	const char *path = luaL_checkstring(L, 1);
+	mode_t cmask, mode;
+
+	cmask = unixL_getumask(L);
+	mode = 0777 & ~cmask;
+	mode = unixL_optmode(L, 2, mode, mode) & ~cmask;
+
+	if (0 != mkdir(path, 0700 & mode) || 0 != chmod(path, mode))
+		return unixL_pusherror(L, "mkdir", "0$#");
+
+	lua_pushboolean(L, 1);
+
+	return 1;
+} /* unix_mkdir() */
+
+
+/*
  * Patterned after the mkpath routine from BSD mkdir implementations for
  * POSIX mkdir(1). The basic idea is to mimic a recursive mkdir(2) call.
  *
@@ -1277,10 +1298,10 @@ static int unix_link(lua_State *L) {
  *    But see #2. Whereas here we obey any specified intermediate mode
  *    value.
  *
- * 2) On BSD if the SUID or SGID bit is set in the target mode value, the
- *    target directory is chmod'd using that mode value, unaltered by the
- *    umask. On OpenBSD intermediate directories are also chmod'd with that
- *    mode value.
+ * 2) On BSD if the SUID, SGID, or SVTIX bit is set in the target mode
+ *    value, the target directory is chmod'd using that mode value,
+ *    unaltered by the umask. On OpenBSD intermediate directories are also
+ *    chmod'd with that mode value.
  */
 static int unix_mkpath(lua_State *L) {
 	size_t len;
@@ -1314,7 +1335,7 @@ static int unix_mkpath(lua_State *L) {
 
 		_mode = (lc == '\0')? mode : imode;
 
-		if (0 == mkdir(dir, 0300 & _mode)) {
+		if (0 == mkdir(dir, 0700 & _mode)) {
 			if (0 != chmod(dir, _mode))
 				return unixL_pusherror(L, "mkpath", "0$#");
 		} else {
@@ -1561,6 +1582,7 @@ static const luaL_Reg unix_routines[] = {
 	{ "getpid",             &unix_getpid },
 	{ "gettimeofday",       &unix_gettimeofday },
 	{ "link",               &unix_link },
+	{ "mkdir",              &unix_mkdir },
 	{ "mkpath",             &unix_mkpath },
 	{ "rename",             &unix_rename },
 	{ "rmdir",              &unix_rmdir },
