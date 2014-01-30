@@ -608,8 +608,8 @@ static const char *unixL_strerror(lua_State *L, int error) {
 } /* unixL_strerror() */
 
 
-static int unixL_pusherror(lua_State *L, const char *fun NOTUSED, const char *fmt) {
-	int error = errno, top = lua_gettop(L), fc;
+static int unixL_pusherror(lua_State *L, int error, const char *fun NOTUSED, const char *fmt) {
+	int top = lua_gettop(L), fc;
 	unixL_State *U = unixL_getstate(L);
 
 	U->error = error;
@@ -647,9 +647,9 @@ static int unixL_getpwnam(lua_State *L, const char *user, struct passwd **ent) {
 
 	*ent = NULL;
 
-	while (0 != getpwnam_r(user, &U->pw.ent, U->pw.buf, U->pw.bufsiz, ent)) {
-		if (errno != ERANGE)
-			return errno;
+	while ((error = getpwnam_r(user, &U->pw.ent, U->pw.buf, U->pw.bufsiz, ent))) {
+		if (error != ERANGE)
+			return error;
 
 		if ((error = u_realloc(&U->pw.buf, &U->pw.bufsiz, 128)))
 			return error;
@@ -667,9 +667,9 @@ static int unixL_getpwuid(lua_State *L, uid_t uid, struct passwd **ent) {
 
 	*ent = NULL;
 
-	while (0 != getpwuid_r(uid, &U->pw.ent, U->pw.buf, U->pw.bufsiz, ent)) {
-		if (errno != ERANGE)
-			return errno;
+	while ((error = getpwuid_r(uid, &U->pw.ent, U->pw.buf, U->pw.bufsiz, ent))) {
+		if (error != ERANGE)
+			return error;
 
 		if ((error = u_realloc(&U->pw.buf, &U->pw.bufsiz, 128)))
 			return error;
@@ -687,9 +687,9 @@ static int unixL_getgrnam(lua_State *L, const char *group, struct group **ent) {
 
 	*ent = NULL;
 
-	while (0 != getgrnam_r(group, &U->gr.ent, U->gr.buf, U->gr.bufsiz, ent)) {
-		if (errno != ERANGE)
-			return errno;
+	while ((error = getgrnam_r(group, &U->gr.ent, U->gr.buf, U->gr.bufsiz, ent))) {
+		if (error != ERANGE)
+			return error;
 
 		if ((error = u_realloc(&U->gr.buf, &U->gr.bufsiz, 128)))
 			return error;
@@ -707,9 +707,9 @@ static int unixL_getgruid(lua_State *L, gid_t gid, struct group **ent) {
 
 	*ent = NULL;
 
-	while (0 != getgrgid_r(gid, &U->gr.ent, U->gr.buf, U->gr.bufsiz, ent)) {
-		if (errno != ERANGE)
-			return errno;
+	while ((error = getgrgid_r(gid, &U->gr.ent, U->gr.buf, U->gr.bufsiz, ent))) {
+		if (error != ERANGE)
+			return error;
 
 		if ((error = u_realloc(&U->gr.buf, &U->gr.bufsiz, 128)))
 			return error;
@@ -1143,12 +1143,12 @@ static int unix_chdir(lua_State *L) {
 
 	if (-1 != (fd = unixL_optfileno(L, 1, -1))) {
 		if (0 != fchdir(fd))
-			return unixL_pusherror(L, "chdir", "0$#");
+			return unixL_pusherror(L, errno, "chdir", "0$#");
 	} else {
 		const char *path = luaL_checkstring(L, 1);
 
 		if (0 != chdir(path))
-			return unixL_pusherror(L, "chdir", "0$#");
+			return unixL_pusherror(L, errno, "chdir", "0$#");
 	}
 
 	lua_pushboolean(L, 1);
@@ -1164,12 +1164,12 @@ static int unix_chown(lua_State *L) {
 
 	if (-1 != (fd = unixL_optfileno(L, 1, -1))) {
 		if (0 != fchown(fd, uid, gid))
-			return unixL_pusherror(L, "chown", "0$#");
+			return unixL_pusherror(L, errno, "chown", "0$#");
 	} else {
 		const char *path = luaL_checkstring(L, 1);
 
 		if (0 != chown(path, uid, gid))
-			return unixL_pusherror(L, "chown", "0$#");
+			return unixL_pusherror(L, errno, "chown", "0$#");
 	}
 
 	lua_pushboolean(L, 1);
@@ -1182,7 +1182,7 @@ static int unix_chroot(lua_State *L) {
 	const char *path = luaL_checkstring(L, 1);
 
 	if (0 != chroot(path))
-		return unixL_pusherror(L, "chroot", "0$#");
+		return unixL_pusherror(L, errno, "chroot", "0$#");
 
 	lua_pushboolean(L, 1);
 
@@ -1201,7 +1201,7 @@ static int unix_clock_gettime(lua_State *L) {
 	switch (id) {
 	case U_CLOCK_REALTIME:
 		if (0 != gettimeofday(&tv, NULL))
-			return unixL_pusherror(L, "clock_gettime", "~$#");
+			return unixL_pusherror(L, errno, "clock_gettime", "~$#");
 
 		TIMEVAL_TO_TIMESPEC(&tv, &ts);
 
@@ -1222,7 +1222,7 @@ static int unix_clock_gettime(lua_State *L) {
 	struct timespec ts;
 
 	if (0 != clock_gettime(id, &ts))
-		return unixL_pusherror(L, "clock_gettime", "~$#");
+		return unixL_pusherror(L, errno, "clock_gettime", "~$#");
 #endif
 
 	if (lua_isnoneornil(L, 2) || !lua_toboolean(L, 2)) {
@@ -1273,6 +1273,107 @@ static int unix_getgid(lua_State *L) {
 } /* unix_getgid() */
 
 
+static void gr_pushmem(lua_State *L, char **list, int create) {
+	if (list) {
+		int i;
+
+		for (i = 0; list[i]; i++)
+			;;
+
+		if (create)
+			lua_createtable(L, i, 0);
+
+		for (i = 0; list[i]; i++) {
+			lua_pushstring(L, list[i]);
+			lua_rawseti(L, -2, i + 1);
+		}
+	} else {
+		if (create)
+			lua_createtable(L, 0, 0);
+	}
+} /* gr_pushmem() */
+
+static int unix_getgrnam(lua_State *L) {
+	struct group *ent;
+	int error;
+
+	if (lua_isnumber(L, 1)) {
+		error = unixL_getgruid(L, luaL_checkint(L, 1), &ent);
+	} else {
+		error = unixL_getgrnam(L, luaL_checkstring(L, 1), &ent);
+	}
+
+	if (error) {
+		return unixL_pusherror(L, error, "getgrnam", "~$#");
+	} else if (!ent) {
+		lua_pushnil(L);
+		lua_pushstring(L, "no such group");
+
+		return 2;
+	}
+
+	if (lua_isnoneornil(L, 2)) {
+		lua_createtable(L, 0, 4);
+
+		if (ent->gr_name) {
+			lua_pushstring(L, ent->gr_name);
+			lua_setfield(L, -2, "name");
+		}
+
+		if (ent->gr_passwd) {
+			lua_pushstring(L, ent->gr_passwd);
+			lua_setfield(L, -2, "passwd");
+		}
+
+		lua_pushinteger(L, ent->gr_gid);
+		lua_setfield(L, -2, "gid");
+
+		gr_pushmem(L, ent->gr_mem, 0);
+
+		return 1;
+	} else {
+		static const char *opts[] = {
+			"name", "passwd", "gid", "mem", "members", NULL,
+		};
+		int i, n = 0, top = lua_gettop(L);
+
+		for (i = 2; i <= top; i++) {
+			switch (luaL_checkoption(L, i, NULL, opts)) {
+			case 0: /* name */
+				if (ent->gr_name)
+					lua_pushstring(L, ent->gr_name);
+				else
+					lua_pushnil(L);
+				++n;
+
+				break;
+			case 1: /* passwd */
+				if (ent->gr_passwd)
+					lua_pushstring(L, ent->gr_passwd);
+				else
+					lua_pushnil(L);
+				++n;
+
+				break;
+			case 2: /* gid */
+				lua_pushinteger(L, ent->gr_gid);
+				++n;
+
+				break;
+			case 3: /* mem */
+			case 4: /* members */
+				gr_pushmem(L, ent->gr_mem, 1);
+				++n;
+
+				break;
+			}
+		}
+
+		return n;
+	}
+} /* unix_getgrnam() */
+
+
 static int unix_getpid(lua_State *L) {
 	lua_pushnumber(L, getpid());
 
@@ -1280,11 +1381,131 @@ static int unix_getpid(lua_State *L) {
 } /* unix_getpid() */
 
 
+static int unix_getpwnam(lua_State *L) {
+	struct passwd *ent;
+	int error;
+
+	if (lua_isnumber(L, 1)) {
+		error = unixL_getpwuid(L, luaL_checkint(L, 1), &ent);
+	} else {
+		error = unixL_getpwnam(L, luaL_checkstring(L, 1), &ent);
+	}
+
+	if (error) {
+		return unixL_pusherror(L, error, "getpwnam", "~$#");
+	} else if (!ent) {
+		lua_pushnil(L);
+		lua_pushstring(L, "no such user");
+
+		return 2;
+	}
+
+	if (lua_isnoneornil(L, 2)) {
+		lua_createtable(L, 0, 7);
+
+		if (ent->pw_name) {
+			lua_pushstring(L, ent->pw_name);
+			lua_setfield(L, -2, "name");
+		}
+
+		if (ent->pw_passwd) {
+			lua_pushstring(L, ent->pw_passwd);
+			lua_setfield(L, -2, "passwd");
+		}
+
+		lua_pushinteger(L, ent->pw_uid);
+		lua_setfield(L, -2, "uid");
+
+		lua_pushinteger(L, ent->pw_gid);
+		lua_setfield(L, -2, "gid");
+
+		if (ent->pw_dir) {
+			lua_pushstring(L, ent->pw_dir);
+			lua_setfield(L, -2, "dir");
+		}
+
+		if (ent->pw_shell) {
+			lua_pushstring(L, ent->pw_shell);
+			lua_setfield(L, -2, "shell");
+		}
+
+		if (ent->pw_gecos) {
+			lua_pushstring(L, ent->pw_gecos);
+			lua_setfield(L, -2, "gecos");
+		}
+
+		return 1;
+	} else {
+		static const char *opts[] = {
+			"name", "passwd", "uid", "gid", "dir", "shell", "gecos", NULL,
+		};
+		int i, n = 0, top = lua_gettop(L);
+
+		for (i = 2; i <= top; i++) {
+			switch (luaL_checkoption(L, i, NULL, opts)) {
+			case 0:
+				if (ent->pw_name)
+					lua_pushstring(L, ent->pw_name);
+				else
+					lua_pushnil(L);
+				++n;
+
+				break;
+			case 1:
+				if (ent->pw_passwd)
+					lua_pushstring(L, ent->pw_passwd);
+				else
+					lua_pushnil(L);
+				++n;
+
+				break;
+			case 2:
+				lua_pushinteger(L, ent->pw_uid);
+				++n;
+
+				break;
+			case 3:
+				lua_pushinteger(L, ent->pw_gid);
+				++n;
+
+				break;
+			case 4:
+				if (ent->pw_dir)
+					lua_pushstring(L, ent->pw_dir);
+				else
+					lua_pushnil(L);
+				++n;
+
+				break;
+			case 5:
+				if (ent->pw_shell)
+					lua_pushstring(L, ent->pw_shell);
+				else
+					lua_pushnil(L);
+				++n;
+
+				break;
+			case 6:
+				if (ent->pw_gecos)
+					lua_pushstring(L, ent->pw_gecos);
+				else
+					lua_pushnil(L);
+				++n;
+
+				break;
+			}
+		}
+
+		return n;
+	}
+} /* unix_getpwnam() */
+
+
 static int unix_gettimeofday(lua_State *L) {
 	struct timeval tv;
 
 	if (0 != gettimeofday(&tv, NULL))
-		return unixL_pusherror(L, "gettimeofday", "~$#");
+		return unixL_pusherror(L, errno, "gettimeofday", "~$#");
 
 	if (lua_isnoneornil(L, 1) || !lua_toboolean(L, 1)) {
 		lua_pushnumber(L, (double)tv.tv_sec + ((double)tv.tv_usec / 1000000L));
@@ -1311,7 +1532,7 @@ static int unix_link(lua_State *L) {
 	const char *dst = luaL_checkstring(L, 2);
 
 	if (0 != link(src, dst))
-		return unixL_pusherror(L, "link", "0$#");
+		return unixL_pusherror(L, errno, "link", "0$#");
 
 	lua_pushboolean(L, 1);
 
@@ -1332,7 +1553,7 @@ static int unix_mkdir(lua_State *L) {
 	mode = unixL_optmode(L, 2, mode, mode) & ~cmask;
 
 	if (0 != mkdir(path, 0700 & mode) || 0 != chmod(path, mode))
-		return unixL_pusherror(L, "mkdir", "0$#");
+		return unixL_pusherror(L, errno, "mkdir", "0$#");
 
 	lua_pushboolean(L, 1);
 
@@ -1389,20 +1610,16 @@ static int unix_mkpath(lua_State *L) {
 
 		if (0 == mkdir(dir, 0700 & _mode)) {
 			if (0 != chmod(dir, _mode))
-				return unixL_pusherror(L, "mkpath", "0$#");
+				return unixL_pusherror(L, errno, "mkpath", "0$#");
 		} else {
 			int error = errno;
 			struct stat st;
 
-			if (0 != stat(dir, &st)) {
-				errno = error;
-				return unixL_pusherror(L, "mkpath", "0$#");
-			}
+			if (0 != stat(dir, &st))
+				return unixL_pusherror(L, error, "mkpath", "0$#");
 
-			if (!S_ISDIR(st.st_mode)) {
-				errno = ENOTDIR;
-				return unixL_pusherror(L, "mkpath", "0$#");
-			}
+			if (!S_ISDIR(st.st_mode))
+				return unixL_pusherror(L, ENOTDIR, "mkpath", "0$#");
 		}
 
 		*slash = lc;
@@ -1419,7 +1636,7 @@ static int unix_rename(lua_State *L) {
 	const char *npath = luaL_checkstring(L, 2);
 
 	if (0 != rename(opath, npath))
-		return unixL_pusherror(L, "rename", "0$#");
+		return unixL_pusherror(L, errno, "rename", "0$#");
 
 	lua_pushboolean(L, 1);
 
@@ -1431,7 +1648,7 @@ static int unix_rmdir(lua_State *L) {
 	const char *path = luaL_checkstring(L, 1);
 
 	if (0 != rmdir(path))
-		return unixL_pusherror(L, "rmdir", "0$#");
+		return unixL_pusherror(L, errno, "rmdir", "0$#");
 
 	lua_pushboolean(L, 1);
 
@@ -1443,7 +1660,7 @@ static int unix_setegid(lua_State *L) {
 	gid_t gid = unixL_checkgid(L, 1);
 
 	if (0 != setegid(gid))
-		return unixL_pusherror(L, "setegid", "0$#");
+		return unixL_pusherror(L, errno, "setegid", "0$#");
 
 	lua_pushboolean(L, 1);
 
@@ -1455,7 +1672,7 @@ static int unix_seteuid(lua_State *L) {
 	uid_t uid = unixL_checkuid(L, 1);
 
 	if (0 != seteuid(uid))
-		return unixL_pusherror(L, "seteuid", "0$#");
+		return unixL_pusherror(L, errno, "seteuid", "0$#");
 
 	lua_pushboolean(L, 1);
 
@@ -1467,7 +1684,7 @@ static int unix_setgid(lua_State *L) {
 	gid_t gid = unixL_checkgid(L, 1);
 
 	if (0 != setgid(gid))
-		return unixL_pusherror(L, "setgid", "0$#");
+		return unixL_pusherror(L, errno, "setgid", "0$#");
 
 	lua_pushboolean(L, 1);
 
@@ -1479,7 +1696,7 @@ static int unix_setsid(lua_State *L) {
 	pid_t pg;
 
 	if (-1 == (pg = setsid()))
-		return unixL_pusherror(L, "setsid", "~$#");
+		return unixL_pusherror(L, errno, "setsid", "~$#");
 
 	lua_pushnumber(L, pg);
 
@@ -1491,7 +1708,7 @@ static int unix_setuid(lua_State *L) {
 	uid_t uid = unixL_checkuid(L, 1);
 
 	if (0 != setuid(uid))
-		return unixL_pusherror(L, "setuid", "0$#");
+		return unixL_pusherror(L, errno, "setuid", "0$#");
 
 	lua_pushboolean(L, 1);
 
@@ -1504,7 +1721,7 @@ static int unix_symlink(lua_State *L) {
 	const char *dst = luaL_checkstring(L, 2);
 
 	if (0 != symlink(src, dst))
-		return unixL_pusherror(L, "symlink", "0$#");
+		return unixL_pusherror(L, errno, "symlink", "0$#");
 
 	lua_pushboolean(L, 1);
 
@@ -1577,12 +1794,12 @@ static int unix_truncate(lua_State *L) {
 
 	if (-1 != (fd = unixL_optfileno(L, 1, -1))) {
 		if (0 != ftruncate(fd, len))
-			return unixL_pusherror(L, "truncate", "0$#");
+			return unixL_pusherror(L, errno, "truncate", "0$#");
 	} else {
 		path = luaL_checkstring(L, 1);
 
 		if (0 != truncate(path, len))
-			return unixL_pusherror(L, "truncate", "0$#");
+			return unixL_pusherror(L, errno, "truncate", "0$#");
 	}
 
 	lua_pushboolean(L, 1);
@@ -1608,7 +1825,7 @@ static int unix_unlink(lua_State *L) {
 	const char *path = luaL_checkstring(L, 1);
 
 	if (0 != unlink(path))
-		return unixL_pusherror(L, "unlink", "0$#");
+		return unixL_pusherror(L, errno, "unlink", "0$#");
 
 	lua_pushboolean(L, 1);
 
@@ -1635,7 +1852,11 @@ static const luaL_Reg unix_routines[] = {
 	{ "geteuid",            &unix_geteuid },
 	{ "getmode",            &unix_getmode },
 	{ "getgid",             &unix_getgid },
+	{ "getgrnam",           &unix_getgrnam },
+	{ "getgruid",           &unix_getgrnam },
 	{ "getpid",             &unix_getpid },
+	{ "getpwnam",           &unix_getpwnam },
+	{ "getpwuid",           &unix_getpwnam },
 	{ "gettimeofday",       &unix_gettimeofday },
 	{ "getuid",             &unix_getuid },
 	{ "link",               &unix_link },
