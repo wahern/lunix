@@ -1228,6 +1228,20 @@ static int unix_clock_gettime(lua_State *L) {
 } /* unix_clock_gettime() */
 
 
+static int unix_getmode(lua_State *L) {
+	const char *fmt;
+	char *end;
+	mode_t omode;
+
+	fmt = luaL_optstring(L, 2, "0777");
+	omode = 07777 & strtoul(fmt, &end, 0);
+
+	lua_pushnumber(L, unixL_optmode(L, 1, 0777, omode));
+
+	return 1;
+} /* unix_getmode() */
+
+
 static int unix_getpid(lua_State *L) {
 	lua_pushnumber(L, getpid());
 
@@ -1579,6 +1593,7 @@ static const luaL_Reg unix_routines[] = {
 	{ "chown",              &unix_chown },
 	{ "chroot",             &unix_chroot },
 	{ "clock_gettime",      &unix_clock_gettime },
+	{ "getmode",            &unix_getmode },
 	{ "getpid",             &unix_getpid },
 	{ "gettimeofday",       &unix_gettimeofday },
 	{ "link",               &unix_link },
