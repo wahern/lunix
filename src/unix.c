@@ -2,28 +2,29 @@
 #define _POSIX_PTHREAD_SEMANTICS 1 /* Solaris */
 #endif
 
-#include <limits.h>     /* NL_TEXTMAX */
-#include <stdarg.h>     /* va_list va_start va_arg va_end */
-#include <stdint.h>     /* SIZE_MAX */
-#include <stdlib.h>     /* arc4random(3) free(3) realloc(3) strtoul(3) */
-#include <stdio.h>      /* fileno(3) snprintf(3) */
-#include <string.h>     /* memset(3) strerror_r(3) strspn(3) strcspn(3) */
-#include <signal.h>     /* sigset_t sigfillset(3) sigemptyset(3) sigprocmask(2) */
-#include <ctype.h>      /* isspace(3) */
-#include <time.h>       /* struct tm struct timespec gmtime_r(3) clock_gettime(3) */
-#include <errno.h>      /* ENOMEM errno */
+#include <limits.h>      /* NL_TEXTMAX */
+#include <stdarg.h>      /* va_list va_start va_arg va_end */
+#include <stdint.h>      /* SIZE_MAX */
+#include <stdlib.h>      /* arc4random(3) free(3) realloc(3) strtoul(3) */
+#include <stdio.h>       /* fileno(3) snprintf(3) */
+#include <string.h>      /* memset(3) strerror_r(3) strspn(3) strcspn(3) */
+#include <signal.h>      /* sigset_t sigfillset(3) sigemptyset(3) sigprocmask(2) */
+#include <ctype.h>       /* isspace(3) */
+#include <time.h>        /* struct tm struct timespec gmtime_r(3) clock_gettime(3) */
+#include <errno.h>       /* ENOMEM errno */
 
-#include <sys/types.h>  /* gid_t mode_t off_t pid_t uid_t */
-#include <sys/stat.h>   /* S_ISDIR() */
-#include <sys/time.h>   /* struct timeval gettimeofday(2) */
+#include <sys/types.h>   /* gid_t mode_t off_t pid_t uid_t */
+#include <sys/stat.h>    /* S_ISDIR() */
+#include <sys/time.h>    /* struct timeval gettimeofday(2) */
 #if __linux
-#include <sys/sysctl.h> /* CTL_KERN KERN_RANDOM RANDOM_UUID sysctl(2) */
+#include <sys/sysctl.h>  /* CTL_KERN KERN_RANDOM RANDOM_UUID sysctl(2) */
 #endif
-#include <sys/wait.h>   /* waitpid(2) */
-#include <unistd.h>     /* chdir(2) chroot(2) close(2) chdir(2) chown(2) chroot(2) getegid(2) geteuid(2) getgid(2) getpid(2) getuid(2) link(2) rename(2) rmdir(2) setegid(2) seteuid(2) setgid(2) setuid(2) setsid(2) symlink(2) truncate(2) umask(2) unlink(2) */
-#include <fcntl.h>      /* F_GETFD F_SETFD FD_CLOEXEC fcntl(2) open(2) */
-#include <pwd.h>        /* struct passwd getpwnam_r(3) */
-#include <grp.h>        /* struct group getgrnam_r(3) */
+#include <sys/utsname.h> /* uname(2) */
+#include <sys/wait.h>    /* waitpid(2) */
+#include <unistd.h>      /* chdir(2) chroot(2) close(2) chdir(2) chown(2) chroot(2) getegid(2) geteuid(2) getgid(2) getpid(2) getuid(2) link(2) rename(2) rmdir(2) setegid(2) seteuid(2) setgid(2) setuid(2) setsid(2) symlink(2) truncate(2) umask(2) unlink(2) */
+#include <fcntl.h>       /* F_GETFD F_SETFD FD_CLOEXEC fcntl(2) open(2) */
+#include <pwd.h>         /* struct passwd getpwnam_r(3) */
+#include <grp.h>         /* struct group getgrnam_r(3) */
 
 
 #if __APPLE__
@@ -1821,6 +1822,72 @@ static int unix_umask(lua_State *L) {
 } /* unix_umask() */
 
 
+static int unix_uname(lua_State *L) {
+	struct utsname name;
+
+	if (-1 == uname(&name))
+		return unixL_pusherror(L, errno, "uname", "~$#");
+
+	if (lua_isnoneornil(L, 1)) {
+		lua_createtable(L, 0, 5);
+
+		lua_pushstring(L, name.sysname);
+		lua_setfield(L, -2, "sysname");
+
+		lua_pushstring(L, name.nodename);
+		lua_setfield(L, -2, "nodename");
+
+		lua_pushstring(L, name.release);
+		lua_setfield(L, -2, "release");
+
+		lua_pushstring(L, name.version);
+		lua_setfield(L, -2, "version");
+
+		lua_pushstring(L, name.machine);
+		lua_setfield(L, -2, "machine");
+
+		return 1;
+	} else {
+		static const char *opts[] = {
+			"sysname", "nodename", "release", "version", "machine", NULL
+		};
+		int i, n = 0, top = lua_gettop(L);
+
+		for (i = 1; i <= top; i++) {
+			switch (luaL_checkoption(L, i, NULL, opts)) {
+			case 0:
+				lua_pushstring(L, name.sysname);
+				++n;
+
+				break;
+			case 1:
+				lua_pushstring(L, name.nodename);
+				++n;
+
+				break;
+			case 2:
+				lua_pushstring(L, name.release);
+				++n;
+
+				break;
+			case 3:
+				lua_pushstring(L, name.version);
+				++n;
+
+				break;
+			case 4:
+				lua_pushstring(L, name.machine);
+				++n;
+
+				break;
+			}
+		}
+
+		return n;
+	}
+} /* unix_uname() */
+
+
 static int unix_unlink(lua_State *L) {
 	const char *path = luaL_checkstring(L, 1);
 
@@ -1873,6 +1940,7 @@ static const luaL_Reg unix_routines[] = {
 	{ "timegm",             &unix_timegm },
 	{ "truncate",           &unix_truncate },
 	{ "umask",              &unix_umask },
+	{ "uname",              &unix_uname },
 	{ "unlink",             &unix_unlink },
 	{ NULL,                 NULL }
 }; /* unix_routines[] */
