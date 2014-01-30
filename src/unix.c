@@ -827,13 +827,6 @@ static mode_t unixL_getumask(lua_State *L) {
 
 /*
  * Rough attempt to match POSIX chmod(2) semantics.
- *
- * NOTE: umask(2) is not thread-safe. The only thread-safe way I can think
- * of to query the file creation mask is to create a file with mode 0777 and
- * check which bits were masked. However, we can't rely on being able to
- * create a file at runtime. Therefore, the mode 0777 is used when the who
- * component is unspecified, rather than (0777 & umask()) as specified by
- * POSIX.
  */
 static mode_t unixL_optmode(lua_State *L, int index, mode_t def, mode_t omode) {
 	const char *fmt;
