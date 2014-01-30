@@ -10,7 +10,7 @@ GUARD_$(d) := 1
 #
 # E N V I R O N M E N T  C O N F I G U R A T I O N
 #
--include $(d)/../GNUmakefile
+include $(d)/../GNUmakefile
 
 
 #
@@ -42,9 +42,7 @@ $$(d)/$(1)/%.so: $$(d)/%.c
 
 .SECONDARY: liblua$(1)-unix
 
-.PHONY: all$(1) all unix
-
-liblua$(1)-unix all$(1) all unix: $$(d)/$(1)/unix.so
+liblua$(1)-unix: $$(d)/$(1)/unix.so
 
 endef # BUILD_$(d)
 
@@ -62,9 +60,9 @@ LUAC$(1)_$(d) = $$(or $$(call LUAPATH_$(d), $(1), luac), true)
 
 MODS$(1)_$(d) = $$(DESTDIR)$(2)/unix.so
 
-.SECONDARY: liblua$(1)-unix-install unix$(1)-install
+.SECONDARY: liblua$(1)-unix-install unix$(1)-install unix-install
 
-liblua$(1)-unix-install unix$(1)-install: $$(MODS$(1)_$$(d))
+liblua$(1)-unix-install unix$(1)-install unix-install: $$(MODS$(1)_$$(d))
 
 $$(DESTDIR)$(2)/%.so: $$(d)/$(1)/%.so
 	$$(MKDIR) -p $$(@D)
@@ -75,9 +73,11 @@ $$(DESTDIR)$(3)/%.lua: $$(d)/%.lua
 	$$(MKDIR) -p $$(@D)
 	cp -p $$< $$@
 
-.PHONY: liblua$(1)-cqueues-uninstall cqueues$(1)-uninstall
+.PHONY: liblua$(1)-unix-uninstall unix$(1)-uninstall unix-uninstall
 
-liblua$(1)-unix-uninstall cqueues$(1)-unix:
+unix-uninstall: unix$(1)-uninstall
+
+liblua$(1)-unix-uninstall unix$(1)-uninstall:
 	$$(RM) -f $$(MODS$(1)_$(d))
 
 endef # INSTALL_$(d)
@@ -86,7 +86,19 @@ $(eval $(call INSTALL_$(d),5.1,$$(lua51cpath),$$(lua51path)))
 
 $(eval $(call INSTALL_$(d),5.2,$$(lua52cpath),$$(lua52path)))
 
+
+#
+# L O C A L  R U L E S
+#
 ifneq "$(filter $(abspath $(d)/..)/%, $(abspath $(firstword $(MAKEFILE_LIST))))" ""
+.PHONY: all5.1 all5.2 all
+
+all5.1: liblua5.1-unix
+
+all5.2: liblua5.2-unix
+
+all: all5.1 all5.2
+
 .SECONDARY: install5.1 install5.2 install
 
 install5.1: liblua5.1-unix-install
