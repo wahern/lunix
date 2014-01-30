@@ -20,7 +20,7 @@
 #include <sys/sysctl.h> /* CTL_KERN KERN_RANDOM RANDOM_UUID sysctl(2) */
 #endif
 #include <sys/wait.h>   /* waitpid(2) */
-#include <unistd.h>     /* chdir(2) chroot(2) close(2) chdir(2) chown(2) chroot(2) getpid(2) link(2) rename(2) rmdir(2) setegid(2) seteuid(2) setgid(2) setuid(2) setsid(2) symlink(2) truncate(2) umask(2) unlink(2) */
+#include <unistd.h>     /* chdir(2) chroot(2) close(2) chdir(2) chown(2) chroot(2) getegid(2) geteuid(2) getgid(2) getpid(2) getuid(2) link(2) rename(2) rmdir(2) setegid(2) seteuid(2) setgid(2) setuid(2) setsid(2) symlink(2) truncate(2) umask(2) unlink(2) */
 #include <fcntl.h>      /* F_GETFD F_SETFD FD_CLOEXEC fcntl(2) open(2) */
 #include <pwd.h>        /* struct passwd getpwnam_r(3) */
 #include <grp.h>        /* struct group getgrnam_r(3) */
@@ -1238,6 +1238,20 @@ static int unix_clock_gettime(lua_State *L) {
 } /* unix_clock_gettime() */
 
 
+static int unix_getegid(lua_State *L) {
+	lua_pushnumber(L, getegid());
+
+	return 1;
+} /* unix_getegid() */
+
+
+static int unix_geteuid(lua_State *L) {
+	lua_pushnumber(L, geteuid());
+
+	return 1;
+} /* unix_geteuid() */
+
+
 static int unix_getmode(lua_State *L) {
 	const char *fmt;
 	char *end;
@@ -1250,6 +1264,13 @@ static int unix_getmode(lua_State *L) {
 
 	return 1;
 } /* unix_getmode() */
+
+
+static int unix_getgid(lua_State *L) {
+	lua_pushnumber(L, getgid());
+
+	return 1;
+} /* unix_getgid() */
 
 
 static int unix_getpid(lua_State *L) {
@@ -1276,6 +1297,13 @@ static int unix_gettimeofday(lua_State *L) {
 		return 2;
 	}
 } /* unix_gettimeofday() */
+
+
+static int unix_getuid(lua_State *L) {
+	lua_pushnumber(L, getuid());
+
+	return 1;
+} /* unix_getuid() */
 
 
 static int unix_link(lua_State *L) {
@@ -1603,9 +1631,13 @@ static const luaL_Reg unix_routines[] = {
 	{ "chown",              &unix_chown },
 	{ "chroot",             &unix_chroot },
 	{ "clock_gettime",      &unix_clock_gettime },
+	{ "getegid",            &unix_getegid },
+	{ "geteuid",            &unix_geteuid },
 	{ "getmode",            &unix_getmode },
+	{ "getgid",             &unix_getgid },
 	{ "getpid",             &unix_getpid },
 	{ "gettimeofday",       &unix_gettimeofday },
+	{ "getuid",             &unix_getuid },
 	{ "link",               &unix_link },
 	{ "mkdir",              &unix_mkdir },
 	{ "mkpath",             &unix_mkpath },
