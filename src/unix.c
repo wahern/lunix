@@ -187,7 +187,7 @@ static u_error_t u_realloc(char **buf, size_t *size, size_t minsiz) {
 static u_error_t u_close(int *fd) {
 	int error;
 
-	if (*fd != -1)
+	if (*fd == -1)
 		return errno;
 
 	error = errno;
@@ -520,6 +520,7 @@ typedef struct unixL_State {
 
 	struct {
 		int fd[2];
+		pid_t pid;
 	} ts;
 
 #if !HAVE_ARC4RANDOM
@@ -544,6 +545,8 @@ static int unixL_init(unixL_State *U) {
 
 	if ((error = u_pipe(U->ts.fd, O_NONBLOCK|U_CLOEXEC)))
 		return error;
+
+	U->ts.pid = getpid();
 
 #if !HAVE_ARC4RANDOM
 	arc4_init(&U->random);
@@ -782,16 +785,37 @@ static uid_t unixL_checkgid(lua_State *L, int index) {
 } /* unixL_checkgid() */
 
 
+static int ts_reset(unixL_State *U) {
+	if (!U->ts.pid || U->ts.pid != getpid()) {
+		int error;
+
+		u_close(&U->ts.fd[0]);
+		u_close(&U->ts.fd[1]);
+		U->ts.pid = 0;
+
+		if ((error = u_pipe(U->ts.fd, O_NONBLOCK|U_CLOEXEC)))
+			return error;
+
+		U->ts.pid = getpid();
+	} else {
+		mode_t mask;
+
+		while (read(U->ts.fd[0], &mask, sizeof mask) > 0)
+			;;
+	}
+
+	return 0;
+} /* ts_reset() */
+
 static mode_t unixL_getumask(lua_State *L) {
 	unixL_State *U = unixL_getstate(L);
 	pid_t pid;
 	mode_t mask;
-	int status;
+	int error, status;
 	ssize_t n;
 
-	do {
-		n = read(U->ts.fd[0], &mask, sizeof mask);
-	} while (n > 0);
+	if ((error = ts_reset(U)))
+		return luaL_error(L, "getumask: %s", unixL_strerror(L, error));
 
 	switch ((pid = fork())) {
 	case -1:
