@@ -50,6 +50,8 @@ $(eval $(call BUILD_$(d),5.1))
 
 $(eval $(call BUILD_$(d),5.2))
 
+$(eval $(call BUILD_$(d),5.3))
+
 
 #
 # I N S T A L L  &  U N I N S T A L L  R U L E S
@@ -86,32 +88,40 @@ $(eval $(call INSTALL_$(d),5.1,$$(lua51cpath),$$(lua51path)))
 
 $(eval $(call INSTALL_$(d),5.2,$$(lua52cpath),$$(lua52path)))
 
+$(eval $(call INSTALL_$(d),5.3,$$(lua53cpath),$$(lua53path)))
+
 
 #
 # L O C A L  R U L E S
 #
 ifneq "$(filter $(abspath $(d)/..)/%, $(abspath $(firstword $(MAKEFILE_LIST))))" ""
-.PHONY: all5.1 all5.2 all
+.PHONY: all5.1 all5.2 all5.3 all
 
 all5.1: liblua5.1-unix
 
 all5.2: liblua5.2-unix
 
+all5.3: liblua5.3-unix
+
 all: all5.1 all5.2
 
-.SECONDARY: install5.1 install5.2 install
+.SECONDARY: install5.1 install5.2 install5.3 install
 
 install5.1: liblua5.1-unix-install
 
 install5.2: liblua5.2-unix-install
 
+install5.3: liblua5.3-unix-install
+
 install: install5.1 install5.2
 
-.PHONY: uninstall5.1 uninstall5.2 uninstall
+.PHONY: uninstall5.1 uninstall5.2 uninstall5.3 uninstall
 
 uninstall5.1: liblua5.1-unix-uninstall
 
 uninstall5.2: liblua5.2-unix-uninstall
+
+uninstall5.3: liblua5.3-unix-uninstall
 
 uninstall: uninstall5.1 uninstall5.2
 
@@ -124,7 +134,7 @@ endif
 .PHONY: $(d)/clean $(d)/clean~ clean clean~
 
 $(d)/clean:
-	rm -rf $(@D)/errno.c $(@D)/*.dSYM $(@D)/5.1 $(@D)/5.2
+	rm -rf $(@D)/errno.c $(@D)/*.dSYM $(@D)/5.1 $(@D)/5.2 $(@D)/5.3
 
 $(d)/clean~: $(d)/clean
 	rm -f $(@D)/*~
