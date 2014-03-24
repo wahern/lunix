@@ -1,0 +1,500 @@
+\documentclass[11pt, oneside]{memoir}
+
+\usepackage{fullpage}
+\usepackage{xspace}
+\usepackage{makeidx}
+\usepackage{listings}
+\usepackage{multicol}
+\usepackage{graphicx}
+\usepackage[colorlinks=true, linkcolor=blue]{hyperref}
+
+\setlength{\parindent}{0pt}
+\nonzeroparskip
+
+% add padding to ctabular tables
+\renewcommand{\arraystretch}{1.2}
+
+\makeindex
+
+%
+% COMMANDS
+%
+\newcommand*{\lunix}[0]{\texttt{lunix}\xspace}
+\newcommand*{\luaposix}[0]{\texttt{luaposix}\xspace}
+\newcommand*{\true}[0]{\texttt{true}\xspace}
+\newcommand*{\false}[0]{\texttt{false}\xspace}
+\newcommand*{\nil}[0]{\texttt{nil}\xspace}
+\newcommand*{\key}[1]{#1\index{#1}\xspace}
+\newcommand*{\syscall}[1]{\texttt{#1}\xspace}
+\newcommand*{\routine}[1]{\texttt{#1}\xspace}
+\newcommand*{\fn}[1]{\texttt{#1}\xspace}
+\newcommand*{\const}[1]{\texttt{#1}\xspace}
+\newcommand*{\method}[1]{\texttt{#1}\xspace}
+\newcommand*{\module}[1]{\texttt{#1}\xspace}
+\newcommand*{\errno}[1]{\texttt{#1}\xspace}
+\newcommand*{\crlf}[0]{$\backslash$r$\backslash$n\xspace}
+\newcommand*{\lf}[0]{$\backslash$n\xspace}
+
+%
+% ENVIRONMENTS
+%
+\lstdefinelanguage{lua}{
+morekeywords={break,goto,do,end,while,repeat,until,if,then,elseif,else,for,in,function,local,nil,false,true,and,or,not},
+sensitive=true,
+morestring=[b]"
+}
+
+\lstnewenvironment{code}[1]{
+	\lstset{language=#1}
+}{
+}
+
+\lstnewenvironment{example}[1]{
+	\lstset{language=#1,numbers=left,numberstyle=\tiny,stepnumber=2,tabsize=4}
+	\ttfamily\small
+}{
+}
+
+\newcounter{toccols}
+\setcounter{toccols}{2}
+\newenvironment{Module}[1]{
+	\subsection{\texttt{#1}}
+	\addtocontents{toc}{
+		\protect\begin{multicols}{\value{toccols}}
+		%\renewcommand*{\cftsubsubsectiondotsep}{\cftnodots}%
+	}
+}{
+	\addtocontents{toc}{\protect\end{multicols}}
+}
+
+
+\lstdefinelanguage{lua}{morekeywords={break,goto,do,end,while,repeat,until,if,then,elseif,else,for,in,function,local,nil,false,true,and,or,not},sensitive=true,morestring=[b]"}
+
+
+\begin{document}
+
+%\pagestyle{empty}
+
+\title{
+
+\vspace*{10ex}
+
+\HUGE\sffamily User Guide to \lunix, \\
+
+%\vspace*{20pt}
+%\hrule
+
+\HUGE Comprehensive Unix API Module for Lua \\
+
+\vspace*{30pt}
+\hrule
+}
+
+\date{\today}
+\author{William Ahern}
+%\setlength{\droptitle}{85pt}
+\maketitle
+\thispagestyle{empty}
+\clearpage
+
+\maxtocdepth{subsubsection}
+\setsecnumdepth{subsection}
+\setcounter{page}{1}
+\pagenumbering{roman}
+\tableofcontents
+
+\clearpage
+
+\setcounter{page}{1}
+\pagenumbering{arabic}
+
+\chapterstyle{section}
+\setlength{\beforechapskip}{1ex}
+\setlength{\afterchapskip}{1ex}
+
+\chapter{About}
+
+\lunix is a bindings library module to common Unix system APIs. The module is regularly tested with Linux/glibc, OS X, FreeBSD, NetBSD, OpenBSD and Solaris. The best way to describe it is in contradistinction to \luaposix, the most popular bindings module for Unix APIs in Lua.
+
+\paragraph{Thread-safety}
+
+Unlike \luaposix, it strives to be as thread-safe as possible on the host platform. Interfaces like \fn{strerror\_r} and \const{O\_CLOEXEC} are used throughout. The module even includes a novel solution for the inherently non-thread-safe \fn{umask} system call, where calling \fn{umask} from one thread might result in another thread creating a file with unsafe or unexpected permissions.
+
+\paragraph{POSIX Extensions}
+
+Unlike \luaposix, the library does not restrict itself to POSIX, and emulates an interface when not available natively on a supported platform. For example, the library provides \fn{arc4random} (absent on Linux and Solaris), \fn{clock\_gettime} (absent on OS X), and a thread-safe \fn{timegm} (absent on Solaris).
+
+\paragraph{Leak-safety}
+
+Unlike \luaposix, the library prefers dealing with \const{FILE} handles rather than raw integer descriptors. This helps to mitigate and prevent leaks or double-close bugs---a common source of problems in, e.g., asynchronous applications.
+
+\chapter{Dependencies}
+
+\section{Operating Systems}
+
+\lunix targets modern POSIX-conformant systems. But unlike \texttt{luaposix} it branches out to implement common GNU and BSD extensions. All interfaces are available on all supported platforms, regardless of whether the platform provides a native interface.
+
+I try to regularly compile and test the module against recent versions of OS X, Linux/glibc, FreeBSD, NetBSD, OpenBSD, and Solaris.
+
+\section{Libraries}
+
+\subsection{Lua 5.1, 5.2, 5.3}
+
+\lunix targets Lua 5.1 and above.
+
+\section{GNU Make}
+
+The Makefile requires GNU Make, usually installed as gmake on platforms other than Linux or OS X. The actual \texttt{Makefile} proxies to \texttt{GNUmakefile}. As long as \texttt{gmake} is installed on non-GNU systems you can invoke your system's \texttt{make}.
+
+\chapter{Installation}
+
+All the C modules are built into a single core C library. The core routines are then wrapped and extended through Lua modules. Because there several extant versions of Lua often used in parallel on the same system, there are individual targets to build and install for each supported Lua version. The targets \texttt{all} and \texttt{install} will attempt to build and install both Lua 5.1 and 5.2 modules.
+
+Note that building and installation and can accomplished in a single step by simply invoking one of the install targets with all the necessary variables defined.
+
+\section{Building}
+
+There is no separate \texttt{./configure} step. System introspection occurs during compile-time. However, the ``\texttt{configure}'' make target can be used to cache the build environment so one needn't continually use a long command-line invocation.
+
+All the common GNU-style compiler variables are supported, including \texttt{CC}, \texttt{CPPFLAGS}, \texttt{CFLAGS}, \texttt{LDFLAGS}, and \texttt{SOFLAGS}. Note that you can specify the path to Lua 5.1, Lua 5.2, and Lua 5.3 include headers at the same time in CPPFLAGS; the build system will work things out to ensure the correct headers are loaded when compiling each version of the module.
+
+\subsection{Targets}
+
+\begin{description}
+\item[\texttt{all}] \hfill \\
+Build modules for Lua 5.1 and 5.2.
+
+\item[\texttt{all5.1}] \hfill \\
+Build Lua 5.1 module.
+
+\item[\texttt{all5.2}] \hfill \\
+Build Lua 5.2 module.
+
+\item[\texttt{all5.3}] \hfill \\
+Build Lua 5.3 module.
+
+\end{description}
+
+\section{Installing}
+
+All the common GNU-style installation path variables are supported, including \texttt{prefix}, \texttt{bindir}, \texttt{libdir}, \texttt{datadir}, \texttt{includedir}, and \texttt{DESTDIR}. These additional path variables are also allowed:
+
+\begin{description}
+
+\item[\texttt{lua51path}]  \hfill \\
+Install path for Lua 5.1 modules, e.g. \texttt{\$(prefix)/share/lua/5.1}
+
+\item[\texttt{lua51cpath}]  \hfill \\
+Install path for Lua 5.1 C modules, e.g. \texttt{\$(prefix)/lib/lua/5.1}
+
+\item[\texttt{lua52path}]  \hfill \\
+Install path for Lua 5.2 modules, e.g. \texttt{\$(prefix)/share/lua/5.2}
+
+\item[\texttt{lua52cpath}]  \hfill \\
+Install path for Lua 5.2 C modules, e.g. \texttt{\$(prefix)/lib/lua/5.2}
+
+\item[\texttt{lua53path}]  \hfill \\
+Install path for Lua 5.3 modules, e.g. \texttt{\$(prefix)/share/lua/5.3}
+
+\item[\texttt{lua53cpath}]  \hfill \\
+Install path for Lua 5.3 C modules, e.g. \texttt{\$(prefix)/lib/lua/5.3}
+
+\end{description}
+
+\subsection{Targets}
+
+\begin{description}
+
+\item[\texttt{install}] \hfill \\
+Install modules for Lua 5.1 and 5.2.
+
+\item[\texttt{install5.1}] \hfill \\
+Install Lua 5.1 module.
+
+\item[\texttt{install5.2}] \hfill \\
+Install Lua 5.2 module.
+
+\item[\texttt{install5.3}] \hfill \\
+Install Lua 5.3 module.
+
+\end{description}
+
+
+\chapter{Usage}
+
+\section{Modules}
+
+\begin{Module}{unix}
+
+At present \lunix provides a single module of routines.
+
+\subsubsection[\fn{arc4random}]{\fn{arc4random()}}
+
+Returns a cryptographically strong uniformly random 32-bit integer as a Lua number. On Linux the
+\const{RANDOM\_UUID} \fn{sysctl} feature is used to seed the generator. This avoids fiddling with file descriptors, and also works in a chroot jail. On other platforms without a native \fn{arc4random} interface, such as Solaris, the implementation must resort to /dev/urandom for seeding.
+
+Note that unlike the original implementation on OpenBSD, \fn{arc4random} on OS X and FreeBSD seeds itself from /dev/urandom. This could cause problems in chroot jails.
+
+\subsubsection[\fn{arc4random\_buf}]{\fn{arc4random\_buf($n$)}}
+
+Returns a string of length $n$ containing cryptographically strong random octets using the same CSPRNG underlying \fn{arc4random}.
+
+\subsubsection[\fn{arc4random\_uniform}]{\fn{arc4random\_uniform([$n$])}}
+
+Returns a cryptographically strong uniform random integer in the interval $[0, n-1]$ where $n \leq 2^{32}$. If $n$ is omitted the interval is $[0, 2^{32}-1]$ and effectively behaves like \fn{arc4random}.
+
+\subsubsection[\fn{chdir}]{\fn{chdir($dir$)}}
+
+If $dir$ is a string, attempts to change the current working directory using \syscall{chdir}. Otherwise, if $dir$ is a FILE handle referencing a directory, or an integer file descriptor referencing a directory, attempts to change the current working directory using \syscall{fchdir}.
+
+Returns \true on success, otherwise returns \false, an error string, and an integer system error.
+
+\subsubsection[\fn{chown}]{\fn{chown($file$[, $uid$][, $gid$])}}
+
+$file$ may either be a string path for use with \syscall{chown}, or a FILE handle or integer file descriptor for use with \syscall{fchown}. $uid$ and $gid$ may be integer values or symbolic string names.
+
+Returns \true on success, otherwise returns \false, an error string, and an integer system error.
+
+\subsubsection[\fn{chroot}]{\fn{chroot($path$)}}
+
+Attempt to \syscall{chroot} to the specified string $path$.
+
+Returns \true on success, otherwise returns \false, an error string, and an integer system error.
+
+\subsubsection[\fn{clock\_gettime}]{\fn{clock\_gettime($id$)}}
+
+$id$ should be the string ``realtime'' or the string ``monotonic''.\footnote{FIXME: Also add \texttt{CLOCK\_REALTIME} and \texttt{CLOCK\_MONOTONIC} as module constants with the system integer values.}
+
+Returns a time value as a Lua floating point number, otherwise returns \nil, an error string, and an integer system error.
+
+\subsubsection[\fn{getegid}]{\fn{getegid()}}
+
+Returns the effective process GID as a Lua number.
+
+\subsubsection[\fn{geteuid}]{\fn{geteuid()}}
+
+Returns the effective process UID as a Lua number.
+
+\subsubsection[\fn{getmode}]{\fn{getmode($mode$[, $omode$])}}
+
+The \fn{getmode} interface derives from the routine so-named in almost every \texttt{chmod(1)} utility implementation and which exposes the parser for symbolic file permissions.
+
+$mode$ should be a symbolic mode value with a valid syntax as described by POSIX within the \syscall{chmod(1)} utility man page. If specified, $omode$ should be an integer or a string in decimal, hexidecimal, or octal notation, and represents the original mode value used by the symbolic syntax for inheritance.
+
+\subsubsection[\fn{getgid}]{\fn{getgid()}}
+
+Returns the real process GID as a Lua number.
+
+\subsubsection[\fn{getgrnam}]{\fn{getgrnam($grp$[, $\ldots$])}}
+
+$grp$ is an integer GID or string symbolic group name suitable for use by either \syscall{getgrgid(3)} or \syscall{getgrnam(3)}, respectively.
+
+If no other arguments are specified, on success returns a table with the following fields
+
+\begin{description}
+\item[.name] \hfill \\
+Symbolic group name as a string, or \nil if absent.
+\item[.passwd] \hfill \\
+Password information as a string, or \nil if absent.
+\item[.gid] \hfill \\
+GID as integer.
+\item[.mem] \hfill \\
+Array of supplementary group names, or \nil if absent.
+\end{description}
+
+If additional arguments are given, on success each field specified (as named above) is returned as part of the return value list. ``members'' may be used as an alternative to ``mem''. Note that the return value may be \nil if the field was absent.
+
+If no group was found, returns \nil followed by the error string ``no such group''.
+
+If a system error occurred, returns \nil, an error string, and an integer system error.
+
+
+\subsubsection[\fn{getpid}]{\fn{getpid()}}
+
+Returns the process ID as a Lua number.
+
+\subsubsection[\fn{getpwnam}]{\fn{getpwnam($usr$[, $\ldots$])}}
+
+$usr$ is an integer UID or string symbolic user name suitable for use by either \syscall{getpwuid(3)} or \syscall{getpwnam(3)}, respectively.
+
+If no other arguments are specified, on success returns a table with the following fields
+
+\begin{description}
+\item[.name] \hfill \\
+Symbolic user name as a string, or \nil if absent.
+\item[.passwd] \hfill \\
+Password information as a string, or \nil if absent.
+\item[.uid] \hfill \\
+UID as integer.
+\item[.gid] \hfill \\
+Primary GID as integer.
+\item[.dir] \hfill \\
+Home directory path, or \nil if absent.
+\item[.shell] \hfill \\
+Login shell path, or \nil if absent.
+\item[.gecos] \hfill \\
+Additional user information, or \nil if absent.
+\end{description}
+
+If additional arguments are given, on success each field specified (as named above) is returned as part of the return value list. Note that the return value may be \nil if the value was empty in the database.
+
+If no user was found, returns \nil followed by the error string ``no such user''.
+
+If a system error occurred, returns \nil, an error string, and an integer system error.
+
+\subsubsection[\fn{gettimeofday}]{\fn{gettimeofday([$ints$])}}
+
+Returns the current time as a Lua floating point number or, if $ints$ is \true, as two integers representing seconds and microseconds.
+
+On failure returns \nil, an error string, and an integer system error.
+
+\subsubsection[\fn{getuid}]{\fn{getuid()}}
+
+Returns the real process UID as a Lua number.
+
+\subsubsection[\fn{link}]{\fn{link($path1$, $path2$)}}
+
+Creates a new directory entry at $path2$ as a hard link to $path1$.
+
+Returns \true on success, otherwise \false, an error string, and an integer system error. 
+
+\subsubsection[\fn{mkdir}]{\fn{mkdir($path$[, $mode$])}}
+
+Create a new directory at $path$. $mode$, if specified, should be a symbolic mode string following the POSIX syntax as described by the \texttt{chmod(1)} utility man page. Otherwise, $mode$ defaults to 0777. In either case, $mode$ is masked by the process umask.
+
+Returns \true on success, otherwise \false, an error string, and an integer system error.
+
+\subsubsection[\fn{mkpath}]{\fn{mkpath($path$[, $mode$][, $imode$])}}
+
+Like \fn{mkdir}, but also creates intermediate directories if missing. $imode$ is the mode for intermediate directories. Like $mode$ it is restricted by the process umask, but unlike $mode$ the user write bit is unconditionally set to ensure the full path can be created.
+
+Returns \true on success, otherwise \false, an error string, and an integer system error.
+
+\subsubsection[\fn{rename}]{\fn{rename($path1$, $path2$)}}
+
+Renames the file $path1$ to $path2$. The paths must reside on the same device.
+
+Returns \true on success, otherwise \false, an error string, and an integer system error.
+
+\subsubsection[\fn{rmdir}]{\fn{rmdir($path$)}}
+
+Remove the directory at $path$.
+
+Returns \true on success, otherwise \false, an error string, and an integer system error.
+
+\subsubsection[\fn{setegid}]{\fn{setegid($gid$)}}
+
+Set the effective process GID to $gid$. $gid$ must be an integer or symbolic group name.
+
+Returns \true on success, otherwise \false, an error string, and an integer system error.
+
+\subsubsection[\fn{seteuid}]{\fn{seteuid($uid$)}}
+
+Set the effective process UID to $uid$. $uid$ must be an integer or symbolic user name.
+
+Returns \true on success, otherwise \false, an error string, and an integer system error.
+
+\subsubsection[\fn{setgid}]{\fn{setgid($gid$)}}
+
+Set the real process GID to $gid$. $gid$ must be an integer or symbolic group name.
+
+Returns \true on success, otherwise \false, an error string, and an integer system error.
+
+\subsubsection[\fn{setsid}]{\fn{setsid()}}
+
+Create a new session and process group.
+
+Returns the new process group ID on success, otherwise \nil, an error string, and an integer system error.
+
+\subsubsection[\fn{setuid}]{\fn{setuid($uid$)}}
+
+Set the real process UID to $uid$. $uid$ must be an integer or symbolic user name.
+
+Returns \true on success, otherwise \false, an error string, and an integer system error.
+
+\subsubsection[\fn{symlink}]{\fn{symlink($path1$, $path2$)}}
+
+Creates a new directory entry at $path2$ as a symbolic link to $path1$.
+
+Returns \true on success, otherwise \false, an error string, and an integer system error. 
+
+\subsubsection[\fn{timegm}]{\fn{timegm($tm$)}}
+
+$tm$ is a table of the form returned by the Lua routine \fn{os.date("*t")}. This allows converting a datetime in GMT directly to a POSIX timestamp without having to change the process timezone, which is inherently non-thread-safe.
+
+Returns a POSIX timestamp as a Lua number.
+
+\subsubsection[\fn{truncate}]{\fn{truncate($file$[, $size$])}}
+
+Truncate $file$ to $size$ bytes (defaults to 0). $file$ should be a string path, or \const{FILE} handle or integer file descriptor.
+
+Returns \true on success, otherwise \false, an error string, and an integer system error. 
+
+\subsubsection[\fn{tzset}]{\fn{tzset()}}
+
+Initializes datetime conversion information according to the TZ environment variable, if available.
+
+Return \true.
+
+\subsubsection[\fn{umask}]{\fn{umask([$cmask$])}}
+
+If $cmask$ is specified, sets the process file creation mask and returns the previous mask as a Lua number.
+
+If $cmask$ is not specified, queries the process umask in a thread-safe manner and returns the mask as a Lua number.
+
+\subsubsection[\fn{uname}]{\fn{uname([$\ldots$])}}
+
+If no arguments are given, on success returns a table with the following fields
+
+\begin{description}
+\item[.sysname] \hfill \\
+Name of the current system as a string.
+\item[.nodename] \hfill \\
+Name of this node within an implementation-defined communications network as a string.
+\item[.release] \hfill \\
+Release name of the operating system as a string.
+\item[.version] \hfill \\
+Version of the operating system as a string.
+\item[.machine] \hfill \\
+Hardware description of the system as a string.
+\end{description}
+
+If additional arguments are given, on success each field specified (as named above) is returned as part of the return value list.
+
+On failure returns \nil, an error string, and an integer system error.
+
+\subsubsection[\fn{unlink}]{\fn{unlink($path$)}}
+
+Deletes the file entry at $path$.
+
+Returns \true on success, otherwise \false, an error string, and an integer system error. 
+
+\end{Module}
+
+
+
+
+%\chapter{Examples}
+%
+%These examples and others are made available under examples/ in the source tree.
+%
+%\section{Self-Signed Certificate}
+%
+%\begin{example}{lua}
+%
+%\end{example}
+%
+%
+%\clearpage
+%
+%\section{Signature Generation \& Verification}
+%
+%\begin{example}{lua}
+%\end{example}
+%
+
+
+\appendix
+\printindex
+
+\end{document}
