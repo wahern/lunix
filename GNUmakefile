@@ -132,6 +132,23 @@ $(d)/clean~:
 clean~: $(d)/clean~
 
 
+#
+# R E L E A S E  T A R B A L L  R U L E S
+#
+ifneq "$(filter $(abspath $(d))/%, $(abspath $(firstword $(MAKEFILE_LIST))))" ""
+
+LUNIX_VERSION := $(shell git tag --list | sed -ne 's/^rel-\([[:digit:]]\{8\}\)/\1/p' | sort -n | tail -n1)
+
+.PHONY: $(d)/lunux-$(LUNIX_VERSION).tgz release
+
+$(d)/lunix-$(LUNIX_VERSION).tgz:
+	cd $(@D) && git archive --format=tar --prefix=$(basename $(@F))/ rel-$(LUNIX_VERSION) | gzip -c > $@
+
+release: $(d)/lunix-$(LUNIX_VERSION).tgz
+
+endif # release guard
+
+
 endif # include guard
 
 # non-recursive epilogue
