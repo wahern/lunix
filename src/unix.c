@@ -10,7 +10,7 @@
 #include <string.h>      /* memset(3) strerror_r(3) strspn(3) strcspn(3) */
 #include <signal.h>      /* sigset_t sigfillset(3) sigemptyset(3) sigprocmask(2) */
 #include <ctype.h>       /* isspace(3) */
-#include <time.h>        /* struct tm struct timespec gmtime_r(3) clock_gettime(3) */
+#include <time.h>        /* struct tm struct timespec gmtime_r(3) clock_gettime(3) tzset(3) */
 #include <errno.h>       /* ENOMEM errno */
 
 #include <sys/types.h>   /* gid_t mode_t off_t pid_t uid_t */
@@ -1134,10 +1134,12 @@ static int unix_arc4random_buf(lua_State *L) {
 
 
 static int unix_arc4random_uniform(lua_State *L) {
-	if (lua_isnoneornil(L, 1)) {
+	lua_Number modn = luaL_optnumber(L, 1, 4294967296.0);
+
+	if (modn >= 4294967296.0) {
 		lua_pushnumber(L, unixL_random(L));
 	} else {
-		uint32_t n = (uint32_t)luaL_checknumber(L, 1);
+		uint32_t n = (uint32_t)modn;
 		uint32_t r, min;
 
 		min = -n % n;
@@ -1826,6 +1828,15 @@ static int unix_truncate(lua_State *L) {
 } /* unix_truncate() */
 
 
+static int unix_tzset(lua_State *L) {
+	tzset();
+
+	lua_pushboolean(L, 1);
+
+	return 1;
+} /* unix_tzset() */
+
+
 static int unix_umask(lua_State *L) {
 	mode_t cmask = unixL_getumask(L);
 
@@ -1956,6 +1967,7 @@ static const luaL_Reg unix_routines[] = {
 	{ "symlink",            &unix_symlink },
 	{ "timegm",             &unix_timegm },
 	{ "truncate",           &unix_truncate },
+	{ "tzset",              &unix_tzset },
 	{ "umask",              &unix_umask },
 	{ "uname",              &unix_uname },
 	{ "unlink",             &unix_unlink },
