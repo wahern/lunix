@@ -13,6 +13,7 @@
 #include <time.h>        /* struct tm struct timespec gmtime_r(3) clock_gettime(3) tzset(3) */
 #include <errno.h>       /* ENOMEM errno */
 
+#include <sys/param.h>   /* __NetBSD_Version__ __OpenBSD_Version__ */
 #include <sys/types.h>   /* gid_t mode_t off_t pid_t uid_t */
 #include <sys/stat.h>    /* S_ISDIR() */
 #include <sys/time.h>    /* struct timeval gettimeofday(2) */
@@ -21,10 +22,11 @@
 #endif
 #include <sys/utsname.h> /* uname(2) */
 #include <sys/wait.h>    /* waitpid(2) */
-#include <unistd.h>      /* chdir(2) chroot(2) close(2) chdir(2) chown(2) chroot(2) getegid(2) geteuid(2) getgid(2) getpid(2) getuid(2) link(2) rename(2) rmdir(2) setegid(2) seteuid(2) setgid(2) setuid(2) setsid(2) symlink(2) truncate(2) umask(2) unlink(2) */
+#include <unistd.h>      /* chdir(2) chroot(2) close(2) chdir(2) chown(2) chroot(2) dup2(2) getegid(2) geteuid(2) getgid(2) getpid(2) getuid(2) link(2) rename(2) rmdir(2) setegid(2) seteuid(2) setgid(2) setuid(2) setsid(2) symlink(2) truncate(2) umask(2) unlink(2) */
 #include <fcntl.h>       /* F_GETFD F_SETFD FD_CLOEXEC fcntl(2) open(2) */
 #include <pwd.h>         /* struct passwd getpwnam_r(3) */
 #include <grp.h>         /* struct group getgrnam_r(3) */
+#include <dirent.h>      /* closedir(3) fdopendir(3) opendir(3) readdir(3) rewinddir(3) */
 
 
 #if __APPLE__
@@ -47,6 +49,15 @@
 #endif
 
 
+/*
+ * Lua 5.1 userdata is a simple FILE *, while LuaJIT is a struct with the
+ * first member a FILE *, similar to Lua 5.2.
+ */
+typedef struct luaL_Stream {
+	FILE *f;
+} luaL_Stream;
+
+
 static void *luaL_testudata(lua_State *L, int index, const char *tname) {
 	void *p = lua_touserdata(L, index);
 	int eq;
@@ -61,6 +72,12 @@ static void *luaL_testudata(lua_State *L, int index, const char *tname) {
 	return (eq)? p : 0;
 } /* luaL_testudate() */
 
+
+static void luaL_setmetatable(lua_State *L, const char *tname) {
+	luaL_getmetatable(L, tname);
+	lua_setmetatable(L, -2);
+} /* luaL_setmetatable() */
+
 #endif
 
 
@@ -73,15 +90,33 @@ static void *luaL_testudata(lua_State *L, int index, const char *tname) {
  * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
 
 #ifndef __GNUC_PREREQ
-#define __GNUC_PREREQ(m, n) 0
+#define __GNUC_PREREQ(M, m) 0
 #endif
+
+#ifndef __NetBSD_Prereq__
+#define __NetBSD_Prereq__(M, m, p) 0
+#endif
+
+#define GNUC_PREREQ(M, m) __GNUC_PREREQ(M, m)
+
+#define NETBSD_PREREQ(M, m) __NetBSD_Prereq__(M, m, 0)
+
+#define FREEBSD_PREREQ(M, m) (__FreeBSD_Version >= ((M) * 100000) + ((m) * 1000))
 
 #ifndef HAVE_ARC4RANDOM
 #define HAVE_ARC4RANDOM (defined __OpenBSD__ || defined __FreeBSD__ || defined __NetBSD__ || defined __MirBSD__ || defined __APPLE__)
 #endif
 
 #ifndef HAVE_PIPE2
-#define HAVE_PIPE2 (__GNUC_PREREQ(2, 9) || __FreeBSD__ >= 10)
+#define HAVE_PIPE2 (GNUC_PREREQ(2, 9) || FREEBSD_PREREQ(10, 0) || NETBSD_PREREQ(6, 0))
+#endif
+
+#ifndef HAVE_DUP3
+#define HAVE_DUP3 (GNUC_PREREQ(2, 9) || FREEBSD_PREREQ(10, 0) || NETBSD_PREREQ(6, 0))
+#endif
+
+#ifndef HAVE_FDOPENDIR
+#define HAVE_FDOPENDIR (!defined __APPLE__)
 #endif
 
 
@@ -181,6 +216,8 @@ static u_error_t u_realloc(char **buf, size_t *size, size_t minsiz) {
 #define U_CLOEXEC (O_CLOEXEC)
 #endif
 
+#define U_SYSFLAGS ((1LL << 32) - 1)
+
 #define u_flags_t long long
 
 
@@ -279,13 +316,8 @@ static u_error_t u_open(int *fd, const char *path, u_flags_t flags, mode_t mode)
 	u_flags_t _flags;
 	int error;
 
-	if (-1 == (*fd = open(path, flags, mode))) {
-		if (errno != EINVAL || !(flags & U_CLOEXEC))
-			goto syerr;
-
-		if (-1 == (*fd = open(path, (flags & ~U_CLOEXEC), mode)))
-			goto syerr;
-	}
+	if (-1 == (*fd = open(path, (U_SYSFLAGS & flags), mode)))
+		goto syerr;
 
 	if ((error = u_fixflags(*fd, flags)))
 		goto error;
@@ -332,6 +364,83 @@ static u_error_t u_pipe(int *fd, u_flags_t flags) {
 	return 0;
 #endif
 } /* u_pipe() */
+
+
+static u_error_t u_dup3(int fd, int fd2, u_flags_t flags) {
+#if HAVE_DUP3
+	if (-1 == dup3(fd, fd2, flags))
+		return errno;
+
+	return 0;
+#else
+	int close2 = (0 != fstat(fd2, &(struct stat){ 0 }));
+	int error;
+
+	if (-1 == dup2(fd, fd2))
+		return errno;
+
+	if ((error = u_fixflags(fd2, flags))) {
+		if (close2)
+			u_close(&fd2);
+
+		return error;
+	}
+
+	return 0;
+#endif
+} /* u_dup3() */
+
+
+static u_error_t u_fdopendir(DIR **dp, int fd) {
+#if HAVE_FDOPENDIR
+	int error;
+
+	if ((error = u_setflag(fd, U_CLOEXEC)))
+		return error;
+
+	if (!(*dp = fdopendir(fd)))
+		return errno;
+
+	return 0;
+#else
+	struct stat st;
+	int fd2, error;
+
+	if (0 != fstat(fd, &st))
+		goto syerr;
+
+	if (!S_ISDIR(st.st_mode)) {
+		error = ENOTDIR;
+
+		goto error;
+	}
+
+	if (!(*dp = opendir(".")))
+		goto syerr;
+
+	if (-1 == (fd2 = dirfd(*dp)))
+		goto syerr;
+
+	if ((error = u_dup3(fd, fd2, U_CLOEXEC)))
+		goto error;
+
+	if (-1 == lseek(fd2, 0, SEEK_SET))
+		goto syerr;
+
+	u_close(&fd);
+
+	return 0;
+syerr:
+	error = errno;
+error:
+	if (*dp) {
+		closedir(*dp);
+		*dp = NULL;
+	}
+
+	return error;
+#endif
+} /* u_fdopendir() */
 
 
 #if !HAVE_ARC4RANDOM
@@ -1003,19 +1112,27 @@ apply:
 
 
 static int unixL_optfileno(lua_State *L, int index, int def) {
-	FILE *fp;
+	luaL_Stream *fh;
+	DIR **dp;
 	int fd;
 
-	if (!(fp = luaL_testudata(L, 1, LUA_FILEHANDLE)))
-		return def;
+	if ((fh = luaL_testudata(L, index, LUA_FILEHANDLE))) {
+		luaL_argcheck(L, fh->f != NULL, index, "attempt to use a closed file");
 
-	luaL_argcheck(L, fp != NULL, index, "attempt to use a closed file");
+		fd = fileno(fh->f);
 
-	fd = fileno(fp);
+		luaL_argcheck(L, fd >= 0, index, "attempt to use irregular file (no descriptor)");
+	}
 
-	luaL_argcheck(L, fd >= 0, index, "attempt to use irregular file (no descriptor)");
+	if ((dp = luaL_testudata(L, index, "DIR*"))) {
+		luaL_argcheck(L, *dp != NULL, index, "attempt to use a closed directory");
 
-	return fd;
+		fd = dirfd(*dp);
+
+		luaL_argcheck(L, fd >= 0, index, "attempt to use irregular directory (no descriptor)");
+	}
+
+	return def;
 } /* unixL_optfileno() */
 
 
@@ -1649,6 +1766,97 @@ static int unix_mkpath(lua_State *L) {
 
 	return 1;
 } /* unix_mkpath() */
+
+
+
+static DIR *dir_checkself(lua_State *L, int index) {
+	DIR **dp = luaL_checkudata(L, index, "DIR*");
+
+	luaL_argcheck(L, *dp != NULL, index, "attempt to use a closed directory");
+
+	return *dp;
+} /* dir_checkself() */
+
+
+static int dir_read(lua_State *L) {
+	DIR *dp = dir_checkself(L, 1);
+	return 0;
+} /* dir_read() */
+
+
+static int dir_rewind(lua_State *L) {
+	DIR *dp = dir_checkself(L, 1);
+	return 0;
+} /* dir_rewind() */
+
+
+static int dir_close(lua_State *L) {
+	DIR **dp = luaL_checkudata(L, 1, "DIR*");
+
+	if (*dp) {
+		int error = (0 != closedir(*dp))? errno : 0;
+
+		*dp = NULL;
+
+		if (error)
+			return luaL_error(L, "closedir: %s", unixL_strerror(L, error));
+	}
+
+	return 0;
+} /* dir_close() */
+
+
+static const luaL_Reg dir_methods[] = {
+	{ "read",   &dir_read },
+	{ "rewind", &dir_rewind },
+	{ "close",  &dir_close },
+	{ NULL,     NULL }
+}; /* dir_methods[] */
+
+
+static const luaL_Reg dir_metamethods[] = {
+	{ "__gc", &dir_close },
+	{ NULL,   NULL }
+}; /* dir_metamethods[] */
+
+
+static int unix_opendir(lua_State *L) {
+	DIR **dp;
+	int fd, fd2 = -1, error;
+
+	dp = lua_newuserdata(L, sizeof *dp);
+	*dp = NULL;
+	luaL_setmetatable(L, "DIR*");
+
+	if (-1 != (fd = unixL_optfileno(L, 1, -1))) {
+		/*
+		 * There's no simple way to just duplicate the descriptor
+		 * and atomically set O_CLOEXEC. The dup3() extension
+		 * requires a valid target descriptor.
+		 */
+		 if ((error = u_open(&fd2, ".", O_RDONLY|U_CLOEXEC, 0)))
+		 	goto error;
+
+		if ((error = u_dup3(fd, fd2, U_CLOEXEC)))
+			goto error;
+
+		if ((error = u_fdopendir(dp, fd2)))
+			goto error;
+	} else {
+		const char *path = luaL_checkstring(L, 1);
+
+		if (!(*dp = opendir(path)))
+			goto syerr;
+	}
+
+	return 1;
+syerr:
+	error = errno;
+error:
+	u_close(&fd2);
+
+	return unixL_pusherror(L, error, "opendir", "~$#");
+} /* unix_opendir() */
 
 
 static int unix_rename(lua_State *L) {
