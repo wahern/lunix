@@ -742,7 +742,7 @@ static void unixL_destroy(unixL_State *U) {
 
 	free(U->dir.ent);
 	U->dir.ent = NULL;
-	U->dir.bufsiz = NULL;
+	U->dir.bufsiz = 0;
 	U->dir.dp = NULL;
 
 	free(U->gr.buf);
