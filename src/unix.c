@@ -2123,6 +2123,11 @@ static int unix_rename(lua_State *L) {
 } /* unix_rename() */
 
 
+static int unix_rewinddir(lua_State *L) {
+	return dir_rewind(L);
+} /* unix_rewinddir() */
+
+
 #define unix_S_IFTEST(L, test) do { \
 	int mode = luaL_optinteger(L, 1, 0); \
 	lua_pushboolean(L, test(mode)); \
@@ -2461,6 +2466,7 @@ static const luaL_Reg unix_routines[] = {
 	{ "opendir",            &unix_opendir },
 	{ "readdir",            &unix_readdir },
 	{ "rename",             &unix_rename },
+	{ "rewinddir",          &unix_rewinddir },
 	{ "rmdir",              &unix_rmdir },
 	{ "S_ISBLK",            &unix_S_ISBLK },
 	{ "S_ISCHR",            &unix_S_ISCHR },
