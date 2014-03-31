@@ -2042,7 +2042,9 @@ static int dir_close(lua_State *L) {
 	if ((error = unixL_closedir(L, dp)))
 		return luaL_error(L, "closedir: %s", unixL_strerror(L, error));
 
-	return 0;
+	lua_pushboolean(L, 1);
+
+	return 1;
 } /* dir_close() */
 
 
