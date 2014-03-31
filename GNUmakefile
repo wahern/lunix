@@ -90,7 +90,7 @@ CPPFLAGS_$(d) += -D_REENTRANT -D_THREAD_SAFE -D_GNU_SOURCE
 endif
 
 ifeq ($(VENDOR_OS_$(d)), SunOS)
-CPPFLAGS_$(d) += -Usun -D_XPG4_2 -D__EXTENSIONS__
+CPPFLAGS_$(d) += -Usun -D_XPG4_2 -D__EXTENSIONS__ -D_POSIX_PTHREAD_SEMANTICS
 endif
 
 ifeq ($(VENDOR_CC_$(d)), gcc)

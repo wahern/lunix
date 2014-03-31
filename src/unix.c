@@ -22,7 +22,7 @@
 #endif
 #include <sys/utsname.h> /* uname(2) */
 #include <sys/wait.h>    /* waitpid(2) */
-#include <unistd.h>      /* chdir(2) chroot(2) close(2) chdir(2) chown(2) chroot(2) dup2(2) getegid(2) geteuid(2) getgid(2) getpid(2) getuid(2) link(2) rename(2) rmdir(2) setegid(2) seteuid(2) setgid(2) setuid(2) setsid(2) symlink(2) truncate(2) umask(2) unlink(2) */
+#include <unistd.h>      /* _PC_NAME_MAX chdir(2) chroot(2) close(2) chdir(2) chown(2) chroot(2) dup2(2) fpathconf(3) getegid(2) geteuid(2) getgid(2) getpid(2) getuid(2) link(2) rename(2) rmdir(2) setegid(2) seteuid(2) setgid(2) setuid(2) setsid(2) symlink(2) truncate(2) umask(2) unlink(2) */
 #include <fcntl.h>       /* F_GETFD F_SETFD FD_CLOEXEC fcntl(2) open(2) */
 #include <pwd.h>         /* struct passwd getpwnam_r(3) */
 #include <grp.h>         /* struct group getgrnam_r(3) */
@@ -691,6 +691,12 @@ typedef struct unixL_State {
 		pid_t pid;
 	} ts;
 
+	struct {
+		DIR *dp;
+		struct dirent *ent;
+		size_t bufsiz;
+	} dir;
+
 #if !HAVE_ARC4RANDOM
 	unixL_Random random;
 #endif
@@ -733,6 +739,11 @@ static void unixL_destroy(unixL_State *U) {
 #if !HAVE_ARC4RANDOM
 	arc4_destroy(&U->random);
 #endif
+
+	free(U->dir.ent);
+	U->dir.ent = NULL;
+	U->dir.bufsiz = NULL;
+	U->dir.dp = NULL;
 
 	free(U->gr.buf);
 	U->gr.buf = NULL;
@@ -811,6 +822,53 @@ static int unixL_pusherror(lua_State *L, int error, const char *fun NOTUSED, con
 
 	return lua_gettop(L) - top;
 } /* unixL_pusherror() */
+
+
+static u_error_t unixL_readdir(lua_State *L, DIR *dp, struct dirent **ent) {
+	unixL_State *U = unixL_getstate(L);
+
+	if (U->dir.dp != dp) {
+		long namemax = fpathconf(dirfd(dp), _PC_NAME_MAX);
+		size_t bufsiz;
+
+		if (namemax == -1)
+			return errno;
+
+		bufsiz = sizeof (struct dirent) + namemax + 1;
+
+		if (bufsiz > U->dir.bufsiz) {
+			void *entbuf = realloc(U->dir.ent, bufsiz);
+
+			if (!entbuf)
+				return errno;
+
+			U->dir.ent = entbuf;
+			U->dir.bufsiz = bufsiz;
+		}
+
+		U->dir.dp = dp;
+	}
+
+	return readdir_r(dp, U->dir.ent, ent);
+} /* unixL_readdir() */
+
+
+static u_error_t unixL_closedir(lua_State *L, DIR **dp) {
+	unixL_State *U = unixL_getstate(L);
+	int error = 0;
+
+	if (*dp) {
+		if (U->dir.dp == *dp)
+			U->dir.dp = NULL;
+
+		if (0 != closedir(*dp))
+			error = errno;
+
+		*dp = NULL;
+	}
+
+	return error;
+} /* unixL_closedir() */
 
 
 static int unixL_getpwnam(lua_State *L, const char *user, struct passwd **ent) {
@@ -1891,10 +1949,10 @@ static void dir_pushtable(lua_State *L, struct dirent *ent) {
 
 static int dir_read(lua_State *L) {
 	DIR *dp = dir_checkself(L, 1);
-	struct dirent entry, *ent = NULL;
+	struct dirent *ent = NULL;
 	int error;
 
-	if ((error = readdir_r(dp, &entry, &ent)))
+	if ((error = unixL_readdir(L, dp, &ent)))
 		return unixL_pusherror(L, error, "readdir", "~$#");
 
 	if (!ent)
@@ -1919,10 +1977,10 @@ static int dir_read(lua_State *L) {
 static int dir_nextent(lua_State *L) {
 	DIR *dp = dir_checkself(L, lua_upvalueindex(2));
 	int nup = lua_tointeger(L, lua_upvalueindex(3));
-	struct dirent entry, *ent = NULL;
+	struct dirent *ent = NULL;
 	int i, error;
 
-	if ((error = readdir_r(dp, &entry, &ent)))
+	if ((error = unixL_readdir(L, dp, &ent)))
 		return luaL_error(L, "readdir: %s", unixL_strerror(L, error));
 
 	if (!ent)
@@ -1975,15 +2033,10 @@ static int dir_rewind(lua_State *L) {
 
 static int dir_close(lua_State *L) {
 	DIR **dp = luaL_checkudata(L, 1, "DIR*");
+	int error;
 
-	if (*dp) {
-		int error = (0 != closedir(*dp))? errno : 0;
-
-		*dp = NULL;
-
-		if (error)
-			return luaL_error(L, "closedir: %s", unixL_strerror(L, error));
-	}
+	if ((error = unixL_closedir(L, dp)))
+		return luaL_error(L, "closedir: %s", unixL_strerror(L, error));
 
 	return 0;
 } /* dir_close() */
@@ -2446,7 +2499,7 @@ int luaopen_unix(lua_State *L) {
 	/*
 	 * add DIR* class
 	 */
-	lua_pushvalue(L, -2);
+	lua_pushvalue(L, -1);
 	unixL_newmetatable(L, "DIR*", dir_methods, dir_metamethods, 1);
 	lua_pop(L, 1);
 
