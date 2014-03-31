@@ -126,7 +126,7 @@ Unlike \luaposix, the library does not restrict itself to POSIX, and emulates an
 
 \paragraph{Leak-safety}
 
-Unlike \luaposix, the library prefers dealing with \const{FILE} handles rather than raw integer descriptors. This helps to mitigate and prevent leaks or double-close bugs---a common source of problems in, e.g., asynchronous applications.
+Unlike \luaposix, the library prefers dealing with \const{FILE} handles rather than raw integer descriptors. This helps to mitigate and prevent leaks or double-close bugs---a common source of problems in, e.g., asynchronous applications. Routines like \fn{chdir} or \fn{opendir} transparently accept string paths, FILE handles, DIR handles, or even a raw integer descriptors.
 
 \chapter{Dependencies}
 
@@ -267,6 +267,10 @@ $id$ should be the string ``realtime'' or the string ``monotonic''.\footnote{FIX
 
 Returns a time value as a Lua floating point number, otherwise returns \nil, an error string, and an integer system error.
 
+\subsubsection[\fn{closedir}]{\fn{closedir($dir$)}}
+
+Closes the DIR handle, releasing the underlying file descriptor.
+
 \subsubsection[\fn{getegid}]{\fn{getegid()}}
 
 Returns the effective process GID as a Lua number.
@@ -370,17 +374,90 @@ Like \fn{mkdir}, but also creates intermediate directories if missing. $imode$ i
 
 Returns \true on success, otherwise \false, an error string, and an integer system error.
 
+\subsubsection[\fn{opendir}]{\fn{opendir($path$|$file$|$dir$|$fd$)}}
+
+Creates a DIR handle for reading directory entries. Caller may specify a path string, a Lua FILE handle, another DIR handle, or an integer descriptor. In the latter three cases, the underlying descriptor is duplicated using \syscall{dup3} (if available) or \syscall{dup2} because there's no safe way to steal the descriptor from existing FILE or DIR handles. But it's not a good idea to mix reads between the two original and duplicated descriptors as they will normally share the same open file entry in the kernel, including the same position cursor.\footnote{In the future may add ability to open /proc/self/fd or /dev/fd entries, which should create a new open file entry.}
+
+Returns a DIR handle on success, otherwise nil, an error string, and an integer system error.
+
+\subsubsection[\fn{readdir}]{\fn{readdir($dir$[, $field$ $\ldots$])}}
+
+Reads the next directory entry. If no field arguments are specified, on success returns a table with the following fields
+
+\begin{description}
+\item[.name] \hfill \\
+Name of file.
+\item[.ino] \hfill \\
+Inode of file.
+\item[.type] \hfill \\
+A numeric value describing the file type, similar to the ``mode'' field returned by \syscall{stat}, except without any permission bits present. You can pass this value to \fn{S\_ISREG}, \fn{S\_ISDIR}, \fn{S\_ISFIFO}, etc.
+
+Available on Linux and BSD derivatives, but, e.g., will be \nil on Solaris.
+\end{description}
+
+If additional arguments are given, on success each field specified (as named above) is returned as part of the return value list. Note that the return value may be \nil if the value was unavailable.
+
+If the end of directory entries has been reached, returns \nil.
+
+If a system error occurred, returns \nil, an error string, and an integer system error.
+
 \subsubsection[\fn{rename}]{\fn{rename($path1$, $path2$)}}
 
 Renames the file $path1$ to $path2$. The paths must reside on the same device.
 
 Returns \true on success, otherwise \false, an error string, and an integer system error.
 
+\subsubsection[\fn{rewinddir}]{\fn{rewinddir($dir$)}}
+
+Rewinds the DIR handle so the directory entries may be read again.
+
 \subsubsection[\fn{rmdir}]{\fn{rmdir($path$)}}
 
 Remove the directory at $path$.
 
 Returns \true on success, otherwise \false, an error string, and an integer system error.
+
+\subsubsection[\fn{S\_ISBLK}]{\fn{S\_ISBLK($mode$)}}
+
+Tests whether the specified $mode$ value---as returned by, e.g., \syscall{stat} or \syscall{readdir}---represents a block device.
+
+Returns \true or \false.
+
+\subsubsection[\fn{S\_ISCHR}]{\fn{S\_ISCHR($mode$)}}
+
+Tests whether the specified $mode$ value---as returned by, e.g., \syscall{stat} or \syscall{readdir}---represents a character device.
+
+Returns \true or \false.
+
+\subsubsection[\fn{S\_ISDIR}]{\fn{S\_ISDIR($mode$)}}
+
+Tests whether the specified $mode$ value---as returned by, e.g., \syscall{stat} or \syscall{readdir}---represents a directory.
+
+Returns \true or \false.
+
+\subsubsection[\fn{S\_ISFIFO}]{\fn{S\_ISFIFO($mode$)}}
+
+Tests whether the specified $mode$ value---as returned by, e.g., \syscall{stat} or \syscall{readdir}---represents a FIFO or pipe.
+
+Returns \true or \false.
+
+\subsubsection[\fn{S\_ISREG}]{\fn{S\_ISREG($mode$)}}
+
+Tests whether the specified $mode$ value---as returned by, e.g., \syscall{stat} or \syscall{readdir}---represents a regular file.
+
+Returns \true or \false.
+
+\subsubsection[\fn{S\_ISLNK}]{\fn{S\_ISLNK($mode$)}}
+
+Tests whether the specified $mode$ value---as returned by, e.g., \syscall{stat} or \syscall{readdir}---represents a symbolic link.
+
+Returns \true or \false.
+
+\subsubsection[\fn{S\_ISSOCK}]{\fn{S\_ISSOCK($mode$)}}
+
+Tests whether the specified $mode$ value---as returned by, e.g., \syscall{stat} or \syscall{readdir}---represents a socket.
+
+Returns \true or \false.
 
 \subsubsection[\fn{setegid}]{\fn{setegid($gid$)}}
 
@@ -471,8 +548,27 @@ Returns \true on success, otherwise \false, an error string, and an integer syst
 
 \end{Module}
 
+\begin{Module}{unix.dir}
 
+The \module{unix.dir} module implements the prototype for DIR handles, as returned by \fn{unix.opendir}.
 
+\subsubsection[\fn{dir:files}]{\fn{dir:files([$field$ $\ldots$])}}
+
+Returns an iterator over \fn{unix.readdir($\ldots$)}.
+
+\subsubsection[\fn{dir:read}]{\fn{dir:read([$field$ $\ldots$])}}
+
+Identical to \fn{unix.readdir}.
+
+\subsubsection[\fn{dir:rewind}]{\fn{dir:rewind()}}
+
+Identical to \fn{unix.rewinddir}.
+
+\subsubsection[\fn{dir:close}]{\fn{dir:close()}}
+
+Identical to \fn{unix.closedir}.
+
+\end{Module}
 
 %\chapter{Examples}
 %
