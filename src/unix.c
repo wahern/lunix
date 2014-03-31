@@ -26,7 +26,7 @@
 #include <fcntl.h>       /* F_GETFD F_SETFD FD_CLOEXEC fcntl(2) open(2) */
 #include <pwd.h>         /* struct passwd getpwnam_r(3) */
 #include <grp.h>         /* struct group getgrnam_r(3) */
-#include <dirent.h>      /* closedir(3) fdopendir(3) opendir(3) readdir(3) rewinddir(3) */
+#include <dirent.h>      /* closedir(3) fdopendir(3) opendir(3) readdir_r(3) rewinddir(3) */
 
 
 #if __APPLE__
@@ -58,6 +58,11 @@ typedef struct luaL_Stream {
 } luaL_Stream;
 
 
+static int lua_absindex(lua_State *L, int index) {
+	return (index > 0 || index <= LUA_REGISTRYINDEX)? index : lua_gettop(L) + index + 1;
+} /* lua_absindex() */
+
+
 static void *luaL_testudata(lua_State *L, int index, const char *tname) {
 	void *p = lua_touserdata(L, index);
 	int eq;
@@ -78,7 +83,28 @@ static void luaL_setmetatable(lua_State *L, const char *tname) {
 	lua_setmetatable(L, -2);
 } /* luaL_setmetatable() */
 
-#endif
+
+static void luaL_setfuncs(lua_State *L, const luaL_Reg *l, int nup) {
+	int i, t = lua_absindex(L, -1 - nup);
+
+	for (; l->name; l++) {
+		for (i = 0; i < nup; i++)
+			lua_pushvalue(L, -nup);
+		lua_pushcclosure(L, l->func, nup);
+		lua_setfield(L, t, l->name);
+	}
+
+	lua_pop(L, nup);
+} /* luaL_setfuncs() */
+
+
+#define luaL_newlibtable(L, l) \
+	lua_createtable(L, 0, (sizeof (l) / sizeof *(l)) - 1)
+
+#define luaL_newlib(L, l) \
+	(luaL_newlibtable((L), (l)), luaL_setfuncs((L), (l), 0))
+
+#endif /* LUA_VERSION_NUM < 502 */
 
 
 /*
@@ -608,6 +634,39 @@ static uint32_t arc4_getword(unixL_Random *R) {
 } /* arc4_getword() */
 
 #endif /* !HAVE_ARC4RANDOM */
+
+
+/*
+ * Extends luaL_newmetatable by adding all the relevant fields to the
+ * metatable using the standard pattern (placing all the methods in the
+ * __index metafield). Leaves the metatable on the stack.
+ */
+static int unixL_newmetatable(lua_State *L, const char *name, const luaL_Reg *methods, const luaL_Reg *metamethods, int nup) {
+	int i, n;
+
+	if (!luaL_newmetatable(L, name))
+		return 0;
+
+	/* add metamethods */
+	for (i = 0; i < nup; i++)
+		lua_pushvalue(L, -1 - nup);
+
+	luaL_setfuncs(L, metamethods, nup);
+
+	/* add methods */
+	for (n = 0; methods[n].name; n++)
+		;;
+	lua_createtable(L, 0, n);
+
+	for (i = 0; i < nup; i++)
+		lua_pushvalue(L, -2 - nup);
+
+	luaL_setfuncs(L, methods, nup);
+
+	lua_setfield(L, -2, "__index");
+
+	return 1;
+} /* unixL_newmetatable() */
 
 
 typedef struct unixL_State {
@@ -1375,6 +1434,13 @@ static int unix_clock_gettime(lua_State *L) {
 } /* unix_clock_gettime() */
 
 
+static int dir_close(lua_State *);
+
+static int unix_closedir(lua_State *L) {
+	return dir_close(L);
+} /* unix_closedir() */
+
+
 static int unix_getegid(lua_State *L) {
 	lua_pushnumber(L, getegid());
 
@@ -1778,15 +1844,132 @@ static DIR *dir_checkself(lua_State *L, int index) {
 } /* dir_checkself() */
 
 
+enum dir_field {
+	DF_NAME,
+	DF_INO,
+	DF_TYPE
+}; /* enum dir_field */
+
+static const char *dir_field[] = { "name", "ino", "type", NULL };
+
+
+static void dir_pushfield(lua_State *L, struct dirent *ent, enum dir_field type) {
+	switch (type) {
+	case DF_NAME:
+		lua_pushstring(L, ent->d_name);
+		break;
+	case DF_INO:
+		lua_pushinteger(L, ent->d_ino);
+		break;
+	case DF_TYPE:
+#if defined DTTOIF
+		lua_pushinteger(L, DTTOIF(ent->d_type));
+#else
+		lua_pushnil(L);
+#endif
+		break;
+	default:
+		lua_pushnil(L);
+		break;
+	} /* switch() */
+} /* dir_pushfield() */
+
+
+static void dir_pushtable(lua_State *L, struct dirent *ent) {
+	lua_createtable(L, 0, 3);
+
+	dir_pushfield(L, ent, DF_NAME);
+	lua_setfield(L, -2, "name");
+
+	dir_pushfield(L, ent, DF_INO);
+	lua_setfield(L, -2, "ino");
+
+	dir_pushfield(L, ent, DF_TYPE);
+	lua_setfield(L, -2, "type");
+} /* dir_pushtable() */
+
+
 static int dir_read(lua_State *L) {
 	DIR *dp = dir_checkself(L, 1);
-	return 0;
+	struct dirent entry, *ent = NULL;
+	int error;
+
+	if ((error = readdir_r(dp, &entry, &ent)))
+		return unixL_pusherror(L, error, "readdir", "~$#");
+
+	if (!ent)
+		return 0;
+
+	if (lua_isnoneornil(L, 2)) {
+		dir_pushtable(L, ent);
+
+		return 1;
+	} else {
+		int i, n = 0, top = lua_gettop(L);
+
+		for (i = 2; i <= top; i++, n++) {
+			dir_pushfield(L, ent, luaL_checkoption(L, i, NULL, dir_field));
+		}
+
+		return n;
+	}
 } /* dir_read() */
+
+
+static int dir_nextent(lua_State *L) {
+	DIR *dp = dir_checkself(L, lua_upvalueindex(2));
+	int nup = lua_tointeger(L, lua_upvalueindex(3));
+	struct dirent entry, *ent = NULL;
+	int i, error;
+
+	if ((error = readdir_r(dp, &entry, &ent)))
+		return luaL_error(L, "readdir: %s", unixL_strerror(L, error));
+
+	if (!ent)
+		return 0;
+
+	if (nup < 4) {
+		dir_pushtable(L, ent);
+
+		return 1;
+	} else {
+		int i, n = 0;
+
+		for (i = 4; i <= nup; i++, n++) {
+			dir_pushfield(L, ent, luaL_checkoption(L, lua_upvalueindex(i), NULL, dir_field));
+		}
+
+		return n;
+	}
+} /* dir_nextent() */
+
+
+static int dir_files(lua_State *L) {
+	DIR *dp = dir_checkself(L, 1);
+	int i, top = lua_gettop(L), nup = top + 2;
+
+	lua_pushvalue(L, lua_upvalueindex(1)); /* unixL_State */
+	lua_pushvalue(L, 1);
+	lua_pushinteger(L, nup);
+
+	for (i = 2; i <= top; i++) {
+		lua_pushvalue(L, i);
+	}
+
+	lua_pushcclosure(L, &dir_nextent, nup);
+
+	return 1;
+} /* dir_files() */
 
 
 static int dir_rewind(lua_State *L) {
 	DIR *dp = dir_checkself(L, 1);
-	return 0;
+
+	rewinddir(dp);
+
+	lua_pushboolean(L, 1);
+
+	return 1;
 } /* dir_rewind() */
 
 
@@ -1808,6 +1991,7 @@ static int dir_close(lua_State *L) {
 
 static const luaL_Reg dir_methods[] = {
 	{ "read",   &dir_read },
+	{ "files",  &dir_files },
 	{ "rewind", &dir_rewind },
 	{ "close",  &dir_close },
 	{ NULL,     NULL }
@@ -1859,6 +2043,11 @@ error:
 } /* unix_opendir() */
 
 
+static int unix_readdir(lua_State *L) {
+	return dir_read(L);
+} /* unix_readdir() */
+
+
 static int unix_rename(lua_State *L) {
 	const char *opath = luaL_checkstring(L, 1);
 	const char *npath = luaL_checkstring(L, 2);
@@ -1870,6 +2059,47 @@ static int unix_rename(lua_State *L) {
 
 	return 1;
 } /* unix_rename() */
+
+
+#define unix_S_IFTEST(L, test) do { \
+	int mode = luaL_optinteger(L, 1, 0); \
+	lua_pushboolean(L, test(mode)); \
+	return 1; \
+} while (0)
+
+static int unix_S_ISBLK(lua_State *L) {
+	unix_S_IFTEST(L, S_ISBLK);
+} /* unix_S_ISBLK() */
+
+
+static int unix_S_ISCHR(lua_State *L) {
+	unix_S_IFTEST(L, S_ISCHR);
+} /* unix_S_ISCHR() */
+
+
+static int unix_S_ISDIR(lua_State *L) {
+	unix_S_IFTEST(L, S_ISDIR);
+} /* unix_S_ISDIR() */
+
+
+static int unix_S_ISFIFO(lua_State *L) {
+	unix_S_IFTEST(L, S_ISFIFO);
+} /* unix_S_ISFIFO() */
+
+
+static int unix_S_ISREG(lua_State *L) {
+	unix_S_IFTEST(L, S_ISREG);
+} /* unix_S_ISREG() */
+
+
+static int unix_S_ISLNK(lua_State *L) {
+	unix_S_IFTEST(L, S_ISLNK);
+} /* unix_S_ISLNK() */
+
+
+static int unix_S_ISSOCK(lua_State *L) {
+	unix_S_IFTEST(L, S_ISSOCK);
+} /* unix_S_ISSOCK() */
 
 
 static int unix_rmdir(lua_State *L) {
@@ -2151,6 +2381,7 @@ static const luaL_Reg unix_routines[] = {
 	{ "chown",              &unix_chown },
 	{ "chroot",             &unix_chroot },
 	{ "clock_gettime",      &unix_clock_gettime },
+	{ "closedir",           &unix_closedir },
 	{ "getegid",            &unix_getegid },
 	{ "geteuid",            &unix_geteuid },
 	{ "getmode",            &unix_getmode },
@@ -2165,8 +2396,17 @@ static const luaL_Reg unix_routines[] = {
 	{ "link",               &unix_link },
 	{ "mkdir",              &unix_mkdir },
 	{ "mkpath",             &unix_mkpath },
+	{ "opendir",            &unix_opendir },
+	{ "readdir",            &unix_readdir },
 	{ "rename",             &unix_rename },
 	{ "rmdir",              &unix_rmdir },
+	{ "S_ISBLK",            &unix_S_ISBLK },
+	{ "S_ISCHR",            &unix_S_ISCHR },
+	{ "S_ISDIR",            &unix_S_ISDIR },
+	{ "S_ISFIFO",           &unix_S_ISFIFO },
+	{ "S_ISREG",            &unix_S_ISREG },
+	{ "S_ISLNK",            &unix_S_ISLNK },
+	{ "S_ISSOCK",           &unix_S_ISSOCK },
 	{ "setegid",            &unix_setegid },
 	{ "seteuid",            &unix_seteuid },
 	{ "setgid",             &unix_setgid },
@@ -2204,15 +2444,18 @@ int luaopen_unix(lua_State *L) {
 		return luaL_error(L, "%s", unixL_strerror3(L, U, error));
 
 	/*
-	 * insert routines into module table with unixL_State as upvalue
+	 * add DIR* class
 	 */
-	lua_newtable(L);
+	lua_pushvalue(L, -2);
+	unixL_newmetatable(L, "DIR*", dir_methods, dir_metamethods, 1);
+	lua_pop(L, 1);
 
-	for (f = &unix_routines[0]; f->func; f++) {
-		lua_pushvalue(L, -2);
-		lua_pushcclosure(L, f->func, 1);
-		lua_setfield(L, -2, f->name);
-	}
+	/*
+	 * insert unix routines into module table with unixL_State as upvalue
+	 */
+	luaL_newlibtable(L, unix_routines);
+	lua_pushvalue(L, -2);
+	luaL_setfuncs(L, unix_routines, 1);
 
 	return 1;
 } /* luaopen_unix() */
