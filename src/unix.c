@@ -134,15 +134,15 @@ static void luaL_setfuncs(lua_State *L, const luaL_Reg *l, int nup) {
 #endif
 
 #ifndef HAVE_PIPE2
-#define HAVE_PIPE2 (GNUC_PREREQ(2, 9) || FREEBSD_PREREQ(10, 0) || NETBSD_PREREQ(6, 0))
+#define HAVE_PIPE2 (GNUC_PREREQ(2,9) || FREEBSD_PREREQ(10,0) || NETBSD_PREREQ(6,0))
 #endif
 
 #ifndef HAVE_DUP3
-#define HAVE_DUP3 (GNUC_PREREQ(2, 9) || FREEBSD_PREREQ(10, 0) || NETBSD_PREREQ(6, 0))
+#define HAVE_DUP3 (GNUC_PREREQ(2,9) || FREEBSD_PREREQ(10,0) || NETBSD_PREREQ(6,0))
 #endif
 
 #ifndef HAVE_FDOPENDIR
-#define HAVE_FDOPENDIR (!defined __APPLE__)
+#define HAVE_FDOPENDIR (!defined __APPLE__ && (!defined __NetBSD__ || NETBSD_PREREQ(6,0)))
 #endif
 
 
