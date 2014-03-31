@@ -137,7 +137,7 @@ clean~: $(d)/clean~
 #
 ifneq "$(filter $(abspath $(d))/%, $(abspath $(firstword $(MAKEFILE_LIST))))" ""
 
-LUNIX_VERSION := $(shell git tag --list | sed -ne 's/^rel-\([[:digit:]]\{8\}\)/\1/p' | sort -n | tail -n1)
+LUNIX_VERSION := $(shell git tag --list | sed -ne 's/^rel-\([[:digit:]]\{8\}\)/\1/p' | sort -n | tail -1)
 
 .PHONY: $(d)/lunux-$(LUNIX_VERSION).tgz release
 
