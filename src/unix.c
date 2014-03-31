@@ -421,7 +421,7 @@ static u_error_t u_fdopendir(DIR **dp, int fd) {
 #if HAVE_FDOPENDIR
 	int error;
 
-	if ((error = u_setflag(fd, U_CLOEXEC)))
+	if ((error = u_setflag(fd, U_CLOEXEC, 1)))
 		return error;
 
 	if (!(*dp = fdopendir(fd)))
