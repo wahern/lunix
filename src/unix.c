@@ -1239,6 +1239,8 @@ static int unixL_optfileno(lua_State *L, int index, int def) {
 		fd = fileno(fh->f);
 
 		luaL_argcheck(L, fd >= 0, index, "attempt to use irregular file (no descriptor)");
+
+		return fd;
 	}
 
 	if ((dp = luaL_testudata(L, index, "DIR*"))) {
@@ -1247,6 +1249,8 @@ static int unixL_optfileno(lua_State *L, int index, int def) {
 		fd = dirfd(*dp);
 
 		luaL_argcheck(L, fd >= 0, index, "attempt to use irregular directory (no descriptor)");
+
+		return fd;
 	}
 
 	return def;
@@ -2061,6 +2065,8 @@ static int unix_opendir(lua_State *L) {
 	DIR **dp;
 	int fd, fd2 = -1, error;
 
+	lua_settop(L, 1);
+
 	dp = lua_newuserdata(L, sizeof *dp);
 	*dp = NULL;
 	luaL_setmetatable(L, "DIR*");
@@ -2076,6 +2082,9 @@ static int unix_opendir(lua_State *L) {
 
 		if ((error = u_dup3(fd, fd2, U_CLOEXEC)))
 			goto error;
+
+		if (-1 == lseek(fd2, 0, SEEK_SET))
+			goto syerr;
 
 		if ((error = u_fdopendir(dp, fd2)))
 			goto error;
