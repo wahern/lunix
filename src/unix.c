@@ -805,9 +805,11 @@ error:
 } /* u_getifconf() */
 
 
-#if HAVE_SOCKADDR_SA_LEN
-/* from OS X <net/if.h> */
-#define U_SIZEOF_ADDR_IFREQ(ifr)  \
+#if HAVE_SOCKADDR_SA_LEN && !defined __NetBSD__
+/*
+ * On most systems with sa_len struct ifreq objects are variable length.
+ */
+#define U_SIZEOF_ADDR_IFREQ(ifr) /* from OS X <net/if.h> */ \
 	(((ifr)->ifr_addr.sa_len > sizeof (struct sockaddr)) \
 		? (sizeof (struct ifreq) - sizeof (struct sockaddr) + (ifr)->ifr_addr.sa_len) \
 		: (sizeof (struct ifreq)))
@@ -815,6 +817,9 @@ error:
 /*
  * On systems without sa_len ioctl(SIOCGIFCONF) only returns AF_INET
  * addresses, which always fits within a struct sockaddr.
+ *
+ * On NetBSD struct ifreq can fit addresses of any type and isn't variable
+ * length.
  */
 #define U_SIZEOF_ADDR_IFREQ(ifr) (sizeof (struct ifreq))
 #endif
@@ -958,7 +963,7 @@ static u_error_t u_getifaddrs(struct u_ifaddrs **ifs) {
 
 	*ifs = NULL;
 
-	if ((error = u_socket(&fd, AF_INET, SOCK_DGRAM, PF_UNSPEC, O_CLOEXEC)))
+	if ((error = u_socket(&fd, AF_INET, SOCK_DGRAM, PF_UNSPEC, U_CLOEXEC)))
 		goto error;
 
 	if ((error = u_getifconf(&ifc, fd)))
@@ -986,7 +991,7 @@ static u_error_t u_getifaddrs(struct u_ifaddrs **ifs) {
 		if (ifa->ifa_addr->sa_family == AF_INET6) {
 #if defined u_getif6
 			//fprintf(stderr, "u_getif6:%s\n", STRINGIFY(u_getif6));
-			if (fd6 == -1 && (error = u_socket(&fd6, AF_INET6, SOCK_DGRAM, PF_UNSPEC, O_CLOEXEC)))
+			if (fd6 == -1 && (error = u_socket(&fd6, AF_INET6, SOCK_DGRAM, PF_UNSPEC, U_CLOEXEC)))
 				goto error;
 
 			if ((error = u_getif6(ifa, fd6, ifr)))
