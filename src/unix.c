@@ -2000,16 +2000,15 @@ static int unixL_getenv(lua_State *L, int index) {
 	const char *name = luaL_checkstring(L, index);
 	luaL_Buffer B;
 	char *dst;
-	int error;
 
 	luaL_buffinit(L, &B);
 	dst = luaL_prepbuffer(&B);
 
-	if ((error = getenv_r(name, dst, LUAL_BUFFERSIZE))) {
-		if (error == ENOENT)
+	if (0 != getenv_r(name, dst, LUAL_BUFFERSIZE)) {
+		if (errno == ENOENT)
 			return 0;
 
-		return luaL_error(L, "%s: %s", name, unixL_strerror(L, error));
+		return luaL_error(L, "%s: %s", name, unixL_strerror(L, errno));
 	}
 
 	luaL_addsize(&B, strlen(dst));
