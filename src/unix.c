@@ -612,16 +612,26 @@ MAYBEUSED static void ts_timersub(struct timespec *r, struct timespec a, struct 
 	}
 } /* ts_timersub() */
 
-static u_error_t u_sigtimedwait(int *_signo, const sigset_t *set, siginfo_t *info, const struct timespec *timeout) {
+static u_error_t u_sigtimedwait(int *_signo, const sigset_t *set, siginfo_t *_info, const struct timespec *timeout) {
 #if HAVE_SIGTIMEDWAIT
+	siginfo_t info;
 	int signo;
 
 	*_signo = -1;
+	memset(&info, 0, sizeof info);
 
-	if (-1 == (signo = sigtimedwait(set, info, timeout)))
+	if (-1 == (signo = sigtimedwait(set, &info, timeout)))
 		return errno;
 
+#if defined __NetBSD__
+	/* Some NetBSD versions (5.1, but not 6.1) return 0 on success */
+	*_signo = info.si_signo;
+#else
 	*_signo = signo;
+#endif
+
+	if (_info)
+		*_info = info;
 
 	return 0;
 #else
