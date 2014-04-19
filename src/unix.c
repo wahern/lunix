@@ -13,7 +13,7 @@
 #include <time.h>         /* struct tm struct timespec gmtime_r(3) clock_gettime(3) tzset(3) */
 #include <errno.h>        /* ENOMEM errno */
 
-#include <sys/param.h>    /* __NetBSD_Version__ __OpenBSD_Version__ */
+#include <sys/param.h>    /* __NetBSD_Version__ __OpenBSD_Version__ __FreeBSD_version */
 #include <sys/types.h>    /* gid_t mode_t off_t pid_t uid_t */
 #include <sys/resource.h> /* RUSAGE_SELF struct rusage getrusage(2) */
 #include <sys/stat.h>     /* S_ISDIR() */
@@ -128,7 +128,7 @@ static void luaL_setfuncs(lua_State *L, const luaL_Reg *l, int nup) {
 
 #define NETBSD_PREREQ(M, m) __NetBSD_Prereq__(M, m, 0)
 
-#define FREEBSD_PREREQ(M, m) (__FreeBSD_Version >= ((M) * 100000) + ((m) * 1000))
+#define FREEBSD_PREREQ(M, m) (__FreeBSD_version >= ((M) * 100000) + ((m) * 1000))
 
 #ifndef HAVE_ARC4RANDOM
 #define HAVE_ARC4RANDOM (defined __OpenBSD__ || defined __FreeBSD__ || defined __NetBSD__ || defined __MirBSD__ || defined __APPLE__)
@@ -1399,7 +1399,7 @@ static int unix_arc4random_buf(lua_State *L) {
 
 static int unix_arc4random_stir(lua_State *L) {
 #if HAVE_ARC4RANDOM
-#if __APPLE__
+#if __APPLE__ || (__FreeBSD__ && !FREEBSD_PREREQ(10,0))
 	/*
 	 * Apple's arc4random always uses /dev/urandom, whereas the BSDs
 	 * support a chroot-safe sysctl method.
