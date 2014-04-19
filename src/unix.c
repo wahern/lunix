@@ -1409,7 +1409,7 @@ static int unix_arc4random_stir(lua_State *L) {
 #endif
 	arc4random_stir();
 #else
-	arc4_getstir(&(unixL_getstate(L))->random, 1);
+	arc4_stir(&(unixL_getstate(L))->random, 1);
 #endif
 
 	lua_pushboolean(L, 1);
