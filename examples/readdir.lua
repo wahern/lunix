@@ -27,7 +27,7 @@ local tmp = unix.opendir(io.open(... or ".", "r"))
 local dir = unix.opendir(tmp) --> can open from existing handle
 tmp:close()
 
-for type, name in dir:files("type", "name") do
+for name, type in dir:files("name", "type") do
 	print(tname(type), name)
 end
 
