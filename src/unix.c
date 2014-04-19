@@ -474,7 +474,7 @@ error:
 } /* u_fdopendir() */
 
 
-static void *u_memjunk(void *dst, size_t lim) {
+static void *u_memjunk(void *buf, size_t bufsiz) {
 	struct {
 		pid_t pid;
 		struct timeval tv;
@@ -487,9 +487,8 @@ static void *u_memjunk(void *dst, size_t lim) {
 		struct utsname un;
 		char *(*aslr)();
 	} junk;
-	const unsigned char *src = (void *)&junk;
-	const unsigned char *const end = src + sizeof junk;
-	size_t count = 0;
+	struct { const unsigned char *const buf; size_t size, p; } src = { (void *)&junk, sizeof junk, 0 };
+	struct { unsigned char *const buf; size_t size, p; } dst = { buf, bufsiz, 0 };
 
 	junk.pid = getpid();
 	gettimeofday(&junk.tv, NULL);
@@ -502,19 +501,13 @@ static void *u_memjunk(void *dst, size_t lim) {
 	uname(&junk.un);
 	junk.aslr = &strcpy;
 
-	do {
-		while (src < end) {
-			unsigned char *p = dst;
-			unsigned char *const pe = p + lim;
+	while (src.p < src.size || dst.p < dst.size) {
+		dst.buf[dst.p % dst.size] ^= src.buf[src.p % src.size];
+		++src.p;
+		++dst.p;
+	}
 
-			while (p < pe && src < end) {
-				*p++ ^= *src++;
-				count++;
-			}
-		}
-	} while (count < lim);
-
-	return dst;
+	return buf;
 } /* u_memjunk() */
 
 
