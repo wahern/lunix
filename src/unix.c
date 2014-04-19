@@ -485,7 +485,7 @@ static void *u_memjunk(void *buf, size_t bufsiz) {
 		struct timespec mt;
 #endif
 		struct utsname un;
-		char *(*aslr)();
+		uintptr_t aslr;
 	} junk;
 	struct { const unsigned char *const buf; size_t size, p; } src = { (void *)&junk, sizeof junk, 0 };
 	struct { unsigned char *const buf; size_t size, p; } dst = { buf, bufsiz, 0 };
@@ -499,7 +499,7 @@ static void *u_memjunk(void *buf, size_t bufsiz) {
 	clock_gettime(CLOCK_MONOTONIC, &junk.mt);
 #endif
 	uname(&junk.un);
-	junk.aslr = &strcpy;
+	junk.aslr = (uintptr_t)&strcpy ^ (uintptr_t)&u_memjunk;
 
 	while (src.p < src.size || dst.p < dst.size) {
 		dst.buf[dst.p % dst.size] ^= src.buf[src.p % src.size];
