@@ -233,11 +233,15 @@ At present \lunix provides a single module of routines.
 Returns a cryptographically strong uniformly random 32-bit integer as a Lua number. On Linux the
 \const{RANDOM\_UUID} \fn{sysctl} feature is used to seed the generator. This avoids fiddling with file descriptors, and also works in a chroot jail. On other platforms without a native \fn{arc4random} interface, such as Solaris, the implementation must resort to /dev/urandom for seeding.
 
-Note that unlike the original implementation on OpenBSD, \fn{arc4random} on OS X and FreeBSD seeds itself from /dev/urandom. This could cause problems in chroot jails.
+Note that unlike the original implementation on OpenBSD, \fn{arc4random} on OS X and FreeBSD (prior to 10.0) seeds itself from /dev/urandom. This could cause problems in chroot jails.
 
 \subsubsection[\fn{arc4random\_buf}]{\fn{arc4random\_buf($n$)}}
 
 Returns a string of length $n$ containing cryptographically strong random octets using the same CSPRNG underlying \fn{arc4random}.
+
+\subsubsection[\fn{arc4random\_stir}]{\fn{arc4random\_stir()}}
+
+Stir the arc4random entropy pool using the best available resources. This normally should be unnecessary.
 
 \subsubsection[\fn{arc4random\_uniform}]{\fn{arc4random\_uniform([$n$])}}
 
@@ -355,6 +359,10 @@ On failure returns \nil, an error string, and an integer system error.
 \subsubsection[\fn{getuid}]{\fn{getuid()}}
 
 Returns the real process UID as a Lua number.
+
+\subsubsection[\fn{issetugid}]{\fn{issetugid()}}
+
+Returns \true if the process environment is considered unsafe because of setuid, setgid, or similar operations, otherwise \false.
 
 \subsubsection[\fn{link}]{\fn{link($path1$, $path2$)}}
 
