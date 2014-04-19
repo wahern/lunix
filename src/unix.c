@@ -2,31 +2,32 @@
 #define _POSIX_PTHREAD_SEMANTICS 1 /* Solaris */
 #endif
 
-#include <limits.h>      /* NL_TEXTMAX */
-#include <stdarg.h>      /* va_list va_start va_arg va_end */
-#include <stdint.h>      /* SIZE_MAX */
-#include <stdlib.h>      /* arc4random(3) free(3) realloc(3) strtoul(3) */
-#include <stdio.h>       /* fileno(3) snprintf(3) */
-#include <string.h>      /* memset(3) strerror_r(3) strspn(3) strcspn(3) */
-#include <signal.h>      /* sigset_t sigfillset(3) sigemptyset(3) sigprocmask(2) */
-#include <ctype.h>       /* isspace(3) */
-#include <time.h>        /* struct tm struct timespec gmtime_r(3) clock_gettime(3) tzset(3) */
-#include <errno.h>       /* ENOMEM errno */
+#include <limits.h>       /* NL_TEXTMAX */
+#include <stdarg.h>       /* va_list va_start va_arg va_end */
+#include <stdint.h>       /* SIZE_MAX */
+#include <stdlib.h>       /* arc4random(3) free(3) realloc(3) strtoul(3) */
+#include <stdio.h>        /* fileno(3) snprintf(3) */
+#include <string.h>       /* memset(3) strerror_r(3) strspn(3) strcspn(3) */
+#include <signal.h>       /* sigset_t sigfillset(3) sigemptyset(3) sigprocmask(2) */
+#include <ctype.h>        /* isspace(3) */
+#include <time.h>         /* struct tm struct timespec gmtime_r(3) clock_gettime(3) tzset(3) */
+#include <errno.h>        /* ENOMEM errno */
 
-#include <sys/param.h>   /* __NetBSD_Version__ __OpenBSD_Version__ */
-#include <sys/types.h>   /* gid_t mode_t off_t pid_t uid_t */
-#include <sys/stat.h>    /* S_ISDIR() */
-#include <sys/time.h>    /* struct timeval gettimeofday(2) */
+#include <sys/param.h>    /* __NetBSD_Version__ __OpenBSD_Version__ */
+#include <sys/types.h>    /* gid_t mode_t off_t pid_t uid_t */
+#include <sys/resource.h> /* RUSAGE_SELF struct rusage getrusage(2) */
+#include <sys/stat.h>     /* S_ISDIR() */
+#include <sys/time.h>     /* struct timeval gettimeofday(2) */
 #if __linux
-#include <sys/sysctl.h>  /* CTL_KERN KERN_RANDOM RANDOM_UUID sysctl(2) */
+#include <sys/sysctl.h>   /* CTL_KERN KERN_RANDOM RANDOM_UUID sysctl(2) */
 #endif
-#include <sys/utsname.h> /* uname(2) */
-#include <sys/wait.h>    /* waitpid(2) */
-#include <unistd.h>      /* _PC_NAME_MAX chdir(2) chroot(2) close(2) chdir(2) chown(2) chroot(2) dup2(2) fpathconf(3) getegid(2) geteuid(2) getgid(2) getpid(2) getuid(2) link(2) rename(2) rmdir(2) setegid(2) seteuid(2) setgid(2) setuid(2) setsid(2) symlink(2) truncate(2) umask(2) unlink(2) */
-#include <fcntl.h>       /* F_GETFD F_SETFD FD_CLOEXEC fcntl(2) open(2) */
-#include <pwd.h>         /* struct passwd getpwnam_r(3) */
-#include <grp.h>         /* struct group getgrnam_r(3) */
-#include <dirent.h>      /* closedir(3) fdopendir(3) opendir(3) readdir_r(3) rewinddir(3) */
+#include <sys/utsname.h>  /* uname(2) */
+#include <sys/wait.h>     /* waitpid(2) */
+#include <unistd.h>       /* _PC_NAME_MAX chdir(2) chroot(2) close(2) chdir(2) chown(2) chroot(2) dup2(2) fpathconf(3) getegid(2) geteuid(2) getgid(2) getpid(2) getuid(2) issetugid(2) link(2) rename(2) rmdir(2) setegid(2) seteuid(2) setgid(2) setuid(2) setsid(2) symlink(2) truncate(2) umask(2) unlink(2) */
+#include <fcntl.h>        /* F_GETFD F_SETFD FD_CLOEXEC fcntl(2) open(2) */
+#include <pwd.h>          /* struct passwd getpwnam_r(3) */
+#include <grp.h>          /* struct group getgrnam_r(3) */
+#include <dirent.h>       /* closedir(3) fdopendir(3) opendir(3) readdir_r(3) rewinddir(3) */
 
 
 #if __APPLE__
@@ -143,6 +144,10 @@ static void luaL_setfuncs(lua_State *L, const luaL_Reg *l, int nup) {
 
 #ifndef HAVE_FDOPENDIR
 #define HAVE_FDOPENDIR (!defined __APPLE__ && (!defined __NetBSD__ || NETBSD_PREREQ(6,0)))
+#endif
+
+#ifndef HAVE_ISSETUGID
+#define HAVE_ISSETUGID (!defined __linux)
 #endif
 
 
@@ -469,6 +474,50 @@ error:
 } /* u_fdopendir() */
 
 
+static void *u_memjunk(void *dst, size_t lim) {
+	struct {
+		pid_t pid;
+		struct timeval tv;
+		struct rusage ru;
+#if __APPLE__
+		uint64_t mt;
+#else
+		struct timespec mt;
+#endif
+		struct utsname un;
+		char *(*aslr)();
+	} junk;
+	const unsigned char *src = (void *)&junk;
+	const unsigned char *const end = src + sizeof junk;
+	size_t count = 0;
+
+	junk.pid = getpid();
+	gettimeofday(&junk.tv, NULL);
+	getrusage(RUSAGE_SELF, &junk.ru);
+#if __APPLE__
+	junk.mt = mach_absolute_time();
+#else
+	clock_gettime(CLOCK_MONOTONIC, &junk.mt);
+#endif
+	uname(&junk.un);
+	junk.aslr = &strcpy;
+
+	do {
+		while (src < end) {
+			unsigned char *p = dst;
+			unsigned char *const pe = p + lim;
+
+			while (p < pe && src < end) {
+				*p++ ^= *src++;
+				count++;
+			}
+		}
+	} while (count < lim);
+
+	return dst;
+} /* u_memjunk() */
+
+
 #if !HAVE_ARC4RANDOM
 
 #define UNIXL_RANDOM_INITIALIZER { .fd = -1, }
@@ -535,59 +584,36 @@ static int arc4_getbyte(unixL_Random *R) {
 
 
 static void arc4_stir(unixL_Random *R, int force) {
-	union {
-		unsigned char bytes[128];
-		struct timeval tv;
-		clock_t clk;
-		pid_t pid;
-	} rnd;
-	unsigned n;
+	unsigned char bytes[128];
+	size_t count = 0, n;
 
-	rnd.pid = getpid();
-
-	if (R->count > 0 && R->pid == rnd.pid && !force)
+	if (R->count > 0 && R->pid == getpid() && !force)
 		return;
-
-	gettimeofday(&rnd.tv, NULL);
-	rnd.clk = clock();
 
 #if __linux
 	{	
 		int mib[] = { CTL_KERN, KERN_RANDOM, RANDOM_UUID };
-		unsigned char uuid[sizeof rnd.bytes];
-		size_t count = 0, n;
 
-		while (count < sizeof uuid) {
-			n = sizeof uuid - count;
+		while (count < sizeof bytes) {
+			n = sizeof bytes - count;
 
-			if (0 != sysctl(mib, countof(mib), &uuid[count], &n, (void *)0, 0))
+			if (0 != sysctl(mib, countof(mib), &bytes[count], &n, (void *)0, 0))
 				break;
 
 			count += n;
 		}
 
-		if (count > 0) {
-			for (n = 0; n < sizeof rnd.bytes; n++) {
-				rnd.bytes[n] ^= uuid[n];
-			}
-
-			if (count == sizeof uuid)
-				goto stir;
-		}
+		if (count == sizeof bytes)
+			goto stir;
 	}
 #endif
 
 	{
-		unsigned char bytes[sizeof rnd.bytes];
-		size_t count = 0;
-		ssize_t n;
-		int error;
-
-		if (R->fd == -1 && (error = u_open(&R->fd, "/dev/urandom", O_RDONLY|U_CLOEXEC, 0)))
+		if (R->fd == -1 && 0 != u_open(&R->fd, "/dev/urandom", O_RDONLY|U_CLOEXEC, 0))
 			goto stir;
 
 		while (count < sizeof bytes) {
-			n = read(R->fd, &bytes[count], sizeof bytes - count);
+			ssize_t n = read(R->fd, &bytes[count], sizeof bytes - count);
 
 			if (n == -1) {
 				if (errno == EINTR)
@@ -601,14 +627,14 @@ static void arc4_stir(unixL_Random *R, int force) {
 
 			count += n;
 		}
-
-		for (n = 0; n < (ssize_t)sizeof rnd.bytes; n++) {
-			rnd.bytes[n] ^= bytes[n];
-		}
 	}
 
 stir:
-	arc4_addrandom(R, rnd.bytes, sizeof rnd.bytes);
+	arc4_addrandom(R, bytes, sizeof bytes);
+
+	if (count < sizeof bytes) {
+		arc4_addrandom(R, u_memjunk(bytes, sizeof bytes), sizeof bytes);
+	}
 
 	for (n = 0; n < 1024; n++)
 		arc4_getbyte(R);
@@ -1371,6 +1397,27 @@ static int unix_arc4random_buf(lua_State *L) {
 } /* unix_arc4random_buf() */
 
 
+static int unix_arc4random_stir(lua_State *L) {
+#if HAVE_ARC4RANDOM
+#if __APPLE__
+	/*
+	 * Apple's arc4random always uses /dev/urandom, whereas the BSDs
+	 * support a chroot-safe sysctl method.
+	 */
+	char junk[128];
+	arc4random_addrandom(u_memjunk(junk, sizeof junk), sizeof junk);
+#endif
+	arc4random_stir();
+#else
+	arc4_getstir(&(unixL_getstate(L))->random, 1);
+#endif
+
+	lua_pushboolean(L, 1);
+
+	return 1;
+} /* unix_arc4random_stir() */
+
+
 static int unix_arc4random_uniform(lua_State *L) {
 	lua_Number modn = luaL_optnumber(L, 1, 4294967296.0);
 
@@ -1790,6 +1837,21 @@ static int unix_getuid(lua_State *L) {
 
 	return 1;
 } /* unix_getuid() */
+
+
+static int unix_issetugid(lua_State *L) {
+#if HAVE_ISSETUGID
+	lua_pushboolean(L, issetugid());
+#elif GNUC_PREREQ(2, 1) /* added between 2.0.98 and 2.0.99 */
+	extern int __libc_enable_secure;
+
+	lua_pushboolean(L, __libc_enable_secure);
+#else
+	lua_pushboolean(L, (geteuid() != getuid()) || (getegid() != getgid()));
+#endif
+
+	return 1;
+} /* unix_issetugid() */
 
 
 static int unix_link(lua_State *L) {
@@ -2445,6 +2507,7 @@ static int unix__gc(lua_State *L) {
 static const luaL_Reg unix_routines[] = {
 	{ "arc4random",         &unix_arc4random },
 	{ "arc4random_buf",     &unix_arc4random_buf },
+	{ "arc4random_stir",    &unix_arc4random_stir },
 	{ "arc4random_uniform", &unix_arc4random_uniform },
 	{ "chdir",              &unix_chdir },
 	{ "chown",              &unix_chown },
@@ -2462,6 +2525,7 @@ static const luaL_Reg unix_routines[] = {
 	{ "getpwuid",           &unix_getpwnam },
 	{ "gettimeofday",       &unix_gettimeofday },
 	{ "getuid",             &unix_getuid },
+	{ "issetugid",          &unix_issetugid },
 	{ "link",               &unix_link },
 	{ "mkdir",              &unix_mkdir },
 	{ "mkpath",             &unix_mkpath },
