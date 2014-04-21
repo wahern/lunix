@@ -152,7 +152,12 @@
 #include <netinet/in6_var.h> /* SIOCGIFADDR6 SIOCGIFNETMASK6 SIOCGIFDSTADDR6 struct in6_ifreq */
 #endif
 
-#if HAVE_NETINET6_IN6_VAR_H
+/*
+ * NOTE: Include only if we lack <ifaddrs.h>. FreeBSD requires
+ * <net/if_var.h>, and who knows what other header dependency issues we
+ * could run into.
+ */ 
+#if HAVE_NETINET6_IN6_VAR_H && !HAVE_IFADDRS_H
 #include <netinet6/in6_var.h> /* SIOCGIFADDR_IN6 SIOCGIFNETMASK_IN6 SIOCGIFDSTADDR_IN6 struct in6_ifreq */
 #endif
 
