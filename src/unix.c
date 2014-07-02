@@ -645,13 +645,13 @@ static u_error_t u_socket(int *fd, int family, int type, int proto, u_flags_t fl
 	int error;
 
 #if defined SOCK_CLOEXEC
-	if (flags & O_CLOEXEC)
-		proto |= SOCK_CLOEXEC;
+	if (flags & U_CLOEXEC)
+		type |= SOCK_CLOEXEC;
 #endif
 
 #if defined SOCK_NONBLOCK
 	if (flags & O_NONBLOCK)
-		proto |= SOCK_NONBLOCK;
+		type |= SOCK_NONBLOCK;
 #endif
 
 	if (-1 == (*fd = socket(family, type, proto)))
