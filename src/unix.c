@@ -4026,6 +4026,8 @@ static int unix_sigtimedwait(lua_State *L) {
 	sigdelset(&tmp, SIGKILL);
 	sigdelset(&tmp, SIGSTOP);
 
+	memset(&si, 0, sizeof si);
+
 	if ((error = u_sigtimedwait(&signo, &tmp, &si, u_f2ts(&timeout, luaL_optnumber(L, 2, U_NAN)))))
 		return unixL_pusherror(L, error, "sigtimedwait", "~$#");
 
