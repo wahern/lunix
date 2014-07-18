@@ -147,7 +147,7 @@ static void luaL_setfuncs(lua_State *L, const luaL_Reg *l, int nup) {
 #endif
 
 #ifndef HAVE_ISSETUGID
-#define HAVE_ISSETUGID (!defined __linux)
+#define HAVE_ISSETUGID (!defined __linux && !defined _AIX)
 #endif
 
 

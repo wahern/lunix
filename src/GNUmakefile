@@ -68,7 +68,7 @@ liblua$(1)-unix-install unix$(1)-install unix-install: $$(MODS$(1)_$$(d))
 
 $$(DESTDIR)$(2)/%.so: $$(d)/$(1)/%.so
 	$$(MKDIR) -p $$(@D)
-	cp -p $$< $$@
+	cp -fp $$< $$@
 
 $$(DESTDIR)$(3)/%.lua: $$(d)/%.lua
 	$$(LUAC$(1)_$(d)) -p $$<
