@@ -868,7 +868,28 @@ static u_error_t unixL_readdir(lua_State *L, DIR *dp, struct dirent **ent) {
 		U->dir.dp = dp;
 	}
 
+#if _AIX
+	/*
+	 * AIX sets *ent to NULL and returns EBADF on end-of-directory.
+	 * Otherwise on error it doesn't set *ent.
+	 *
+	 * Saner implementations set *ent to NULL return 0 on
+	 * end-of-directory.
+	 */
+	struct dirent tmp;
+	int error;
+
+	*ent = &tmp;
+
+	if ((error = readdir_r(dp, U->dir.ent, ent))) {
+		if (error == EBADF && *ent == NULL)
+			error = 0;
+	}
+
+	return error;
+#else
 	return readdir_r(dp, U->dir.ent, ent);
+#endif
 } /* unixL_readdir() */
 
 
