@@ -38,7 +38,7 @@
 #include <sys/utsname.h>  /* uname(2) */
 #include <sys/wait.h>     /* waitpid(2) */
 #include <sys/ioctl.h>    /* SIOCGIFCONF SIOCGIFFLAGS SIOCGIFNETMASK SIOCGIFDSTADDR SIOCGIFBRDADDR SIOCGLIFADDR ioctl(2) */
-#include <net/if.h>       /* struct ifconf struct ifreq */
+#include <net/if.h>       /* IF_NAMESIZE struct ifconf struct ifreq */
 #include <unistd.h>       /* _PC_NAME_MAX chdir(2) chroot(2) close(2) chdir(2) chown(2) chroot(2) dup2(2) fpathconf(3) getegid(2) geteuid(2) getgid(2) getpid(2) getuid(2) issetugid(2) link(2) rename(2) rmdir(2) setegid(2) seteuid(2) setgid(2) setuid(2) setsid(2) symlink(2) truncate(2) umask(2) unlink(2) */
 #include <fcntl.h>        /* F_DUPFD_CLOEXEC F_GETFD F_SETFD FD_CLOEXEC fcntl(2) open(2) */
 #include <pwd.h>          /* struct passwd getpwnam_r(3) */
@@ -737,7 +737,7 @@ static void u_freeifaddrs(struct u_ifaddrs *ifs) {
 
 struct u_ifaddrs {
 	struct u_ifaddrs *ifa_next;
-	char ifa_name[sizeof ((struct ifreq *)0)->ifr_name];
+	char ifa_name[MAX(IF_NAMESIZE, sizeof ((struct ifreq *)0)->ifr_name)];
 	unsigned int ifa_flags;
 	struct sockaddr *ifa_addr;
 	struct sockaddr *ifa_netmask;
@@ -837,7 +837,7 @@ static void *u_sa_copy(struct sockaddr_storage *ss, const struct sockaddr *sa) {
 static u_error_t u_getif6_aix(struct u_ifaddrs *ifa, int fd, const struct ifreq *ifr) {
 	struct in6_ifreq ifr6 = { 0 };
 
-	u_static_assert(sizeof ifr6.ifr_name == sizeof ifr->ifr_name, "sizeof ifr6_name != sizeof ifr_name");
+	u_static_assert(sizeof ifr6.ifr_name >= sizeof ifr->ifr_name, "sizeof ifr6_name < sizeof ifr_name");
 	memcpy(ifr6.ifr_name, ifr->ifr_name, MIN(sizeof ifr6.ifr_name, sizeof ifr->ifr_name));
 	memcpy(&ifr6.ifr_Addr, ifa->ifa_addr, sizeof ifr6.ifr_Addr);
 
@@ -864,7 +864,7 @@ static u_error_t u_getif6_aix(struct u_ifaddrs *ifa, int fd, const struct ifreq 
 static u_error_t u_getif6_kame_in6(struct u_ifaddrs *ifa, int fd, const struct ifreq *ifr) {
 	struct in6_ifreq ifr6 = { 0 };
 
-	u_static_assert(sizeof ifr6.ifr_name == sizeof ifr->ifr_name, "sizeof ifr6_name != sizeof ifr_name");
+	u_static_assert(sizeof ifr6.ifr_name >= sizeof ifr->ifr_name, "sizeof ifr6_name < sizeof ifr_name");
 	memcpy(ifr6.ifr_name, ifr->ifr_name, MIN(sizeof ifr6.ifr_name, sizeof ifr->ifr_name));
 	memcpy(&ifr6.ifr_addr, ifa->ifa_addr, sizeof ifr6.ifr_addr);
 
@@ -890,7 +890,7 @@ static u_error_t u_getif6_kame_in6(struct u_ifaddrs *ifa, int fd, const struct i
 static u_error_t u_getif6_kame_glif(struct u_ifaddrs *ifa, int fd, const struct ifreq *ifr) {
 	struct if_laddrreq iflr = { 0 };
 
-	u_static_assert(sizeof iflr.iflr_name == sizeof ifr->ifr_name, "sizeof iflr_name != sizeof ifr_name");
+	u_static_assert(sizeof iflr.iflr_name >= sizeof ifr->ifr_name, "sizeof iflr_name < sizeof ifr_name");
 	memcpy(iflr.iflr_name, ifr->ifr_name, MIN(sizeof iflr.iflr_name, sizeof ifr->ifr_name));
 	u_sa_copy(&iflr.addr, ifa->ifa_addr);
 
@@ -932,8 +932,8 @@ static u_error_t u_getif6_kame_glif(struct u_ifaddrs *ifa, int fd, const struct 
 static u_error_t u_getif6_sun_glif(struct u_ifaddrs *ifa, int fd, const struct ifreq *ifr) {
 	struct lifreq lifr = { 0 };
 
-	u_static_assert(sizeof lifr.lifr_name == sizeof ifr->ifr_name, "sizeof iflr_name != sizeof ifr_name");
-	memcpy(lifl.iflr_name, ifr->ifr_name, MIN(sizeof lifr.lifr_name, sizeof ifr->ifr_name));
+	u_static_assert(sizeof lifr.lifr_name >= sizeof ifr->ifr_name, "sizeof iflr_name < sizeof ifr_name");
+	memcpy(lifr.lifr_name, ifr->ifr_name, MIN(sizeof lifr.lifr_name, sizeof ifr->ifr_name));
 	u_sa_copy(&lifr.lifr_addr, ifa->ifa_addr);
 
 	if (-1 != ioctl(fd, SIOCGLIFNETMASK, &lifr)) {
@@ -945,7 +945,7 @@ static u_error_t u_getif6_sun_glif(struct u_ifaddrs *ifa, int fd, const struct i
 	}
 
 	if (-1 != ioctl(fd, SIOCGLIFBRDADDR, &lifr)) {
-		ifa->ifa_broadaddr = u_sa_copy(&ifa->ifa_ss[2], (struct sockaddr *)&lifr.lifr_broadaddr);
+		ifa->ifa_dstaddr = u_sa_copy(&ifa->ifa_ss[2], (struct sockaddr *)&lifr.lifr_broadaddr);
 	}
 
 	return 0;
@@ -980,7 +980,7 @@ static u_error_t u_getifaddrs(struct u_ifaddrs **ifs) {
 		if (!(ifa = calloc(1, sizeof *ifa)))
 			goto syerr;
 
-		u_static_assert(sizeof ifa->ifa_name == sizeof ifr->ifr_name, "sizeof ifa_name != sizeof ifr_name");
+		u_static_assert(sizeof ifa->ifa_name >= sizeof ifr->ifr_name, "sizeof ifa_name < sizeof ifr_name");
 		memcpy(ifa->ifa_name, ifr->ifr_name, MIN(sizeof ifa->ifa_name, sizeof ifr->ifr_name));
 
 		ifa->ifa_addr = u_sa_copy(&ifa->ifa_ss[0], &ifr->ifr_addr);
