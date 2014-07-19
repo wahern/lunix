@@ -23,10 +23,14 @@ CFLAGS_$(d) = $(CFLAGS_$(abspath $(@D)/../..))
 LDFLAGS_$(d) = $(LDFLAGS_$(abspath $(@D)/../..))
 SOFLAGS_$(d) = $(SOFLAGS_$(abspath $(@D)/../..))
 
-ifeq ($(shell uname -s),Linux)
-LDFLAGS_$(d) += -L$(DESTDIR)$(libdir) -L$(libdir) -lrt -lm
-else
 LDFLAGS_$(d) += -L$(DESTDIR)$(libdir) -L$(libdir)
+
+ifeq ($(shell uname -s), Linux)
+LDFLAGS_$(d) += -lrt -lm
+endif
+
+ifeq ($(shell uname -s), SunOS)
+LDFLAGS_$(d) += -lsocket -lnsl
 endif
 
 

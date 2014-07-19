@@ -26,6 +26,7 @@
 #include <errno.h>        /* ENOMEM ERANGE errno */
 #include <assert.h>       /* static_assert */
 
+#include <sys/param.h>    /* __NetBSD_Version__ __OpenBSD_Version__ __FreeBSD_version */
 #include <sys/types.h>    /* gid_t mode_t off_t pid_t uid_t */
 #include <sys/resource.h> /* RUSAGE_SELF struct rusage getrusage(2) */
 #include <sys/socket.h>   /* AF_INET AF_INET6 SOCK_DGRAM struct sockaddr socket(2) */
@@ -36,14 +37,19 @@
 #endif
 #include <sys/utsname.h>  /* uname(2) */
 #include <sys/wait.h>     /* waitpid(2) */
-#include <sys/ioctl.h>    /* SIOCGIFCONF ioctl(2) */
-#include <net/if.h>       /* IF_NAMESIZE struct ifconf struct ifreq */
+#include <sys/ioctl.h>    /* SIOCGIFCONF SIOCGIFFLAGS SIOCGIFNETMASK SIOCGIFDSTADDR SIOCGIFBRDADDR SIOCGLIFADDR ioctl(2) */
+#include <net/if.h>       /* struct ifconf struct ifreq */
 #include <unistd.h>       /* _PC_NAME_MAX chdir(2) chroot(2) close(2) chdir(2) chown(2) chroot(2) dup2(2) fpathconf(3) getegid(2) geteuid(2) getgid(2) getpid(2) getuid(2) issetugid(2) link(2) rename(2) rmdir(2) setegid(2) seteuid(2) setgid(2) setuid(2) setsid(2) symlink(2) truncate(2) umask(2) unlink(2) */
 #include <fcntl.h>        /* F_DUPFD_CLOEXEC F_GETFD F_SETFD FD_CLOEXEC fcntl(2) open(2) */
 #include <pwd.h>          /* struct passwd getpwnam_r(3) */
 #include <grp.h>          /* struct group getgrnam_r(3) */
 #include <dirent.h>       /* closedir(3) fdopendir(3) opendir(3) readdir_r(3) rewinddir(3) */
 #include <netdb.h>        /* NI_MAXHOST gai_strerror(3) getnameinfo(3) */
+
+#if __sun
+#include <sys/feature_tests.h> /* _DTRACE_VERSION */
+#include <sys/sockio.h>   /* SIOCGIFCONF SIOCGIFFLAGS SIOCGIFNETMASK SIOCGIFDSTADDR SIOCGIFBRDADDR */
+#endif
 
 #if __APPLE__
 #include <mach/mach_time.h> /* mach_timebase_info() mach_absolute_time() */
@@ -61,14 +67,16 @@
  * preprocessor environment.
  *
  * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
-#include <sys/param.h> /* __NetBSD_Version__ __OpenBSD_Version__ __FreeBSD_version */
-
 #if __sun
 #include <sys/feature_tests.h> /* _DTRACE_VERSION */
 #endif
 
 #ifndef __GNUC_PREREQ
 #define __GNUC_PREREQ(M, m) 0
+#endif
+
+#ifndef __has_feature
+#define __has_feature(...) 0
 #endif
 
 #ifndef __NetBSD_Prereq__
@@ -248,8 +256,18 @@ static void luaL_setfuncs(lua_State *L, const luaL_Reg *l, int nup) {
 #define CLAMP(i, m, n) (((i) < (m))? (m) : ((i) > (n))? (n) : (i))
 #endif
 
+#ifndef XPASTE
+#define PASTE(x, y) x##y
+#define XPASTE(x, y) PASTE(x, y)
+#endif
 
-#define u_static_assert(...) _Static_assert(__VA_ARGS__)
+#if defined static_assert
+#define u_static_assert(cond, msg) static_assert(cond, msg)
+#elif GNUC_PREREQ(4,6) || (__clang__ && __has_feature(c_static_assert))
+#define u_static_assert(cond, msg) _Static_assert(cond, msg)
+#else
+#define u_static_assert(cond, msg) char XPASTE(assert_, __LINE__)[sizeof (int[1 - 2*!(cond)])]
+#endif
 
 
 static size_t u_power2(size_t i) {
@@ -639,13 +657,15 @@ static void u_freeifaddrs(struct u_ifaddrs *ifs) {
 
 #else
 
+#undef ifa_dstaddr
+
 struct u_ifaddrs {
 	struct u_ifaddrs *ifa_next;
-	char ifa_name[IF_NAMESIZE];
+	char ifa_name[sizeof ((struct ifreq *)0)->ifr_name];
 	unsigned int ifa_flags;
 	struct sockaddr *ifa_addr;
 	struct sockaddr *ifa_netmask;
-	struct sockaddr *ifa_dstaddr;
+	struct sockaddr *(ifa_dstaddr);
 
 	struct sockaddr_storage ifa_ss[3];
 }; /* struct u_ifaddrs */
@@ -661,6 +681,8 @@ static void u_freeifaddrs(struct u_ifaddrs *ifs) {
 } /* if_freeifaddrs() */
 
 
+#define U_IFREQ_MAXSIZE (sizeof (struct ifreq) - sizeof (struct sockaddr) + sizeof (struct sockaddr_storage))
+
 static u_error_t u_getifconf(struct ifconf *ifc, int fd) {
 	char *buf = NULL;
 	size_t bufsiz;
@@ -670,10 +692,10 @@ static u_error_t u_getifconf(struct ifconf *ifc, int fd) {
 	ifc->ifc_len = 0;
 
 	do {
-		bufsiz = (size_t)ifc->ifc_len + sizeof (struct sockaddr_storage);
+		bufsiz = (size_t)ifc->ifc_len + U_IFREQ_MAXSIZE;
 
 		/* check for arithmetic overflow when adding sizeof sockaddr_storage */
-		if (bufsiz < sizeof (struct sockaddr_storage))
+		if (bufsiz < U_IFREQ_MAXSIZE)
 			goto range;
 
 		if ((error = u_realloc(&buf, &bufsiz, MAX(256, bufsiz))))
@@ -690,7 +712,7 @@ static u_error_t u_getifconf(struct ifconf *ifc, int fd) {
 
 		if (-1 == ioctl(fd, SIOCGIFCONF, (void *)ifc))
 			goto syerr;
-	} while (bufsiz - sizeof (struct sockaddr_storage) < (size_t)ifc->ifc_len);
+	} while (bufsiz - U_IFREQ_MAXSIZE < (size_t)ifc->ifc_len);
 
 	return 0;
 range:
@@ -761,7 +783,8 @@ static u_error_t u_getifaddrs(struct u_ifaddrs **ifs) {
 			ifa->ifa_flags = ifr->ifr_flags;
 
 		if (ifa->ifa_addr->sa_family == AF_INET6) {
-#if defined SIOCGLIFADDR
+/* Solaris uses struct lifreq with SIOCGLIFADDR */
+#if defined SIOCGLIFADDR && !defined __sun
 			struct if_laddrreq iflr = { 0 };
 
 			u_static_assert(sizeof iflr.iflr_name == sizeof ifr->ifr_name, "sizeof iflr_name != sizeof ifr_name");
