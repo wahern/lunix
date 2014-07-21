@@ -2607,12 +2607,14 @@ error:
 
 static int unix__exit(lua_State *L) {
 	int status;
+
 	if (lua_isboolean(L, 1))
 		status = (lua_toboolean(L, 1))? EXIT_SUCCESS : EXIT_FAILURE;
 	else
 		status = luaL_optint(L, 1, EXIT_SUCCESS);
 
-	_exit(status);
+	if (L) /* quiet statement not reached warning */
+		_exit(status);
 
 	return 0;
 } /* unix__exit() */
@@ -2625,7 +2627,8 @@ static int unix_exit(lua_State *L) {
 	else
 		status = luaL_optint(L, 1, EXIT_SUCCESS);
 
-	exit(status);
+	if (L) /* quiet statement not reached warning */
+		exit(status);
 
 	return 0;
 } /* unix_exit() */
