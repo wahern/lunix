@@ -29,7 +29,6 @@
 #include <grp.h>          /* struct group getgrnam_r(3) */
 #include <dirent.h>       /* closedir(3) fdopendir(3) opendir(3) readdir_r(3) rewinddir(3) */
 
-
 #if __APPLE__
 #include <mach/mach_time.h> /* mach_timebase_info() mach_absolute_time() */
 #endif
@@ -148,6 +147,10 @@ static void luaL_setfuncs(lua_State *L, const luaL_Reg *l, int nup) {
 
 #ifndef HAVE_ISSETUGID
 #define HAVE_ISSETUGID (!defined __linux && !defined _AIX)
+#endif
+
+#ifndef HAVE_GETAUXVAL
+#define HAVE_GETAUXVAL GNUC_PREREQ(2,16)
 #endif
 
 
@@ -1853,18 +1856,51 @@ static int unix_getuid(lua_State *L) {
 } /* unix_getuid() */
 
 
-static int unix_issetugid(lua_State *L) {
-#if HAVE_ISSETUGID
-	lua_pushboolean(L, issetugid());
-#elif GNUC_PREREQ(2, 1) /* added between 2.0.98 and 2.0.99 */
+#if HAVE_GETAUXVAL
+#include <sys/auxv.h>
+#endif
+
+static int unix_issetugid_other(lua_State *L) {
+	lua_pushboolean(L, (geteuid() != getuid()) || (getegid() != getgid()));
+
+	return 0;
+} /* unix_issetugid_other() */
+
+static int unix_issetugid_linux(lua_State *L) {
+#if HAVE_GETAUXVAL && defined AT_SECURE
+	unsigned long auxval;
+
+	errno = 0;
+	auxval = getauxval(AT_SECURE);
+
+	if (auxval != 0 || errno != ENOENT) {
+		lua_pushboolean(L, !auxval);
+
+		return 1;
+	}
+#endif
+
+#if GNUC_PREREQ(2, 1) /* __libc_enable_secure added between 2.0.98 and 2.0.99 */
 	extern int __libc_enable_secure;
 
 	lua_pushboolean(L, __libc_enable_secure);
-#else
-	lua_pushboolean(L, (geteuid() != getuid()) || (getegid() != getgid()));
-#endif
 
 	return 1;
+#else
+	return unix_issetugid_other(L);
+#endif
+} /* unix_issetugid_linux() */
+
+static int unix_issetugid(lua_State *L) {
+#if HAVE_ISSETUGID
+	lua_pushboolean(L, issetugid());
+
+	return 1;
+#elif __linux
+	return unix_issetugid_linux(L);
+#else
+	return unix_issetugid_other(L);
+#endif
 } /* unix_issetugid() */
 
 
