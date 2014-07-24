@@ -114,7 +114,7 @@ morestring=[b]"
 
 \chapter{About}
 
-\lunix is a bindings library module to common Unix system APIs. The module is regularly tested with Linux/glibc, OS X, FreeBSD, NetBSD, OpenBSD and Solaris. The best way to describe it is in contradistinction to \luaposix, the most popular bindings module for Unix APIs in Lua.
+\lunix is a bindings library module to common Unix system APIs. The module is regularly tested with Linux/glibc, OS X, FreeBSD, NetBSD, OpenBSD, Solaris, and AIX. The best way to describe it is in contradistinction to \luaposix, the most popular bindings module for Unix APIs in Lua.
 
 \paragraph{Thread-safety}
 
@@ -132,9 +132,9 @@ Unlike \luaposix, the library prefers dealing with \const{FILE} handles rather t
 
 \section{Operating Systems}
 
-\lunix targets modern POSIX-conformant systems. But unlike \texttt{luaposix} it branches out to implement common GNU and BSD extensions. All interfaces are available on all supported platforms, regardless of whether the platform provides a native interface.
+\lunix targets modern POSIX-conformant and POSIX-aspiring systems. But unlike \texttt{luaposix} it branches out to implement common GNU and BSD extensions. All interfaces are available on all supported platforms, regardless of whether the platform provides a native interface.
 
-I try to regularly compile and test the module against recent versions of OS X, Linux/glibc, FreeBSD, NetBSD, OpenBSD, and Solaris.
+I try to regularly compile and test the module against recent versions of OS X, Linux/glibc, FreeBSD, NetBSD, OpenBSD, Solaris, and AIX.
 
 \section{Libraries}
 
@@ -148,7 +148,7 @@ The Makefile requires GNU Make, usually installed as gmake on platforms other th
 
 \chapter{Installation}
 
-All the C modules are built into a single core C library. The core routines are then wrapped and extended through Lua modules. Because there several extant versions of Lua often used in parallel on the same system, there are individual targets to build and install for each supported Lua version. The targets \texttt{all} and \texttt{install} will attempt to build and install both Lua 5.1 and 5.2 modules.
+The module is composed of a single C source file to simplify compilation across environments. Because there several extant versions of Lua often used in parallel on the same system, there are individual targets to build and install the module for each supported Lua version. The targets \texttt{all} and \texttt{install} will attempt to build and install both Lua 5.1 and 5.2 modules.
 
 Note that building and installation and can accomplished in a single step by simply invoking one of the install targets with all the necessary variables defined.
 
@@ -315,6 +315,33 @@ If additional arguments are given, on success each field specified (as named abo
 If no group was found, returns \nil followed by the error string ``no such group''.
 
 If a system error occurred, returns \nil, an error string, and an integer system error.
+
+\subsubsection[\fn{getifaddrs}]{\fn{getifaddrs([$\ldots$])}}
+
+Returns an iterator over the current system network interfaces on success. If a system error occurred, returns \nil, an error string, and an integer system error.
+
+If no arguments are specified, each invocation of the iterator returns a table with the following fields
+
+\begin{description}
+\item[.name] \hfill \\
+Interface symbolic name as a string.
+\item[.flags] \hfill \\
+Interface flags as an integer bit field.
+\item[.family] \hfill \\
+Interface address family as an integer.
+\item[.addr] \hfill \\
+Interface address as a string, or \nil if of an unknown address family.
+\item[.netmask] \hfill \\
+Interface address netmask as a string, or \nil if absent or of an unknown address family.
+\item[.prefixlen] \hfill \\
+Interface address prefixlen as an integer, or \nil if absent or of an unknown address family.
+\item[.dstaddr] \hfill \\
+Interface destination address if point-to-point, or \nil if absent or of an unknown address family.
+\item[.broadaddr] \hfill \\
+Interface broadcast address, or \nil if absent or of an unknown address family.
+\end{description}
+
+If arguments are given, each field specified (as named above) is returned as part of the return value list on every invocation of the iterator.
 
 
 \subsubsection[\fn{getpid}]{\fn{getpid()}}
