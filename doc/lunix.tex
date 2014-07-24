@@ -267,7 +267,7 @@ Returns \true on success, otherwise returns \false, an error string, and an inte
 
 \subsubsection[\fn{clock\_gettime}]{\fn{clock\_gettime($id$)}}
 
-$id$ should be the string ``realtime'' or the string ``monotonic''.\footnote{FIXME: Also add \texttt{CLOCK\_REALTIME} and \texttt{CLOCK\_MONOTONIC} as module constants with the system integer values.}
+$id$ should be the string ``realtime'' or ``monotonic'', or the integer constant CLOCK\_REALTIME or CLOCK\_MONOTONIC.
 
 Returns a time value as a Lua floating point number, otherwise returns \nil, an error string, and an integer system error.
 

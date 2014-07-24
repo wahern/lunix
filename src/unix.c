@@ -3365,6 +3365,7 @@ static const luaL_Reg unix_routines[] = {
 }; /* unix_routines[] */
 
 
+#define UNIX_ALIAS(x, y) { #x, y }
 #define UNIX_CONST(x) { #x, x }
 
 static const struct {
@@ -3407,6 +3408,9 @@ static const struct {
 #if defined IFF_MULTICAST
 	UNIX_CONST(IFF_MULTICAST),
 #endif
+
+	UNIX_ALIAS(CLOCK_MONOTONIC, U_CLOCK_MONOTONIC),
+	UNIX_ALIAS(CLOCK_REALTIME, U_CLOCK_REALTIME),
 }; /* unix_consts[] */
 
 
