@@ -565,7 +565,7 @@ static u_error_t u_dup3(int fd, int fd2, u_flags_t flags) {
 } /* u_dup3() */
 
 
-static u_error_t u_socket(int *fd, int family, int type, int proto, int flags) {
+static u_error_t u_socket(int *fd, int family, int type, int proto, u_flags_t flags) {
 	int error;
 
 #if defined SOCK_CLOEXEC
