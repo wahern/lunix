@@ -44,6 +44,7 @@
 #include <pwd.h>          /* struct passwd getpwnam_r(3) */
 #include <grp.h>          /* struct group getgrnam_r(3) */
 #include <dirent.h>       /* closedir(3) fdopendir(3) opendir(3) readdir_r(3) rewinddir(3) */
+#include <netinet/in.h>   /* __KAME__ */
 #include <netdb.h>        /* NI_MAXHOST gai_strerror(3) getnameinfo(3) */
 
 #if __sun
@@ -129,6 +130,14 @@
 #define HAVE_SOCKADDR_SA_LEN (!defined __linux && !defined __sun)
 #endif
 
+#ifndef HAVE_NETINET_IN6_VAR_H
+#define HAVE_NETINET_IN6_VAR_H defined _AIX
+#endif
+
+#ifndef HAVE_NETINET6_IN6_VAR_H
+#define HAVE_NETINET6_IN6_VAR_H defined __KAME__
+#endif
+
 
 /*
  * N O N - P O R T A B L E  S Y S T E M  I N C L U D E S
@@ -137,6 +146,14 @@
 
 #if HAVE_IFADDRS_H
 #include <ifaddrs.h> /* struct ifaddrs getifaddrs(3) freeifaddrs(3) */
+#endif
+
+#if HAVE_NETINET_IN6_VAR_H
+#include <netinet/in6_var.h> /* SIOCGIFADDR6 SIOCGIFNETMASK6 SIOCGIFDSTADDR6 struct in6_ifreq */
+#endif
+
+#if HAVE_NETINET6_IN6_VAR_H
+#include <netinet6/in6_var.h> /* SIOCGIFADDR_IN6 SIOCGIFNETMASK_IN6 SIOCGIFDSTADDR_IN6 struct in6_ifreq */
 #endif
 
 
@@ -261,6 +278,11 @@ static void luaL_setfuncs(lua_State *L, const luaL_Reg *l, int nup) {
 #define XPASTE(x, y) PASTE(x, y)
 #endif
 
+#ifndef STRINGIFY
+#define STRINGIFY_(x) #x
+#define STRINGIFY(x) STRINGIFY_(x)
+#endif
+
 #if defined static_assert
 #define u_static_assert(cond, msg) static_assert(cond, msg)
 #elif GNUC_PREREQ(4,6) || (__clang__ && __has_feature(c_static_assert))
@@ -367,6 +389,55 @@ static socklen_t u_sa_len(const struct sockaddr *sa) {
 	}
 #endif
 } /* u_sa_len() */
+
+
+/* derived from KAME source */
+static void u_in6_prefixlen2mask(struct in6_addr *mask, unsigned prefixlen) {
+	unsigned octets, bits, i;
+
+	if (prefixlen > 128)
+		return;
+
+	memset(mask, 0, sizeof *mask);
+
+	octets = prefixlen / 8;
+	bits = prefixlen % 8;
+
+	u_static_assert(sizeof mask->s6_addr == 16, "strange s6_addr data type");
+	memset(mask, 0xff, octets);
+
+	if (bits)
+		mask->s6_addr[octets] = (0xff00 >> bits) & 0xff;
+} /* u_in6_prefixlen2mask() */
+
+
+#ifndef IN6_IS_SCOPE_LINKLOCAL
+#define IN6_IS_SCOPE_LINKLOCAL(in6) (IN6_IS_ADDR_LINKLOCAL(in6) || IN6_IS_ADDR_MC_LINKLOCAL(in6))
+#endif
+
+#ifndef IPV6_ADDR_MC_SCOPE
+#define IPV6_ADDR_MC_SCOPE(in6) ((in6)->s6_addr[1] & 0x0f)
+#endif
+
+#ifndef IPV6_ADDR_SCOPE_INTFACELOCAL
+#define IPV6_ADDR_SCOPE_INTFACELOCAL 0x01
+#endif
+
+#ifndef IN6_IS_ADDR_MC_INTFACELOCAL
+#define IN6_IS_ADDR_MC_INTFACELOCAL(in6) (IN6_IS_ADDR_MULTICAST(in6) || IPV6_ADDR_MC_SCOPE(in6) == IPV6_ADDR_SCOPE_INTFACELOCAL)
+#endif
+
+static int u_in6_clearscope(struct in6_addr *in6) {
+	int modified = 0;
+
+	if (IN6_IS_SCOPE_LINKLOCAL(in6) || IN6_IS_ADDR_MC_INTFACELOCAL(in6)) {
+		modified = (in6->s6_addr[2] || in6->s6_addr[3]);
+		in6->s6_addr[2] = 0;
+		in6->s6_addr[3] = 0;
+	}
+
+	return modified;
+} /* u_in6_clearscope() */
 
 
 /*
@@ -665,7 +736,7 @@ struct u_ifaddrs {
 	unsigned int ifa_flags;
 	struct sockaddr *ifa_addr;
 	struct sockaddr *ifa_netmask;
-	struct sockaddr *(ifa_dstaddr);
+	struct sockaddr *ifa_dstaddr;
 
 	struct sockaddr_storage ifa_ss[3];
 }; /* struct u_ifaddrs */
@@ -743,12 +814,137 @@ error:
 #define U_SIZEOF_ADDR_IFREQ(ifr) (sizeof (struct ifreq))
 #endif
 
+
 static void *u_sa_copy(struct sockaddr_storage *ss, const struct sockaddr *sa) {
 	return memcpy(ss, sa, u_sa_len(sa));
 } /* u_sa_copy() */
 
+
+#if defined SIOCGIFADDR6 && !defined u_getif6
+
+#define u_getif6 u_getif6_aix
+
+static u_error_t u_getif6_aix(struct u_ifaddrs *ifa, int fd, const struct ifreq *ifr) {
+	struct in6_ifreq ifr6 = { 0 };
+
+	u_static_assert(sizeof ifr6.ifr_name == sizeof ifr->ifr_name, "sizeof ifr6_name != sizeof ifr_name");
+	memcpy(ifr6.ifr_name, ifr->ifr_name, MIN(sizeof ifr6.ifr_name, sizeof ifr->ifr_name));
+	memcpy(&ifr6.ifr_Addr, ifa->ifa_addr, sizeof ifr6.ifr_Addr);
+
+	if (-1 != ioctl(fd, SIOCGIFNETMASK6, &ifr6)) {
+		ifr6.ifr_Addr.sin6_family = AF_INET6; /* not set on AIX */
+		ifa->ifa_netmask = u_sa_copy(&ifa->ifa_ss[1], (struct sockaddr *)&ifr6.ifr_Addr);
+	}
+
+	if (-1 != ioctl(fd, SIOCGIFDSTADDR6, &ifr6)) {
+		ifr6.ifr_Addr.sin6_family = AF_INET6; /* unable to test if AIX sets family; see above */
+		ifa->ifa_dstaddr = u_sa_copy(&ifa->ifa_ss[2], (struct sockaddr *)&ifr6.ifr_Addr);
+	}
+
+	return 0;
+} /* u_getif6_aix() */
+
+#endif
+
+
+#if defined SIOCGIFADDR_IN6 && !defined u_getif6
+
+#define u_getif6 u_getif6_kame_in6
+
+static u_error_t u_getif6_kame_in6(struct u_ifaddrs *ifa, int fd, const struct ifreq *ifr) {
+	struct in6_ifreq ifr6 = { 0 };
+
+	u_static_assert(sizeof ifr6.ifr_name == sizeof ifr->ifr_name, "sizeof ifr6_name != sizeof ifr_name");
+	memcpy(ifr6.ifr_name, ifr->ifr_name, MIN(sizeof ifr6.ifr_name, sizeof ifr->ifr_name));
+	memcpy(&ifr6.ifr_addr, ifa->ifa_addr, sizeof ifr6.ifr_addr);
+
+	if (-1 != ioctl(fd, SIOCGIFNETMASK_IN6, &ifr6))
+		ifa->ifa_netmask = u_sa_copy(&ifa->ifa_ss[1], (struct sockaddr *)&ifr6.ifr_addr);
+
+	if (-1 != ioctl(fd, SIOCGIFDSTADDR_IN6, &ifr6))
+		ifa->ifa_dstaddr = u_sa_copy(&ifa->ifa_ss[2], (struct sockaddr *)&ifr6.ifr_addr);
+
+	return 0;
+} /* u_getif6_kame_in6() */
+
+#endif
+
+
+/*
+ * Solaris uses struct lifreq with SIOCGLIFADDR. See u_getif6_sun_glif.
+ */
+#if defined SIOCGLIFADDR && !defined __sun && !defined u_getif6
+
+#define u_getif6 u_getif6_kame_glif
+
+static u_error_t u_getif6_kame_glif(struct u_ifaddrs *ifa, int fd, const struct ifreq *ifr) {
+	struct if_laddrreq iflr = { 0 };
+
+	u_static_assert(sizeof iflr.iflr_name == sizeof ifr->ifr_name, "sizeof iflr_name != sizeof ifr_name");
+	memcpy(iflr.iflr_name, ifr->ifr_name, MIN(sizeof iflr.iflr_name, sizeof ifr->ifr_name));
+	u_sa_copy(&iflr.addr, ifa->ifa_addr);
+
+	/*
+	 * NOTE: To get the same [shortest] prefixlen as SIOCGIFNETMASK_IN6
+	 * or ifconfig(1) for link-local addresses we must request a prefix
+	 * match.
+	 *
+	 * See SIOCGLIFADDR cases in KAME netinet6/in6.c:in6_lifaddr_ioctl.
+	 */
+#if defined IFLR_PREFIX
+	iflr.flags = IFLR_PREFIX;
+	iflr.prefixlen = 128;
+	u_in6_clearscope(&((struct sockaddr_in6 *)&iflr.addr)->sin6_addr);
+#endif
+
+	if (-1 != ioctl(fd, SIOCGLIFADDR, &iflr)) {
+		struct sockaddr_in6 *mask = (struct sockaddr_in6 *)&ifa->ifa_ss[1];
+#if HAVE_SOCKADDR_SA_LEN
+		mask->sin6_len = sizeof *mask;
+#endif
+		mask->sin6_family = AF_INET6;
+		u_in6_prefixlen2mask(&mask->sin6_addr, iflr.prefixlen);
+		ifa->ifa_netmask = (struct sockaddr *)mask;
+
+		if (iflr.dstaddr.ss_family == AF_INET6)
+			ifa->ifa_dstaddr = u_sa_copy(&ifa->ifa_ss[2], (struct sockaddr *)&iflr.dstaddr);
+	}
+
+	return 0;
+} /* u_getif6_kame_glif() */
+#endif
+
+
+#if defined SIOCGLIFADDR && defined __sun && !defined u_getif6
+
+#define u_getif6 u_getif6_sun_glif
+
+static u_error_t u_getif6_sun_glif(struct u_ifaddrs *ifa, int fd, const struct ifreq *ifr) {
+	struct lifreq lifr = { 0 };
+
+	u_static_assert(sizeof lifr.lifr_name == sizeof ifr->ifr_name, "sizeof iflr_name != sizeof ifr_name");
+	memcpy(lifl.iflr_name, ifr->ifr_name, MIN(sizeof lifr.lifr_name, sizeof ifr->ifr_name));
+	u_sa_copy(&lifr.lifr_addr, ifa->ifa_addr);
+
+	if (-1 != ioctl(fd, SIOCGLIFNETMASK, &lifr)) {
+		ifa->ifa_netmask = u_sa_copy(&ifa->ifa_ss[1], (struct sockaddr *)&lifr.lifr_dstaddr);
+	}
+
+	if (-1 != ioctl(fd, SIOCGLIFDSTADDR, &lifr)) {
+		ifa->ifa_dstaddr = u_sa_copy(&ifa->ifa_ss[2], (struct sockaddr *)&lifr.lifr_dstaddr);
+	}
+
+	if (-1 != ioctl(fd, SIOCGLIFBRDADDR, &lifr)) {
+		ifa->ifa_broadaddr = u_sa_copy(&ifa->ifa_ss[2], (struct sockaddr *)&lifr.lifr_broadaddr);
+	}
+
+	return 0;
+} /* u_getif6_sun_glif() */
+#endif
+
+
 static u_error_t u_getifaddrs(struct u_ifaddrs **ifs) {
-	int fd = -1;
+	int fd = -1, fd6 = -1;
 	struct ifconf ifc = { 0 };
 	struct ifreq *ifr, *end;
 	struct u_ifaddrs *ifa, *prv;
@@ -783,46 +979,21 @@ static u_error_t u_getifaddrs(struct u_ifaddrs **ifs) {
 			ifa->ifa_flags = ifr->ifr_flags;
 
 		if (ifa->ifa_addr->sa_family == AF_INET6) {
-/* Solaris uses struct lifreq with SIOCGLIFADDR */
-#if defined SIOCGLIFADDR && !defined __sun
-			struct if_laddrreq iflr = { 0 };
+#if defined u_getif6
+			//fprintf(stderr, "u_getif6:%s\n", STRINGIFY(u_getif6));
+			if (fd6 == -1 && (error = u_socket(&fd6, AF_INET6, SOCK_DGRAM, PF_UNSPEC, O_CLOEXEC)))
+				goto error;
 
-			u_static_assert(sizeof iflr.iflr_name == sizeof ifr->ifr_name, "sizeof iflr_name != sizeof ifr_name");
-			memcpy(iflr.iflr_name, ifr->ifr_name, MIN(sizeof iflr.iflr_name, sizeof ifr->ifr_name));
-			u_sa_copy(&iflr.addr, ifa->ifa_addr);
-
-			if (-1 != ioctl(fd, SIOCGLIFADDR, &iflr)) {
-				if (iflr.addr.ss_family == AF_INET6) {
-					struct sockaddr_in6 *sin6 = u_sa_copy(&ifa->ifa_ss[1], (struct sockaddr *)&iflr.addr);
-					int bits, i;
-
-
-					for (i = 0; i < 16; i++) {
-						if (iflr.prefixlen > 8) {
-							bits = 0;
-							iflr.prefixlen -= 8;
-						} else {
-							bits = 8 - iflr.prefixlen;
-							iflr.prefixlen = 0;
-						}
-
-						sin6->sin6_addr.s6_addr[i] = (~0 << bits) & 0xff;
-					}
-
-					ifa->ifa_netmask = (struct sockaddr *)sin6;
-				}
-
-				if (iflr.dstaddr.ss_family != AF_UNSPEC)
-					ifa->ifa_dstaddr = u_sa_copy(&ifa->ifa_ss[2], (struct sockaddr *)&iflr.dstaddr);
-			}
+			if ((error = u_getif6(ifa, fd6, ifr)))
+				goto error;
 #endif
 		} else {
-			if (-1 != ioctl(fd, SIOCGIFNETMASK, ifr))
+			if (-1 != ioctl(fd, SIOCGIFNETMASK, ifr) && ifr->ifr_addr.sa_family == ifa->ifa_addr->sa_family)
 				ifa->ifa_netmask = u_sa_copy(&ifa->ifa_ss[1], &ifr->ifr_addr);
 
-			if (-1 != ioctl(fd, SIOCGIFDSTADDR, ifr))
+			if (-1 != ioctl(fd, SIOCGIFDSTADDR, ifr) && ifr->ifr_addr.sa_family == ifa->ifa_addr->sa_family)
 				ifa->ifa_dstaddr = u_sa_copy(&ifa->ifa_ss[2], &ifr->ifr_addr);
-			if (-1 != ioctl(fd, SIOCGIFBRDADDR, ifr))
+			else if (-1 != ioctl(fd, SIOCGIFBRDADDR, ifr) && ifr->ifr_addr.sa_family == ifa->ifa_addr->sa_family)
 				ifa->ifa_dstaddr = u_sa_copy(&ifa->ifa_ss[2], &ifr->ifr_addr);
 		}
 
@@ -832,12 +1003,14 @@ static u_error_t u_getifaddrs(struct u_ifaddrs **ifs) {
 		ifr = (struct ifreq *)((char *)ifr + ifrsiz);
 	}
 
+	u_close(&fd6);
 	u_close(&fd);
 
 	return 0;
 syerr:
 	error = errno;
 error:
+	u_close(&fd6);
 	u_close(&fd);
 
 	free(ifc.ifc_buf);
