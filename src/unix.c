@@ -44,6 +44,7 @@
 #include <pwd.h>          /* struct passwd getpwnam_r(3) */
 #include <grp.h>          /* struct group getgrnam_r(3) */
 #include <dirent.h>       /* closedir(3) fdopendir(3) opendir(3) readdir_r(3) rewinddir(3) */
+#include <arpa/inet.h>    /* ntohl(3) */
 #include <netinet/in.h>   /* __KAME__ */
 #include <netdb.h>        /* NI_MAXHOST gai_strerror(3) getnameinfo(3) */
 
@@ -414,6 +415,48 @@ static void u_in6_prefixlen2mask(struct in6_addr *mask, unsigned prefixlen) {
 	if (bits)
 		mask->s6_addr[octets] = (0xff00 >> bits) & 0xff;
 } /* u_in6_prefixlen2mask() */
+
+
+/* derived from KAME source */
+static int u_in6_mask2prefixlen(const struct in6_addr *mask) {
+	int i, j;
+
+	u_static_assert(sizeof mask->s6_addr == 16, "strange s6_addr data type");
+
+	for (i = 0; i < 16; i++) {
+		for (j = 0; j < 8; j++) {
+			if (!((0x80 >> j) & mask->s6_addr[i]))
+				return 8 * i + j;
+		}
+	}
+
+	return 8 * i;
+} /* u_in6_mask2prefixlen() */
+
+
+static int u_in_mask2prefixlen(const struct in_addr *mask) {
+	unsigned long addr = ntohl(mask->s_addr);
+	int i;
+
+	for (i = 0; i < 32; i++) {
+		if (addr & (1UL << i))
+			break;
+	}
+
+	return 32 - i;
+} /* u_in_mask2prefixlen() */
+
+
+static int u_sa_mask2prefixlen(const struct sockaddr *mask) {
+	switch (mask->sa_family) {
+	case AF_INET6:
+		return u_in6_mask2prefixlen(&((const struct sockaddr_in6 *)mask)->sin6_addr);
+	case AF_INET:
+		return u_in_mask2prefixlen(&((const struct sockaddr_in *)mask)->sin_addr);
+	default:
+		return 0;
+	}
+} /* u_sa_mask2prefixlen() */
 
 
 #ifndef IN6_IS_SCOPE_LINKLOCAL
@@ -2232,9 +2275,10 @@ enum ifs_field {
 	IF_BROADADDR,
 	IF_DATA,
 	IF_FAMILY,
+	IF_PREFIXLEN,
 }; /* enum ifs_field */
 
-static const char *ifs_field[] = { "name", "flags", "addr", "netmask", "dstaddr", "broadaddr", "data", "family", NULL };
+static const char *ifs_field[] = { "name", "flags", "addr", "netmask", "dstaddr", "broadaddr", "data", "family", "prefixlen", NULL };
 
 
 static int ifs_pushaddr(lua_State *L, struct sockaddr *sa) {
@@ -2293,6 +2337,13 @@ static void ifs_pushfield(lua_State *L, const struct u_ifaddrs *ifa, enum ifs_fi
 			lua_pushnil(L);
 		}
 		break;
+	case IF_PREFIXLEN:
+		if (ifa->ifa_netmask) {
+			lua_pushinteger(L, u_sa_mask2prefixlen(ifa->ifa_netmask));
+		} else {
+			lua_pushnil(L);
+		}
+		break;
 	default:
 		lua_pushnil(L);
 		break;
@@ -2333,6 +2384,9 @@ static void ifs_pushtable(lua_State *L, const struct u_ifaddrs *ifa) {
 
 	ifs_pushfield(L, ifa, IF_FAMILY);
 	lua_setfield(L, -2, "family");
+
+	ifs_pushfield(L, ifa, IF_PREFIXLEN);
+	lua_setfield(L, -2, "prefixlen");
 } /* ifs_pushtable() */
 
 
@@ -3311,10 +3365,54 @@ static const luaL_Reg unix_routines[] = {
 }; /* unix_routines[] */
 
 
+#define UNIX_CONST(x) { #x, x }
+
+static const struct {
+	char name[16];
+	long long value;
+} unix_consts[] = {
+	UNIX_CONST(AF_UNSPEC), UNIX_CONST(AF_UNIX), UNIX_CONST(AF_INET),
+	UNIX_CONST(AF_INET6),
+
+#if defined IFF_UP
+	UNIX_CONST(IFF_UP),
+#endif
+#if defined IFF_BROADCAST
+	UNIX_CONST(IFF_BROADCAST),
+#endif
+#if defined IFF_DEBUG
+	UNIX_CONST(IFF_DEBUG),
+#endif
+#if defined IFF_LOOPBACK
+	UNIX_CONST(IFF_LOOPBACK),
+#endif
+#if defined IFF_POINTOPOINT
+	UNIX_CONST(IFF_POINTOPOINT),
+#endif
+#if defined IFF_NOTRAILERS
+	UNIX_CONST(IFF_NOTRAILERS),
+#endif
+#if defined IFF_RUNNING
+	UNIX_CONST(IFF_RUNNING),
+#endif
+#if defined IFF_NOARP
+	UNIX_CONST(IFF_NOARP),
+#endif
+#if defined IFF_PROMISC
+	UNIX_CONST(IFF_PROMISC),
+#endif
+#if defined IFF_SIMPLEX
+	UNIX_CONST(IFF_SIMPLEX),
+#endif
+#if defined IFF_MULTICAST
+	UNIX_CONST(IFF_MULTICAST),
+#endif
+}; /* unix_consts[] */
+
+
 int luaopen_unix(lua_State *L) {
 	unixL_State *U;
-	int error;
-	const luaL_Reg *f;
+	int i, error;
 
 	/*
 	 * setup unixL_State context
@@ -3351,6 +3449,18 @@ int luaopen_unix(lua_State *L) {
 	luaL_newlibtable(L, unix_routines);
 	lua_pushvalue(L, -2);
 	luaL_setfuncs(L, unix_routines, 1);
+
+	/*
+	 * insert constants
+	 */
+	for (i = 0; i < (int)countof(unix_consts); i++) {
+		/* throw error if our macro improperly stringified an identifier */
+		if (*unix_consts[i].name >= '0' && *unix_consts[i].name <= '9')
+			return luaL_error(L, "%s: bogus constant identifier string conversion (near %s)", unix_consts[i].name, (i == 0)? "?" : unix_consts[i - 1].name);
+
+		lua_pushnumber(L, unix_consts[i].value);
+		lua_setfield(L, -2, unix_consts[i].name);
+	}
 
 	return 1;
 } /* luaopen_unix() */
