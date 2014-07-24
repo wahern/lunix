@@ -296,6 +296,61 @@ static u_error_t u_realloc(char **buf, size_t *size, size_t minsiz) {
 } /* u_realloc() */
 
 
+static void *u_memjunk(void *buf, size_t bufsiz) {
+	struct {
+		pid_t pid;
+		struct timeval tv;
+		struct rusage ru;
+#if __APPLE__
+		uint64_t mt;
+#else
+		struct timespec mt;
+#endif
+		struct utsname un;
+		uintptr_t aslr;
+	} junk;
+	struct { const unsigned char *const buf; size_t size, p; } src = { (void *)&junk, sizeof junk, 0 };
+	struct { unsigned char *const buf; size_t size, p; } dst = { buf, bufsiz, 0 };
+
+	junk.pid = getpid();
+	gettimeofday(&junk.tv, NULL);
+	getrusage(RUSAGE_SELF, &junk.ru);
+#if __APPLE__
+	junk.mt = mach_absolute_time();
+#else
+	clock_gettime(CLOCK_MONOTONIC, &junk.mt);
+#endif
+	uname(&junk.un);
+	junk.aslr = (uintptr_t)&strcpy ^ (uintptr_t)&u_memjunk;
+
+	while (src.p < src.size || dst.p < dst.size) {
+		dst.buf[dst.p % dst.size] ^= src.buf[src.p % src.size];
+		++src.p;
+		++dst.p;
+	}
+
+	return buf;
+} /* u_memjunk() */
+
+
+static socklen_t u_sa_len(const struct sockaddr *sa) {
+#if defined SA_LEN
+	return SA_LEN(sa);
+#elif HAVE_SOCKADDR_SA_LEN
+	return sa->sa_len;
+#else
+	switch (sa->sa_family) {
+	case AF_INET:
+		return sizeof (struct sockaddr_in);
+	case AF_INET6:
+		return sizeof (struct sockaddr_in6);
+	default:
+		return sizeof (struct sockaddr);
+	}
+#endif
+} /* u_sa_len() */
+
+
 /*
  * T H R E A D - S A F E  I / O  O P E R A T I O N S
  *
@@ -570,43 +625,6 @@ error:
 } /* u_fdopendir() */
 
 
-static void *u_memjunk(void *buf, size_t bufsiz) {
-	struct {
-		pid_t pid;
-		struct timeval tv;
-		struct rusage ru;
-#if __APPLE__
-		uint64_t mt;
-#else
-		struct timespec mt;
-#endif
-		struct utsname un;
-		uintptr_t aslr;
-	} junk;
-	struct { const unsigned char *const buf; size_t size, p; } src = { (void *)&junk, sizeof junk, 0 };
-	struct { unsigned char *const buf; size_t size, p; } dst = { buf, bufsiz, 0 };
-
-	junk.pid = getpid();
-	gettimeofday(&junk.tv, NULL);
-	getrusage(RUSAGE_SELF, &junk.ru);
-#if __APPLE__
-	junk.mt = mach_absolute_time();
-#else
-	clock_gettime(CLOCK_MONOTONIC, &junk.mt);
-#endif
-	uname(&junk.un);
-	junk.aslr = (uintptr_t)&strcpy ^ (uintptr_t)&u_memjunk;
-
-	while (src.p < src.size || dst.p < dst.size) {
-		dst.buf[dst.p % dst.size] ^= src.buf[src.p % src.size];
-		++src.p;
-		++dst.p;
-	}
-
-	return buf;
-} /* u_memjunk() */
-
-
 #if HAVE_GETIFADDRS
 
 #define u_ifaddrs ifaddrs
@@ -702,21 +720,6 @@ error:
  */
 #define U_SIZEOF_ADDR_IFREQ(ifr) (sizeof (struct ifreq))
 #endif
-
-static socklen_t u_sa_len(const struct sockaddr *sa) {
-#if HAVE_SOCKADDR_SA_LEN
-	return sa->sa_len;
-#else
-	switch (sa->sa_family) {
-	case AF_INET:
-		return sizeof (struct sockaddr_in);
-	case AF_INET6:
-		return sizeof (struct sockaddr_in6);
-	default:
-		return sizeof (struct sockaddr);
-	}
-#endif
-} /* u_sa_len() */
 
 static void *u_sa_copy(struct sockaddr_storage *ss, const struct sockaddr *sa) {
 	return memcpy(ss, sa, u_sa_len(sa));
@@ -2028,29 +2031,11 @@ enum ifs_field {
 static const char *ifs_field[] = { "name", "flags", "addr", "netmask", "dstaddr", "broadaddr", "data", "family", NULL };
 
 
-static socklen_t ifs_sa_len(struct sockaddr *sa) {
-#if defined SA_LEN 
-	return SA_LEN(sa);
-#elif HAVE_SA_LEN || __APPLE__
-	return sa->sa_len;
-#else
-	switch (sa->sa_family)
-	case AF_INET:
-		return sizeof (struct sockaddr_in);
-	case AF_INET6:
-		return sizeof (struct sockaddr_in6);
-	default:
-		return sizeof (struct sockaddr);
-	}
-#endif
-} /* ifs_sa_len() */
-
-
 static int ifs_pushaddr(lua_State *L, struct sockaddr *sa) {
 	char host[NI_MAXHOST + 1];
 	int error;
 
-	if ((error = getnameinfo(sa, ifs_sa_len(sa), host, sizeof host, NULL, 0, NI_NUMERICHOST))) {
+	if ((error = getnameinfo(sa, u_sa_len(sa), host, sizeof host, NULL, 0, NI_NUMERICHOST))) {
 		//return luaL_error(L, "getnameinfo: %s", gai_strerror(error));
 		lua_pushnil(L);
 	} else {
