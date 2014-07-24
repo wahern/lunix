@@ -1,21 +1,34 @@
+/*
+ * P O R T A B L E  S Y S T E M  I N C L U D E S
+ *
+ * Try to include as much as we can here for documentation purposes.
+ * Includes which are spread around makes it difficult to determine which
+ * headers are being used, and can make dependency ordering issues more
+ * troublesome. (Localized includes makes it easier to determine why they're
+ * being used, so it's a trade off.)
+ *
+ * Non-portable headers are included after the feature detection section.
+ *
+ * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
 #ifndef _POSIX_PTHREAD_SEMANTICS
 #define _POSIX_PTHREAD_SEMANTICS 1 /* Solaris */
 #endif
 
-#include <limits.h>       /* NL_TEXTMAX */
+#include <limits.h>       /* INT_MAX NL_TEXTMAX */
 #include <stdarg.h>       /* va_list va_start va_arg va_end */
 #include <stdint.h>       /* SIZE_MAX */
-#include <stdlib.h>       /* arc4random(3) free(3) realloc(3) strtoul(3) */
+#include <stdlib.h>       /* arc4random(3) calloc(3) free(3) realloc(3) strtoul(3) */
 #include <stdio.h>        /* fileno(3) snprintf(3) */
 #include <string.h>       /* memset(3) strerror_r(3) strspn(3) strcspn(3) */
 #include <signal.h>       /* sigset_t sigfillset(3) sigemptyset(3) sigprocmask(2) */
 #include <ctype.h>        /* isspace(3) */
 #include <time.h>         /* struct tm struct timespec gmtime_r(3) clock_gettime(3) tzset(3) */
-#include <errno.h>        /* ENOMEM errno */
+#include <errno.h>        /* ENOMEM ERANGE errno */
+#include <assert.h>       /* static_assert */
 
-#include <sys/param.h>    /* __NetBSD_Version__ __OpenBSD_Version__ __FreeBSD_version */
 #include <sys/types.h>    /* gid_t mode_t off_t pid_t uid_t */
 #include <sys/resource.h> /* RUSAGE_SELF struct rusage getrusage(2) */
+#include <sys/socket.h>   /* AF_INET AF_INET6 SOCK_DGRAM struct sockaddr socket(2) */
 #include <sys/stat.h>     /* S_ISDIR() */
 #include <sys/time.h>     /* struct timeval gettimeofday(2) */
 #if __linux
@@ -23,11 +36,14 @@
 #endif
 #include <sys/utsname.h>  /* uname(2) */
 #include <sys/wait.h>     /* waitpid(2) */
+#include <sys/ioctl.h>    /* SIOCGIFCONF ioctl(2) */
+#include <net/if.h>       /* IF_NAMESIZE struct ifconf struct ifreq */
 #include <unistd.h>       /* _PC_NAME_MAX chdir(2) chroot(2) close(2) chdir(2) chown(2) chroot(2) dup2(2) fpathconf(3) getegid(2) geteuid(2) getgid(2) getpid(2) getuid(2) issetugid(2) link(2) rename(2) rmdir(2) setegid(2) seteuid(2) setgid(2) setuid(2) setsid(2) symlink(2) truncate(2) umask(2) unlink(2) */
-#include <fcntl.h>        /* F_GETFD F_SETFD FD_CLOEXEC fcntl(2) open(2) */
+#include <fcntl.h>        /* F_DUPFD_CLOEXEC F_GETFD F_SETFD FD_CLOEXEC fcntl(2) open(2) */
 #include <pwd.h>          /* struct passwd getpwnam_r(3) */
 #include <grp.h>          /* struct group getgrnam_r(3) */
 #include <dirent.h>       /* closedir(3) fdopendir(3) opendir(3) readdir_r(3) rewinddir(3) */
+#include <netdb.h>        /* NI_MAXHOST gai_strerror(3) getnameinfo(3) */
 
 #if __APPLE__
 #include <mach/mach_time.h> /* mach_timebase_info() mach_absolute_time() */
@@ -36,6 +52,84 @@
 #include <lua.h>
 #include <lualib.h>
 #include <lauxlib.h>
+
+
+/*
+ * F E A T U R E  D E T E C T I O N
+ *
+ * In lieu of external detection do our best to detect features using the
+ * preprocessor environment.
+ *
+ * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
+#include <sys/param.h> /* __NetBSD_Version__ __OpenBSD_Version__ __FreeBSD_version */
+
+#if __sun
+#include <sys/feature_tests.h> /* _DTRACE_VERSION */
+#endif
+
+#ifndef __GNUC_PREREQ
+#define __GNUC_PREREQ(M, m) 0
+#endif
+
+#ifndef __NetBSD_Prereq__
+#define __NetBSD_Prereq__(M, m, p) 0
+#endif
+
+#define GNUC_PREREQ(M, m) __GNUC_PREREQ(M, m)
+
+#define NETBSD_PREREQ(M, m) __NetBSD_Prereq__(M, m, 0)
+
+#define FREEBSD_PREREQ(M, m) (__FreeBSD_version >= ((M) * 100000) + ((m) * 1000))
+
+#define SUNOS_PREREQ_5_10 (defined __sun && defined _DTRACE_VERSION)
+#define SUNOS_PREREQ_5_11 (defined __sun && defined F_DUPFD_CLOEXEC)
+#define SUNOS_PREREQ(M, m) SUNOS_PREREQ_ ## M ## _ ## m
+
+#ifndef HAVE_ARC4RANDOM
+#define HAVE_ARC4RANDOM (defined __OpenBSD__ || defined __FreeBSD__ || defined __NetBSD__ || defined __MirBSD__ || defined __APPLE__)
+#endif
+
+#ifndef HAVE_PIPE2
+#define HAVE_PIPE2 (GNUC_PREREQ(2,9) || FREEBSD_PREREQ(10,0) || NETBSD_PREREQ(6,0))
+#endif
+
+#ifndef HAVE_DUP3
+#define HAVE_DUP3 (GNUC_PREREQ(2,9) || FREEBSD_PREREQ(10,0) || NETBSD_PREREQ(6,0))
+#endif
+
+#ifndef HAVE_FDOPENDIR
+#define HAVE_FDOPENDIR (!defined __APPLE__ && (!defined __NetBSD__ || NETBSD_PREREQ(6,0)))
+#endif
+
+#ifndef HAVE_ISSETUGID
+#define HAVE_ISSETUGID (!defined __linux && !defined _AIX)
+#endif
+
+#ifndef HAVE_GETAUXVAL
+#define HAVE_GETAUXVAL GNUC_PREREQ(2,16)
+#endif
+
+#ifndef HAVE_IFADDRS_H
+#define HAVE_IFADDRS_H (!defined _AIX && (!defined __sun || SUNOS_PREREQ(5,11)))
+#endif
+
+#ifndef HAVE_GETIFADDRS
+#define HAVE_GETIFADDRS HAVE_IFADDRS_H
+#endif
+
+#ifndef HAVE_SOCKADDR_SA_LEN
+#define HAVE_SOCKADDR_SA_LEN (!defined __linux && !defined __sun)
+#endif
+
+
+/*
+ * N O N - P O R T A B L E  S Y S T E M  I N C L U D E S
+ *
+ * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
+
+#if HAVE_IFADDRS_H
+#include <ifaddrs.h> /* struct ifaddrs getifaddrs(3) freeifaddrs(3) */
+#endif
 
 
 /*
@@ -108,53 +202,6 @@ static void luaL_setfuncs(lua_State *L, const luaL_Reg *l, int nup) {
 
 
 /*
- * F E A T U R E  D E T E C T I O N
- *
- * In lieu of external detection do our best to detect features using the
- * preprocessor environment.
- *
- * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
-
-#ifndef __GNUC_PREREQ
-#define __GNUC_PREREQ(M, m) 0
-#endif
-
-#ifndef __NetBSD_Prereq__
-#define __NetBSD_Prereq__(M, m, p) 0
-#endif
-
-#define GNUC_PREREQ(M, m) __GNUC_PREREQ(M, m)
-
-#define NETBSD_PREREQ(M, m) __NetBSD_Prereq__(M, m, 0)
-
-#define FREEBSD_PREREQ(M, m) (__FreeBSD_version >= ((M) * 100000) + ((m) * 1000))
-
-#ifndef HAVE_ARC4RANDOM
-#define HAVE_ARC4RANDOM (defined __OpenBSD__ || defined __FreeBSD__ || defined __NetBSD__ || defined __MirBSD__ || defined __APPLE__)
-#endif
-
-#ifndef HAVE_PIPE2
-#define HAVE_PIPE2 (GNUC_PREREQ(2,9) || FREEBSD_PREREQ(10,0) || NETBSD_PREREQ(6,0))
-#endif
-
-#ifndef HAVE_DUP3
-#define HAVE_DUP3 (GNUC_PREREQ(2,9) || FREEBSD_PREREQ(10,0) || NETBSD_PREREQ(6,0))
-#endif
-
-#ifndef HAVE_FDOPENDIR
-#define HAVE_FDOPENDIR (!defined __APPLE__ && (!defined __NetBSD__ || NETBSD_PREREQ(6,0)))
-#endif
-
-#ifndef HAVE_ISSETUGID
-#define HAVE_ISSETUGID (!defined __linux && !defined _AIX)
-#endif
-
-#ifndef HAVE_GETAUXVAL
-#define HAVE_GETAUXVAL GNUC_PREREQ(2,16)
-#endif
-
-
-/*
  * C O M P I L E R  A N N O T A T I O N S
  *
  * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
@@ -167,6 +214,19 @@ static void luaL_setfuncs(lua_State *L, const luaL_Reg *l, int nup) {
 #endif
 #endif
 
+#if __clang__
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wmissing-braces"
+#elif (__GNUC__ == 4 && __GNUC_MINOR__ >= 6) || __GNUC__ > 4
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wmissing-braces"
+#endif
+
+
+/*
+ * M I S C  &  C O M P A T  R O U T I N E S
+ *
+ * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
 
 #ifndef howmany
 #define howmany(x, y) (((x) + ((y) - 1)) / (y))
@@ -180,9 +240,16 @@ static void luaL_setfuncs(lua_State *L, const luaL_Reg *l, int nup) {
 #define MIN(a, b) (((a) < (b))? (a) : (b))
 #endif
 
+#ifndef MAX
+#define MAX(a, b) (((a) > (b))? (a) : (b))
+#endif
+
 #ifndef CLAMP
 #define CLAMP(i, m, n) (((i) < (m))? (m) : ((i) > (n))? (n) : (i))
 #endif
+
+
+#define u_static_assert(...) _Static_assert(__VA_ARGS__)
 
 
 static size_t u_power2(size_t i) {
@@ -425,6 +492,32 @@ static u_error_t u_dup3(int fd, int fd2, u_flags_t flags) {
 } /* u_dup3() */
 
 
+static u_error_t u_socket(int *fd, int family, int type, int proto, int flags) {
+	int error;
+
+#if defined SOCK_CLOEXEC
+	if (flags & O_CLOEXEC)
+		proto |= SOCK_CLOEXEC;
+#endif
+
+#if defined SOCK_NONBLOCK
+	if (flags & O_NONBLOCK)
+		proto |= SOCK_NONBLOCK;
+#endif
+
+	if (-1 == (*fd = socket(family, type, proto)))
+		return errno;
+
+	if ((error = u_fixflags(*fd, flags))) {
+		u_close(fd);
+
+		return error;
+	}
+
+	return 0;
+} /* u_socket() */
+
+
 static u_error_t u_fdopendir(DIR **dp, int fd) {
 #if HAVE_FDOPENDIR
 	int error;
@@ -512,6 +605,224 @@ static void *u_memjunk(void *buf, size_t bufsiz) {
 
 	return buf;
 } /* u_memjunk() */
+
+
+#if HAVE_GETIFADDRS
+
+#define u_ifaddrs ifaddrs
+
+static u_error_t u_getifaddrs(struct u_ifaddrs **ifs) {
+	return (0 == getifaddrs(ifs))? 0 : errno;
+} /* u_getifaddrs() */
+
+static void u_freeifaddrs(struct u_ifaddrs *ifs) {
+	freeifaddrs(ifs);
+} /* u_freeifaddrs() */
+
+#else
+
+struct u_ifaddrs {
+	struct u_ifaddrs *ifa_next;
+	char ifa_name[IF_NAMESIZE];
+	unsigned int ifa_flags;
+	struct sockaddr *ifa_addr;
+	struct sockaddr *ifa_netmask;
+	struct sockaddr *ifa_dstaddr;
+
+	struct sockaddr_storage ifa_ss[3];
+}; /* struct u_ifaddrs */
+
+
+static void u_freeifaddrs(struct u_ifaddrs *ifs) {
+	struct u_ifaddrs *ifa, *nxt;
+
+	for (ifa = ifs; ifa; ifa = nxt) {
+		nxt = ifa->ifa_next;
+		free(ifa);
+	}
+} /* if_freeifaddrs() */
+
+
+static u_error_t u_getifconf(struct ifconf *ifc, int fd) {
+	char *buf = NULL;
+	size_t bufsiz;
+	int error;
+
+	ifc->ifc_buf = NULL;
+	ifc->ifc_len = 0;
+
+	do {
+		bufsiz = (size_t)ifc->ifc_len + sizeof (struct sockaddr_storage);
+
+		/* check for arithmetic overflow when adding sizeof sockaddr_storage */
+		if (bufsiz < sizeof (struct sockaddr_storage))
+			goto range;
+
+		if ((error = u_realloc(&buf, &bufsiz, MAX(256, bufsiz))))
+			goto error;
+
+		/* ifc->ifc_len is usually an int; be careful of undefined conversion */
+		if (bufsiz > INT_MAX)
+			goto range;
+
+		memset(buf, 0, bufsiz);
+
+		ifc->ifc_buf = (void *)buf;
+		ifc->ifc_len = bufsiz;
+
+		if (-1 == ioctl(fd, SIOCGIFCONF, (void *)ifc))
+			goto syerr;
+	} while (bufsiz - sizeof (struct sockaddr_storage) < (size_t)ifc->ifc_len);
+
+	return 0;
+range:
+	error = ERANGE;
+	goto error;
+syerr:
+	error = errno;
+error:
+	free(buf);
+	ifc->ifc_buf = NULL;
+	ifc->ifc_len = 0;
+
+	return error;
+} /* u_getifconf() */
+
+
+#if HAVE_SOCKADDR_SA_LEN
+/* from OS X <net/if.h> */
+#define U_SIZEOF_ADDR_IFREQ(ifr)  \
+	(((ifr)->ifr_addr.sa_len > sizeof (struct sockaddr)) \
+		? (sizeof (struct ifreq) - sizeof (struct sockaddr) + (ifr)->ifr_addr.sa_len) \
+		: (sizeof (struct ifreq)))
+#else
+/*
+ * On systems without sa_len ioctl(SIOCGIFCONF) only returns AF_INET
+ * addresses, which always fits within a struct sockaddr.
+ */
+#define U_SIZEOF_ADDR_IFREQ(ifr) (sizeof (struct ifreq))
+#endif
+
+static socklen_t u_sa_len(const struct sockaddr *sa) {
+#if HAVE_SOCKADDR_SA_LEN
+	return sa->sa_len;
+#else
+	switch (sa->sa_family) {
+	case AF_INET:
+		return sizeof (struct sockaddr_in);
+	case AF_INET6:
+		return sizeof (struct sockaddr_in6);
+	default:
+		return sizeof (struct sockaddr);
+	}
+#endif
+} /* u_sa_len() */
+
+static void *u_sa_copy(struct sockaddr_storage *ss, const struct sockaddr *sa) {
+	return memcpy(ss, sa, u_sa_len(sa));
+} /* u_sa_copy() */
+
+static u_error_t u_getifaddrs(struct u_ifaddrs **ifs) {
+	int fd = -1;
+	struct ifconf ifc = { 0 };
+	struct ifreq *ifr, *end;
+	struct u_ifaddrs *ifa, *prv;
+	size_t ifrsiz;
+	int error;
+
+	*ifs = NULL;
+
+	if ((error = u_socket(&fd, AF_INET, SOCK_DGRAM, PF_UNSPEC, O_CLOEXEC)))
+		goto error;
+
+	if ((error = u_getifconf(&ifc, fd)))
+		goto error;
+
+	ifr = (struct ifreq *)ifc.ifc_buf;
+	end = (struct ifreq *)((char *)ifc.ifc_buf + ifc.ifc_len);
+
+	prv = NULL;
+
+	while (ifr < end) {
+		ifrsiz = U_SIZEOF_ADDR_IFREQ(ifr);
+
+		if (!(ifa = calloc(1, sizeof *ifa)))
+			goto syerr;
+
+		u_static_assert(sizeof ifa->ifa_name == sizeof ifr->ifr_name, "sizeof ifa_name != sizeof ifr_name");
+		memcpy(ifa->ifa_name, ifr->ifr_name, MIN(sizeof ifa->ifa_name, sizeof ifr->ifr_name));
+
+		ifa->ifa_addr = u_sa_copy(&ifa->ifa_ss[0], &ifr->ifr_addr);
+
+		if (-1 != ioctl(fd, SIOCGIFFLAGS, ifr))
+			ifa->ifa_flags = ifr->ifr_flags;
+
+		if (ifa->ifa_addr->sa_family == AF_INET6) {
+#if defined SIOCGLIFADDR
+			struct if_laddrreq iflr = { 0 };
+
+			u_static_assert(sizeof iflr.iflr_name == sizeof ifr->ifr_name, "sizeof iflr_name != sizeof ifr_name");
+			memcpy(iflr.iflr_name, ifr->ifr_name, MIN(sizeof iflr.iflr_name, sizeof ifr->ifr_name));
+			u_sa_copy(&iflr.addr, ifa->ifa_addr);
+
+			if (-1 != ioctl(fd, SIOCGLIFADDR, &iflr)) {
+				if (iflr.addr.ss_family == AF_INET6) {
+					struct sockaddr_in6 *sin6 = u_sa_copy(&ifa->ifa_ss[1], (struct sockaddr *)&iflr.addr);
+					int bits, i;
+
+
+					for (i = 0; i < 16; i++) {
+						if (iflr.prefixlen > 8) {
+							bits = 0;
+							iflr.prefixlen -= 8;
+						} else {
+							bits = 8 - iflr.prefixlen;
+							iflr.prefixlen = 0;
+						}
+
+						sin6->sin6_addr.s6_addr[i] = (~0 << bits) & 0xff;
+					}
+
+					ifa->ifa_netmask = (struct sockaddr *)sin6;
+				}
+
+				if (iflr.dstaddr.ss_family != AF_UNSPEC)
+					ifa->ifa_dstaddr = u_sa_copy(&ifa->ifa_ss[2], (struct sockaddr *)&iflr.dstaddr);
+			}
+#endif
+		} else {
+			if (-1 != ioctl(fd, SIOCGIFNETMASK, ifr))
+				ifa->ifa_netmask = u_sa_copy(&ifa->ifa_ss[1], &ifr->ifr_addr);
+
+			if (-1 != ioctl(fd, SIOCGIFDSTADDR, ifr))
+				ifa->ifa_dstaddr = u_sa_copy(&ifa->ifa_ss[2], &ifr->ifr_addr);
+			if (-1 != ioctl(fd, SIOCGIFBRDADDR, ifr))
+				ifa->ifa_dstaddr = u_sa_copy(&ifa->ifa_ss[2], &ifr->ifr_addr);
+		}
+
+		*((prv)? &prv->ifa_next : ifs) = ifa;
+		prv = ifa;
+
+		ifr = (struct ifreq *)((char *)ifr + ifrsiz);
+	}
+
+	u_close(&fd);
+
+	return 0;
+syerr:
+	error = errno;
+error:
+	u_close(&fd);
+
+	free(ifc.ifc_buf);
+
+	u_freeifaddrs(*ifs);
+	*ifs = NULL;
+
+	return error;
+} /* u_getifaddrs() */
+
+#endif
 
 
 #if !HAVE_ARC4RANDOM
@@ -1703,6 +2014,207 @@ static int unix_getgrnam(lua_State *L) {
 } /* unix_getgrnam() */
 
 
+enum ifs_field {
+	IF_NAME,
+	IF_FLAGS,
+	IF_ADDR,
+	IF_NETMASK,
+	IF_DSTADDR,
+	IF_BROADADDR,
+	IF_DATA,
+	IF_FAMILY,
+}; /* enum ifs_field */
+
+static const char *ifs_field[] = { "name", "flags", "addr", "netmask", "dstaddr", "broadaddr", "data", "family", NULL };
+
+
+static socklen_t ifs_sa_len(struct sockaddr *sa) {
+#if defined SA_LEN 
+	return SA_LEN(sa);
+#elif HAVE_SA_LEN || __APPLE__
+	return sa->sa_len;
+#else
+	switch (sa->sa_family)
+	case AF_INET:
+		return sizeof (struct sockaddr_in);
+	case AF_INET6:
+		return sizeof (struct sockaddr_in6);
+	default:
+		return sizeof (struct sockaddr);
+	}
+#endif
+} /* ifs_sa_len() */
+
+
+static int ifs_pushaddr(lua_State *L, struct sockaddr *sa) {
+	char host[NI_MAXHOST + 1];
+	int error;
+
+	if ((error = getnameinfo(sa, ifs_sa_len(sa), host, sizeof host, NULL, 0, NI_NUMERICHOST))) {
+		//return luaL_error(L, "getnameinfo: %s", gai_strerror(error));
+		lua_pushnil(L);
+	} else {
+		lua_pushstring(L, host);
+	}
+
+	return 1;
+} /* ifs_pushaddr() */
+
+
+static void ifs_pushfield(lua_State *L, const struct u_ifaddrs *ifa, enum ifs_field type) {
+	switch (type) {
+	case IF_NAME:
+		lua_pushstring(L, ifa->ifa_name);
+		break;
+	case IF_FLAGS:
+		lua_pushinteger(L, ifa->ifa_flags);
+		break;
+	case IF_ADDR:
+		if (ifa->ifa_addr) {
+			ifs_pushaddr(L, ifa->ifa_addr);
+		} else {
+			lua_pushnil(L);
+		}
+		break;
+	case IF_NETMASK:
+		if (ifa->ifa_netmask) {
+			ifs_pushaddr(L, ifa->ifa_netmask);
+		} else {
+			lua_pushnil(L);
+		}
+		break;
+	case IF_BROADADDR:
+		/* FALL THROUGH */
+	case IF_DSTADDR:
+		if (ifa->ifa_dstaddr) {
+			ifs_pushaddr(L, ifa->ifa_dstaddr);
+		} else {
+			lua_pushnil(L);
+		}
+		break;
+	case IF_DATA:
+		lua_pushnil(L);
+		break;
+	case IF_FAMILY:
+		if (ifa->ifa_addr) {
+			lua_pushinteger(L, ifa->ifa_addr->sa_family);
+		} else {
+			lua_pushnil(L);
+		}
+		break;
+	default:
+		lua_pushnil(L);
+		break;
+	}
+} /* ifs_pushfield() */
+
+
+static void ifs_pushtable(lua_State *L, const struct u_ifaddrs *ifa) {
+	lua_createtable(L, 0, 7);
+
+	ifs_pushfield(L, ifa, IF_NAME);
+	lua_setfield(L, -2, "name");
+
+	ifs_pushfield(L, ifa, IF_FLAGS);
+	lua_setfield(L, -2, "flags");
+
+	ifs_pushfield(L, ifa, IF_ADDR);
+	lua_setfield(L, -2, "addr");
+
+	ifs_pushfield(L, ifa, IF_NETMASK);
+	lua_setfield(L, -2, "netmask");
+
+#if defined IFF_BROADCAST
+	if (ifa->ifa_flags & IFF_BROADCAST) {
+		ifs_pushfield(L, ifa, IF_BROADADDR);
+		lua_setfield(L, -2, "broadaddr");
+	} else {
+		ifs_pushfield(L, ifa, IF_DSTADDR);
+		lua_setfield(L, -2, "dstaddr");
+	}
+#else
+	ifs_pushfield(L, ifa, IF_DSTADDR);
+	lua_setfield(L, -2, "dstaddr");
+#endif
+
+	ifs_pushfield(L, ifa, IF_DATA);
+	lua_setfield(L, -2, "data");
+
+	ifs_pushfield(L, ifa, IF_FAMILY);
+	lua_setfield(L, -2, "family");
+} /* ifs_pushtable() */
+
+
+static int ifs_nextif(lua_State *L) {
+	struct u_ifaddrs *ifa = lua_touserdata(L, lua_upvalueindex(2));
+
+	if (!ifa)
+		return 0;
+
+	lua_pushlightuserdata(L, ifa->ifa_next);
+	lua_replace(L, lua_upvalueindex(2));
+
+	if (lua_isnone(L, lua_upvalueindex(3))) {
+		ifs_pushtable(L, ifa);
+
+		return 1;
+	} else {
+		int i;
+
+		for (i = 3; !lua_isnone(L, lua_upvalueindex(i)); i++) {
+			ifs_pushfield(L, ifa, luaL_checkoption(L, lua_upvalueindex(i), NULL, ifs_field));
+		}
+
+		return i - 3;
+	}
+} /* ifs_nextif() */
+
+
+static int unix_getifaddrs(lua_State *L) {
+	struct u_ifaddrs **ifs;
+	int error;
+
+	ifs = lua_newuserdata(L, sizeof *ifs);
+	*ifs = NULL;
+	luaL_setmetatable(L, "struct ifaddrs*");
+
+	if ((error = u_getifaddrs(ifs)))
+		return unixL_pusherror(L, error, "getifaddrs", "~$#");
+
+	lua_insert(L, 1);
+
+	lua_pushlightuserdata(L, *ifs);
+	lua_insert(L, 2);
+
+	lua_pushcclosure(L, &ifs_nextif, lua_gettop(L));
+
+	return 1;
+} /* unix_getifaddrs() */
+
+
+static int ifs__gc(lua_State *L) {
+	struct u_ifaddrs **ifs = luaL_checkudata(L, 1, "struct ifaddrs*");
+
+	if (*ifs) {
+		u_freeifaddrs(*ifs);
+		*ifs = NULL;
+	}
+
+	return 0;
+} /* ifs__gc() */
+
+
+static const luaL_Reg ifs_methods[] = {
+	{ NULL, NULL }
+}; /* ifs_methods[] */
+
+
+static const luaL_Reg ifs_metamethods[] = {
+	{ "__gc", &ifs__gc },
+	{ NULL,   NULL }
+}; /* ifs_metamethods[] */
+
+
 static int unix_getpid(lua_State *L) {
 	lua_pushnumber(L, getpid());
 
@@ -2570,6 +3082,7 @@ static const luaL_Reg unix_routines[] = {
 	{ "getgid",             &unix_getgid },
 	{ "getgrnam",           &unix_getgrnam },
 	{ "getgruid",           &unix_getgrnam },
+	{ "getifaddrs",         &unix_getifaddrs },
 	{ "getpid",             &unix_getpid },
 	{ "getpwnam",           &unix_getpwnam },
 	{ "getpwuid",           &unix_getpwnam },
@@ -2626,6 +3139,13 @@ int luaopen_unix(lua_State *L) {
 
 	if ((error = unixL_init(U)))
 		return luaL_error(L, "%s", unixL_strerror3(L, U, error));
+
+	/*
+	 * add struct ifaddrs* class
+	 */
+	lua_pushvalue(L, -1);
+	unixL_newmetatable(L, "struct ifaddrs*", ifs_methods, ifs_metamethods, 1);
+	lua_pop(L, 1);
 
 	/*
 	 * add DIR* class
