@@ -1545,7 +1545,7 @@ static int unixL_getgrnam(lua_State *L, const char *group, struct group **ent) {
 } /* unixL_getgrnam() */
 
 
-static int unixL_getgruid(lua_State *L, gid_t gid, struct group **ent) {
+static int unixL_getgrgid(lua_State *L, gid_t gid, struct group **ent) {
 	unixL_State *U = unixL_getstate(L);
 	int error;
 
@@ -1562,7 +1562,7 @@ static int unixL_getgruid(lua_State *L, gid_t gid, struct group **ent) {
 	}
 
 	return 0;
-} /* unixL_getgruid() */
+} /* unixL_getgrgid() */
 
 
 static uid_t unixL_optuid(lua_State *L, int index, uid_t def) {
@@ -2200,7 +2200,7 @@ static int unix_getgrnam(lua_State *L) {
 	int error;
 
 	if (lua_isnumber(L, 1)) {
-		error = unixL_getgruid(L, luaL_checkint(L, 1), &ent);
+		error = unixL_getgrgid(L, luaL_checkint(L, 1), &ent);
 	} else {
 		error = unixL_getgrnam(L, luaL_checkstring(L, 1), &ent);
 	}
@@ -3336,7 +3336,7 @@ static const luaL_Reg unix_routines[] = {
 	{ "getmode",            &unix_getmode },
 	{ "getgid",             &unix_getgid },
 	{ "getgrnam",           &unix_getgrnam },
-	{ "getgruid",           &unix_getgrnam },
+	{ "getgrgid",           &unix_getgrnam },
 	{ "getifaddrs",         &unix_getifaddrs },
 	{ "getpid",             &unix_getpid },
 	{ "getpwnam",           &unix_getpwnam },
