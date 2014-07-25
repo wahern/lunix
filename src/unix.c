@@ -26,7 +26,7 @@
 #include <errno.h>        /* ENOMEM ERANGE errno */
 #include <assert.h>       /* static_assert */
 
-#include <sys/param.h>    /* __NetBSD_Version__ __OpenBSD_Version__ __FreeBSD_version */
+#include <sys/param.h>    /* __NetBSD_Version__ OpenBSD __FreeBSD_version */
 #include <sys/types.h>    /* gid_t mode_t off_t pid_t uid_t */
 #include <sys/resource.h> /* RUSAGE_SELF struct rusage getrusage(2) */
 #include <sys/socket.h>   /* AF_INET AF_INET6 SOCK_DGRAM struct sockaddr socket(2) */
@@ -97,6 +97,14 @@
 
 #ifndef HAVE_ARC4RANDOM
 #define HAVE_ARC4RANDOM (defined __OpenBSD__ || defined __FreeBSD__ || defined __NetBSD__ || defined __MirBSD__ || defined __APPLE__)
+#endif
+
+#ifndef HAVE_ARC4RANDOM_STIR
+#define HAVE_ARC4RANDOM_STIR (HAVE_ARC4RANDOM && (!defined OpenBSD || OpenBSD < 201405))
+#endif
+
+#ifndef HAVE_ARC4RANDOM_ADDRANDOM
+#define HAVE_ARC4RANDOM_ADDRANDOM HAVE_ARC4RANDOM_STIR
 #endif
 
 #ifndef HAVE_PIPE2
@@ -1979,7 +1987,7 @@ static int unix_arc4random_buf(lua_State *L) {
 
 static int unix_arc4random_stir(lua_State *L) {
 #if HAVE_ARC4RANDOM
-#if __APPLE__ || (__FreeBSD__ && !FREEBSD_PREREQ(10,0))
+#if (__APPLE__ || (__FreeBSD__ && !FREEBSD_PREREQ(10,0))) && HAVE_ARC4RANDOM_ADDRANDOM
 	/*
 	 * Apple's arc4random always uses /dev/urandom, whereas the BSDs
 	 * support a chroot-safe sysctl method.
@@ -1987,7 +1995,9 @@ static int unix_arc4random_stir(lua_State *L) {
 	char junk[128];
 	arc4random_addrandom(u_memjunk(junk, sizeof junk), sizeof junk);
 #endif
+#if HAVE_ARC4RANDOM_STIR
 	arc4random_stir();
+#endif
 #else
 	arc4_stir(&(unixL_getstate(L))->random, 1);
 #endif
