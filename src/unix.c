@@ -17,7 +17,7 @@
 #include <limits.h>       /* INT_MAX NL_TEXTMAX */
 #include <stdarg.h>       /* va_list va_start va_arg va_end */
 #include <stdint.h>       /* SIZE_MAX */
-#include <stdlib.h>       /* arc4random(3) calloc(3) free(3) realloc(3) strtoul(3) */
+#include <stdlib.h>       /* arc4random(3) getenv(3) calloc(3) free(3) realloc(3) setenv(3) strtoul(3) unsetenv(3) */
 #include <stdio.h>        /* fileno(3) snprintf(3) */
 #include <string.h>       /* memset(3) strerror_r(3) strspn(3) strcspn(3) */
 #include <signal.h>       /* sigset_t sigfillset(3) sigemptyset(3) sigprocmask(2) */
@@ -2147,6 +2147,18 @@ static int unix_getegid(lua_State *L) {
 } /* unix_getegid() */
 
 
+static int unix_getenv(lua_State *L) {
+	const char *value;
+
+	if (!(value = getenv(luaL_checkstring(L, 1))))
+		return 0;
+
+	lua_pushstring(L, value);
+
+	return 1;
+} /* unix_getenv() */
+
+
 static int unix_geteuid(lua_State *L) {
 	lua_pushnumber(L, geteuid());
 
@@ -3074,6 +3086,20 @@ static int unix_setegid(lua_State *L) {
 } /* unix_setegid() */
 
 
+static int unix_setenv(lua_State *L) {
+	const char *name = luaL_checkstring(L, 1);
+	const char *value = luaL_checkstring(L, 2);
+	int change = (lua_isnone(L, 3))? 1 : lua_toboolean(L, 3);
+
+	if (0 != setenv(name, value, change))
+		return unixL_pusherror(L, errno, "setenv", "0$#");
+
+	lua_pushboolean(L, 1);
+
+	return 1;
+} /* unix_setenv() */
+
+
 static int unix_seteuid(lua_State *L) {
 	uid_t uid = unixL_checkuid(L, 1);
 
@@ -3314,6 +3340,16 @@ static int unix_unlink(lua_State *L) {
 } /* unix_unlink() */
 
 
+static int unix_unsetenv(lua_State *L) {
+	if (0 != unsetenv(luaL_checkstring(L, 1)))
+		return unixL_pusherror(L, errno, "unsetenv", "0$#");
+
+	lua_pushboolean(L, 1);
+
+	return 1;
+} /* unix_unsetenv() */
+
+
 static int unix__gc(lua_State *L) {
 	unixL_destroy(lua_touserdata(L, 1));
 
@@ -3333,6 +3369,7 @@ static const luaL_Reg unix_routines[] = {
 	{ "closedir",           &unix_closedir },
 	{ "getegid",            &unix_getegid },
 	{ "geteuid",            &unix_geteuid },
+	{ "getenv",             &unix_getenv },
 	{ "getmode",            &unix_getmode },
 	{ "getgid",             &unix_getgid },
 	{ "getgrnam",           &unix_getgrnam },
@@ -3360,6 +3397,7 @@ static const luaL_Reg unix_routines[] = {
 	{ "S_ISLNK",            &unix_S_ISLNK },
 	{ "S_ISSOCK",           &unix_S_ISSOCK },
 	{ "setegid",            &unix_setegid },
+	{ "setenv",             &unix_setenv },
 	{ "seteuid",            &unix_seteuid },
 	{ "setgid",             &unix_setgid },
 	{ "setuid",             &unix_setuid },
@@ -3371,6 +3409,7 @@ static const luaL_Reg unix_routines[] = {
 	{ "umask",              &unix_umask },
 	{ "uname",              &unix_uname },
 	{ "unlink",             &unix_unlink },
+	{ "unsetenv",           &unix_unsetenv },
 	{ NULL,                 NULL }
 }; /* unix_routines[] */
 

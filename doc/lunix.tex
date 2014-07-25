@@ -279,6 +279,10 @@ Closes the DIR handle, releasing the underlying file descriptor.
 
 Returns the effective process GID as a Lua number.
 
+\subsubsection[\fn{getenv}]{\fn{getenv($name$)}}
+
+Returns the value of the environment variable $name$ as a string, or \nil if it does not exist.
+
 \subsubsection[\fn{geteuid}]{\fn{geteuid()}}
 
 Returns the effective process UID as a Lua number.
@@ -506,6 +510,12 @@ Set the effective process UID to $uid$. $uid$ must be an integer or symbolic use
 
 Returns \true on success, otherwise \false, an error string, and an integer system error.
 
+\subsubsection[\fn{setenv}]{\fn{setenv($name$, $value$[, $overwrite$])}}
+
+Sets the environment variable $name$ to $value$. If the variable already exists then it is not changed unless $overwrite$ is \true. $overwrite$ defaults to $true$.
+
+Returns \true on success, otherwise \false, an error string, and an integer system error.
+
 \subsubsection[\fn{setgid}]{\fn{setgid($gid$)}}
 
 Set the real process GID to $gid$. $gid$ must be an integer or symbolic group name.
@@ -580,6 +590,12 @@ On failure returns \nil, an error string, and an integer system error.
 Deletes the file entry at $path$.
 
 Returns \true on success, otherwise \false, an error string, and an integer system error. 
+
+\subsubsection[\fn{unsetenv}]{\fn{unsetenv($name$)}}
+
+Deletes the environment variable $name$ from the environment table.
+
+Returns \true on success, otherwise \false, an error string, and an integer system error.
 
 \end{Module}
 
