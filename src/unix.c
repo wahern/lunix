@@ -17,7 +17,7 @@
 #include <limits.h>       /* INT_MAX NL_TEXTMAX */
 #include <stdarg.h>       /* va_list va_start va_arg va_end */
 #include <stdint.h>       /* SIZE_MAX */
-#include <stdlib.h>       /* arc4random(3) getenv(3) calloc(3) free(3) realloc(3) setenv(3) strtoul(3) unsetenv(3) */
+#include <stdlib.h>       /* arc4random(3) getenv(3) getenv_r(3) calloc(3) free(3) realloc(3) setenv(3) strtoul(3) unsetenv(3) */
 #include <stdio.h>        /* fileno(3) snprintf(3) */
 #include <string.h>       /* memset(3) strerror_r(3) strspn(3) strcspn(3) */
 #include <signal.h>       /* sigset_t sigfillset(3) sigemptyset(3) sigprocmask(2) */
@@ -145,6 +145,10 @@
 
 #ifndef HAVE_NETINET6_IN6_VAR_H
 #define HAVE_NETINET6_IN6_VAR_H defined __KAME__
+#endif
+
+#ifndef HAVE_GETENV_R
+#define HAVE_GETENV_R NETBSD_PREREQ(5,0)
 #endif
 
 
@@ -348,6 +352,22 @@ static u_error_t u_realloc(char **buf, size_t *size, size_t minsiz) {
 
 	return 0;
 } /* u_realloc() */
+
+
+static u_error_t u_appendc(char **buf, size_t *size, size_t *p, int c) {
+	int error;
+
+	if (*p < *size) {
+		(*buf)[(*p)++] = c;
+	} else {
+		if ((error = u_realloc(buf, size, *p + 1)))
+			return error;
+
+		(*buf)[(*p)++] = c;
+	}
+
+	return 0;
+} /* u_appendc() */
 
 
 static void *u_memjunk(void *buf, size_t bufsiz) {
@@ -1290,6 +1310,11 @@ typedef struct unixL_State {
 		size_t bufsiz;
 	} dir;
 
+	struct {
+		char *buf;
+		size_t bufsiz;
+	} env;
+
 #if !HAVE_ARC4RANDOM
 	unixL_Random random;
 #endif
@@ -1332,6 +1357,10 @@ static void unixL_destroy(unixL_State *U) {
 #if !HAVE_ARC4RANDOM
 	arc4_destroy(&U->random);
 #endif
+
+	free(U->env.buf);
+	U->env.buf = NULL;
+	U->env.bufsiz = 0;
 
 	free(U->dir.ent);
 	U->dir.ent = NULL;
@@ -1950,6 +1979,182 @@ static int unixL_optclockid(lua_State *L, int index, int def) {
 } /* unixL_optclockid() */
 
 
+/*
+ * The thread-safety of getenv varies widely.
+ *
+ * Solaris is completely thread-safe, even including traversal of environ.
+ * It's "solution" is to leak memory all over the place, though.
+ *
+ * Linux/glibc is thread-tolerant in that it will not free variables, but it
+ * might scribble over existing ones. It uses locking internally, but direct
+ * use of environ is not safe.
+ *
+ * NetBSD uses locking internally but doesn't attempt to make getenv
+ * thread-safe. NetBSD provides getenv_r.
+ *
+ * Neither FreeBSD nor OpenBSD even implement locking internally. I assume
+ * that neither does OS X.
+ */
+static int unixL_getenv(lua_State *L, int index) {
+#if HAVE_GETENV_R
+	const char *name = luaL_checkstring(L, index);
+	luaL_Buffer B;
+	char *dst;
+	int error;
+
+	luaL_buffinit(L, &B);
+	dst = luaL_prepbuffer(&B);
+
+	if ((error = getenv_r(name, dst, LUAL_BUFFERSIZE))) {
+		if (error == ENOENT)
+			return 0;
+
+		return luaL_error(L, "%s: %s", name, unixL_strerror(L, error));
+	}
+
+	luaL_addsize(&B, strlen(dst));
+	luaL_pushresult(&B);
+
+	return 1;
+#else
+	const char *value;
+
+	if (!(value = getenv(luaL_checkstring(L, index))))
+		return 0;
+
+	lua_pushstring(L, value);
+
+	return 1;
+#endif
+} /* unixL_getenv() */
+
+
+static int unixL_setenv(lua_State *L, int nameindex, int valueindex, int chgindex) {
+	const char *name = luaL_checkstring(L, nameindex);
+	const char *value = luaL_checkstring(L, valueindex);
+	int change = (lua_isnone(L, chgindex))? 1 : lua_toboolean(L, chgindex);
+
+	if (0 != setenv(name, value, change))
+		return unixL_pusherror(L, errno, "setenv", "0$#");
+
+	lua_pushboolean(L, 1);
+
+	return 1;
+} /* unixL_setenv() */
+
+
+static int unixL_unsetenv(lua_State *L, int index) {
+	if (0 != unsetenv(luaL_checkstring(L, index)))
+		return unixL_pusherror(L, errno, "unsetenv", "0$#");
+
+	lua_pushboolean(L, 1);
+
+	return 1;
+} /* unixL_unsetenv() */
+
+
+static int env__index(lua_State *L) {
+	return unixL_getenv(L, 2);
+} /* env__index() */
+
+
+static int env__newindex(lua_State *L) {
+	lua_settop(L, 3); /* ensure index 4 is LUA_TNONE */
+	return unixL_setenv(L, 2, 3, 4);
+} /* env__newindex() */
+
+static int env__nextent(lua_State *L) {
+	const char *src;
+	size_t end, p;
+	luaL_Buffer B;
+	int goteq, ch;
+
+	src = lua_tolstring(L, lua_upvalueindex(2), &end);
+	p = lua_tointeger(L, lua_upvalueindex(3));
+
+next:
+	lua_settop(L, 0);
+	luaL_buffinit(L, &B);
+	goteq = 0;
+
+	while (p < end) {
+		switch ((ch = src[p++])) {
+		case '\0':
+			if (!goteq)
+				goto next;
+
+			luaL_pushresult(&B);
+
+			/* save state */
+			lua_pushinteger(L, p);
+			lua_replace(L, lua_upvalueindex(3));
+
+			return 2;
+		case '=':
+			if (!goteq) {
+				luaL_pushresult(&B);
+				luaL_buffinit(L, &B);
+				goteq = 1;
+
+				break;
+			}
+
+			/* FALL THROUGH */
+		default:
+			luaL_addchar(&B, ch);
+
+			break;
+		}
+	}
+
+	return 0;
+} /* env__nextent() */
+
+/*
+ * TODO: Try to do this in a thread-safe manner which doesn't also create
+ * additional thread-safety issues in unsuspecting application code. The
+ * safest approach is to fork before we serialize environ, and then send it
+ * over a pipe. Although that's not entirely safe either because some
+ * implementations use realloc to resize environ, or otherwise free it
+ * before updating the global pointer or ensuring its visible using a memory
+ * barrier.
+ */
+static int env__pairs(lua_State *L) {
+	extern char **environ;
+	unixL_State *U = unixL_getstate(L);
+	char **ep = environ, *cp;
+	size_t p = 0;
+	int error;
+
+	/* take snapshot of environ */
+	for (; ep && *ep; ep++) {
+		for (cp = *ep; *cp; cp++) {
+			if ((error = u_appendc(&U->env.buf, &U->env.bufsiz, &p, *cp)))
+				return luaL_error(L, "%s", unixL_strerror(L, error));
+		}
+
+		if ((error = u_appendc(&U->env.buf, &U->env.bufsiz, &p, '\0')))
+			return luaL_error(L, "%s", unixL_strerror(L, error));
+	}
+
+	lua_pushvalue(L, lua_upvalueindex(1));
+	lua_pushlstring(L, U->env.buf, p);
+	lua_pushinteger(L, 0);
+	lua_pushcclosure(L, &env__nextent, 3);
+
+	return 1;
+} /* env__pairs() */
+
+
+static const luaL_Reg env_metamethods[] = {
+	{ "__index",    &env__index },
+	{ "__newindex", &env__newindex },
+	{ "__pairs",    &env__pairs },
+	{ "__call",     &env__pairs }, /* Lua 5.1 doesn't have __pairs */
+	{ NULL,         NULL },
+}; /* env_metamethods[] */
+
+
 static int unix_arc4random(lua_State *L) {
 	lua_pushnumber(L, unixL_random(L));
 
@@ -2148,14 +2353,7 @@ static int unix_getegid(lua_State *L) {
 
 
 static int unix_getenv(lua_State *L) {
-	const char *value;
-
-	if (!(value = getenv(luaL_checkstring(L, 1))))
-		return 0;
-
-	lua_pushstring(L, value);
-
-	return 1;
+	return unixL_getenv(L, 1);
 } /* unix_getenv() */
 
 
@@ -3087,16 +3285,7 @@ static int unix_setegid(lua_State *L) {
 
 
 static int unix_setenv(lua_State *L) {
-	const char *name = luaL_checkstring(L, 1);
-	const char *value = luaL_checkstring(L, 2);
-	int change = (lua_isnone(L, 3))? 1 : lua_toboolean(L, 3);
-
-	if (0 != setenv(name, value, change))
-		return unixL_pusherror(L, errno, "setenv", "0$#");
-
-	lua_pushboolean(L, 1);
-
-	return 1;
+	return unixL_setenv(L, 1, 2, 3);
 } /* unix_setenv() */
 
 
@@ -3341,12 +3530,7 @@ static int unix_unlink(lua_State *L) {
 
 
 static int unix_unsetenv(lua_State *L) {
-	if (0 != unsetenv(luaL_checkstring(L, 1)))
-		return unixL_pusherror(L, errno, "unsetenv", "0$#");
-
-	lua_pushboolean(L, 1);
-
-	return 1;
+	return unixL_unsetenv(L, 1);
 } /* unix_unsetenv() */
 
 
@@ -3502,6 +3686,16 @@ int luaopen_unix(lua_State *L) {
 	luaL_newlibtable(L, unix_routines);
 	lua_pushvalue(L, -2);
 	luaL_setfuncs(L, unix_routines, 1);
+
+	/*
+	 * create environ table
+	 */
+	lua_createtable(L, 0, 0);
+	luaL_newlibtable(L, env_metamethods);
+	lua_pushvalue(L, -4); /* unixL_State */
+	luaL_setfuncs(L, env_metamethods, 1);
+	lua_setmetatable(L, -2);
+	lua_setfield(L, -2, "environ");
 
 	/*
 	 * insert constants
