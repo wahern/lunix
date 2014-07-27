@@ -3638,6 +3638,13 @@ static int unix_setuid(lua_State *L) {
 } /* unix_setuid() */
 
 
+static int unix_strerror(lua_State *L) {
+	lua_pushstring(L, unixL_strerror(L, luaL_checkint(L, 1)));
+
+	return 1;
+} /* unix_strerror() */
+
+
 static int unix_symlink(lua_State *L) {
 	const char *src = luaL_checkstring(L, 1);
 	const char *dst = luaL_checkstring(L, 2);
@@ -3931,6 +3938,7 @@ static const luaL_Reg unix_routines[] = {
 	{ "setgid",             &unix_setgid },
 	{ "setuid",             &unix_setuid },
 	{ "setsid",             &unix_setsid },
+	{ "strerror",           &unix_strerror },
 	{ "symlink",            &unix_symlink },
 	{ "timegm",             &unix_timegm },
 	{ "truncate",           &unix_truncate },
@@ -3945,16 +3953,269 @@ static const luaL_Reg unix_routines[] = {
 }; /* unix_routines[] */
 
 
-#define UNIX_ALIAS(x, y) { #x, y }
 #define UNIX_CONST(x) { #x, x }
 
-static const struct {
-	char name[16];
+struct unix_const {
+	char name[24];
 	long long value;
-} unix_consts[] = {
+}; /* struct unix_const */
+
+
+static const struct unix_const const_af[] = {
 	UNIX_CONST(AF_UNSPEC), UNIX_CONST(AF_UNIX), UNIX_CONST(AF_INET),
 	UNIX_CONST(AF_INET6),
+}; /* const_af[] */
 
+
+static const struct unix_const const_clock[] = {
+	{ "CLOCK_MONOTONIC", U_CLOCK_MONOTONIC },
+	{ "CLOCK_REALTIME",  U_CLOCK_REALTIME },
+}; /* const_clock[] */
+
+
+static const struct unix_const const_errno[] = {
+	/* ISO C */
+	UNIX_CONST(EDOM), UNIX_CONST(EILSEQ), UNIX_CONST(ERANGE),
+
+	/* POSIX */
+#if defined E2BIG
+	UNIX_CONST(E2BIG),
+#endif
+#if defined EACCES
+	UNIX_CONST(EACCES),
+#endif
+#if defined EADDRINUSE
+	UNIX_CONST(EADDRINUSE),
+#endif
+#if defined EADDRNOTAVAIL
+	UNIX_CONST(EADDRNOTAVAIL),
+#endif
+#if defined EAFNOSUPPORT
+	UNIX_CONST(EAFNOSUPPORT),
+#endif
+#if defined EAGAIN
+	UNIX_CONST(EAGAIN),
+#endif
+#if defined EALREADY
+	UNIX_CONST(EALREADY),
+#endif
+#if defined EBADF
+	UNIX_CONST(EBADF),
+#endif
+#if defined EBADMSG
+	UNIX_CONST(EBADMSG),
+#endif
+#if defined EBUSY
+	UNIX_CONST(EBUSY),
+#endif
+#if defined ECANCELED
+	UNIX_CONST(ECANCELED),
+#endif
+#if defined ECHILD
+	UNIX_CONST(ECHILD),
+#endif
+#if defined ECONNABORTED
+	UNIX_CONST(ECONNABORTED),
+#endif
+#if defined ECONNREFUSED
+	UNIX_CONST(ECONNREFUSED),
+#endif
+#if defined ECONNRESET
+	UNIX_CONST(ECONNRESET),
+#endif
+#if defined EDEADLK
+	UNIX_CONST(EDEADLK),
+#endif
+#if defined EDESTADDRREQ
+	UNIX_CONST(EDESTADDRREQ),
+#endif
+#if defined EDQUOT
+	UNIX_CONST(EDQUOT),
+#endif
+#if defined EEXIST
+	UNIX_CONST(EEXIST),
+#endif
+#if defined EFAULT
+	UNIX_CONST(EFAULT),
+#endif
+#if defined EFBIG
+	UNIX_CONST(EFBIG),
+#endif
+#if defined EHOSTUNREACH
+	UNIX_CONST(EHOSTUNREACH),
+#endif
+#if defined EIDRM
+	UNIX_CONST(EIDRM),
+#endif
+#if defined EINPROGRESS
+	UNIX_CONST(EINPROGRESS),
+#endif
+#if defined EINTR
+	UNIX_CONST(EINTR),
+#endif
+#if defined EINVAL
+	UNIX_CONST(EINVAL),
+#endif
+#if defined EIO
+	UNIX_CONST(EIO),
+#endif
+#if defined EISCONN
+	UNIX_CONST(EISCONN),
+#endif
+#if defined EISDIR
+	UNIX_CONST(EISDIR),
+#endif
+#if defined ELOOP
+	UNIX_CONST(ELOOP),
+#endif
+#if defined EMFILE
+	UNIX_CONST(EMFILE),
+#endif
+#if defined EMLINK
+	UNIX_CONST(EMLINK),
+#endif
+#if defined EMSGSIZE
+	UNIX_CONST(EMSGSIZE),
+#endif
+#if defined EMULTIHOP
+	UNIX_CONST(EMULTIHOP),
+#endif
+#if defined ENAMETOOLONG
+	UNIX_CONST(ENAMETOOLONG),
+#endif
+#if defined ENETDOWN
+	UNIX_CONST(ENETDOWN),
+#endif
+#if defined ENETRESET
+	UNIX_CONST(ENETRESET),
+#endif
+#if defined ENETUNREACH
+	UNIX_CONST(ENETUNREACH),
+#endif
+#if defined ENFILE
+	UNIX_CONST(ENFILE),
+#endif
+#if defined ENOBUFS
+	UNIX_CONST(ENOBUFS),
+#endif
+#if defined ENODATA
+	UNIX_CONST(ENODATA),
+#endif
+#if defined ENODEV
+	UNIX_CONST(ENODEV),
+#endif
+#if defined ENOENT
+	UNIX_CONST(ENOENT),
+#endif
+#if defined ENOEXEC
+	UNIX_CONST(ENOEXEC),
+#endif
+#if defined ENOLCK
+	UNIX_CONST(ENOLCK),
+#endif
+#if defined ENOLINK
+	UNIX_CONST(ENOLINK),
+#endif
+#if defined ENOMEM
+	UNIX_CONST(ENOMEM),
+#endif
+#if defined ENOMSG
+	UNIX_CONST(ENOMSG),
+#endif
+#if defined ENOPROTOOPT
+	UNIX_CONST(ENOPROTOOPT),
+#endif
+#if defined ENOSPC
+	UNIX_CONST(ENOSPC),
+#endif
+#if defined ENOSR
+	UNIX_CONST(ENOSR),
+#endif
+#if defined ENOSTR
+	UNIX_CONST(ENOSTR),
+#endif
+#if defined ENOSYS
+	UNIX_CONST(ENOSYS),
+#endif
+#if defined ENOTCONN
+	UNIX_CONST(ENOTCONN),
+#endif
+#if defined ENOTDIR
+	UNIX_CONST(ENOTDIR),
+#endif
+#if defined ENOTEMPTY
+	UNIX_CONST(ENOTEMPTY),
+#endif
+#if defined ENOTRECOVERABLE
+	UNIX_CONST(ENOTRECOVERABLE),
+#endif
+#if defined ENOTSOCK
+	UNIX_CONST(ENOTSOCK),
+#endif
+#if defined ENOTSUP
+	UNIX_CONST(ENOTSUP),
+#endif
+#if defined ENOTTY
+	UNIX_CONST(ENOTTY),
+#endif
+#if defined ENXIO
+	UNIX_CONST(ENXIO),
+#endif
+#if defined EOPNOTSUPP
+	UNIX_CONST(EOPNOTSUPP),
+#endif
+#if defined EOVERFLOW
+	UNIX_CONST(EOVERFLOW),
+#endif
+#if defined EOWNERDEAD
+	UNIX_CONST(EOWNERDEAD),
+#endif
+#if defined EPERM
+	UNIX_CONST(EPERM),
+#endif
+#if defined EPIPE
+	UNIX_CONST(EPIPE),
+#endif
+#if defined EPROTO
+	UNIX_CONST(EPROTO),
+#endif
+#if defined EPROTONOSUPPORT
+	UNIX_CONST(EPROTONOSUPPORT),
+#endif
+#if defined EPROTOTYPE
+	UNIX_CONST(EPROTOTYPE),
+#endif
+#if defined EROFS
+	UNIX_CONST(EROFS),
+#endif
+#if defined ESPIPE
+	UNIX_CONST(ESPIPE),
+#endif
+#if defined ESRCH
+	UNIX_CONST(ESRCH),
+#endif
+#if defined ESTALE
+	UNIX_CONST(ESTALE),
+#endif
+#if defined ETIME
+	UNIX_CONST(ETIME),
+#endif
+#if defined ETIMEDOUT
+	UNIX_CONST(ETIMEDOUT),
+#endif
+#if defined ETXTBSY
+	UNIX_CONST(ETXTBSY),
+#endif
+#if defined EWOULDBLOCK
+	UNIX_CONST(EWOULDBLOCK),
+#endif
+#if defined EXDEV
+	UNIX_CONST(EXDEV),
+#endif
+}; /* const_errno[] */
+
+
+static const struct unix_const const_iff[] = {
 #if defined IFF_UP
 	UNIX_CONST(IFF_UP),
 #endif
@@ -3988,10 +4249,10 @@ static const struct {
 #if defined IFF_MULTICAST
 	UNIX_CONST(IFF_MULTICAST),
 #endif
+}; /* const_iff[] */
 
-	UNIX_ALIAS(CLOCK_MONOTONIC, U_CLOCK_MONOTONIC),
-	UNIX_ALIAS(CLOCK_REALTIME, U_CLOCK_REALTIME),
 
+static const struct unix_const const_wait[] = {
 #if defined WCONTINUED
 	UNIX_CONST(WCONTINUED),
 #endif
@@ -4000,12 +4261,25 @@ static const struct {
 #if defined WSTOPPED
 	UNIX_CONST(WSTOPPED),
 #endif
-}; /* unix_consts[] */
+}; /* const_wait[] */
+
+
+static const struct {
+	const struct unix_const *table;
+	size_t size;
+} unix_const[] = {
+	{ const_af,    countof(const_af) },
+	{ const_clock, countof(const_clock) },
+	{ const_errno, countof(const_errno) },
+	{ const_iff,   countof(const_iff) },
+	{ const_wait,  countof(const_wait) },
+}; /* unix_const[] */
 
 
 int luaopen_unix(lua_State *L) {
 	unixL_State *U;
-	int i, error;
+	size_t i, j;
+	int error;
 
 	/*
 	 * setup unixL_State context
@@ -4056,13 +4330,18 @@ int luaopen_unix(lua_State *L) {
 	/*
 	 * insert constants
 	 */
-	for (i = 0; i < (int)countof(unix_consts); i++) {
-		/* throw error if our macro improperly stringified an identifier */
-		if (*unix_consts[i].name >= '0' && *unix_consts[i].name <= '9')
-			return luaL_error(L, "%s: bogus constant identifier string conversion (near %s)", unix_consts[i].name, (i == 0)? "?" : unix_consts[i - 1].name);
+	for (i = 0; i < countof(unix_const); i++) {
+		const struct unix_const *const table = unix_const[i].table;
+		const size_t size = unix_const[i].size;
 
-		lua_pushnumber(L, unix_consts[i].value);
-		lua_setfield(L, -2, unix_consts[i].name);
+		for (j = 0; j < size; j++) {
+			/* throw error if our macro improperly stringified an identifier */
+			if (*table[j].name >= '0' && *table[j].name <= '9')
+				return luaL_error(L, "%s: bogus constant identifier string conversion (near %s)", table[j].name, (j == 0)? "?" : table[j - 1].name);
+
+			lua_pushnumber(L, table[j].value);
+			lua_setfield(L, -2, table[j].name);
+		}
 	}
 
 	return 1;
