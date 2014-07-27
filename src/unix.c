@@ -17,7 +17,7 @@
 #include <limits.h>       /* INT_MAX NL_TEXTMAX */
 #include <stdarg.h>       /* va_list va_start va_arg va_end */
 #include <stdint.h>       /* SIZE_MAX */
-#include <stdlib.h>       /* arc4random(3) getenv(3) getenv_r(3) calloc(3) free(3) realloc(3) setenv(3) strtoul(3) unsetenv(3) */
+#include <stdlib.h>       /* arc4random(3) _exit(2) exit(3) getenv(3) getenv_r(3) calloc(3) free(3) realloc(3) setenv(3) strtoul(3) unsetenv(3) */
 #include <stdio.h>        /* fileno(3) snprintf(3) */
 #include <string.h>       /* memset(3) strerror_r(3) strspn(3) strcspn(3) */
 #include <signal.h>       /* sigset_t sigfillset(3) sigemptyset(3) sigprocmask(2) */
@@ -2605,6 +2605,32 @@ error:
 } /* unix_execvp() */
 
 
+static int unix__exit(lua_State *L) {
+	int status;
+	if (lua_isboolean(L, 1))
+		status = (lua_toboolean(L, 1))? EXIT_SUCCESS : EXIT_FAILURE;
+	else
+		status = luaL_optint(L, 1, EXIT_SUCCESS);
+
+	_exit(status);
+
+	return 0;
+} /* unix__exit() */
+
+
+static int unix_exit(lua_State *L) {
+	int status;
+	if (lua_isboolean(L, 1))
+		status = (lua_toboolean(L, 1))? EXIT_SUCCESS : EXIT_FAILURE;
+	else
+		status = luaL_optint(L, 1, EXIT_SUCCESS);
+
+	exit(status);
+
+	return 0;
+} /* unix_exit() */
+
+
 static int unix_fork(lua_State *L) {
 	pid_t pid;
 
@@ -3827,6 +3853,8 @@ static const luaL_Reg unix_routines[] = {
 	{ "execl",              &unix_execl },
 	{ "execlp",             &unix_execlp },
 	{ "execvp",             &unix_execvp },
+	{ "_exit",              &unix__exit },
+	{ "exit",               &unix_exit },
 	{ "fork",               &unix_fork },
 	{ "getegid",            &unix_getegid },
 	{ "geteuid",            &unix_geteuid },
