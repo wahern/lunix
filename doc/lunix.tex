@@ -238,7 +238,9 @@ Utilizes the internal \fn{getenv} binding.
 \item[\_\_newindex] \hfill \\
 Utilizes the internal \fn{setenv} binding.
 \item[\_\_pairs] \hfill \\
-Takes a snapshot of the environ table to be used by the returned iterator. \emph{Other than Solaris\footnote{See https://blogs.oracle.com/pgdh/entry/caring\_for\_the\_environment\_making}, no system supports thread-safe access of the environ global.}
+Takes a snapshot of the environ table to be used by the returned iterator for key--value loops. \emph{Other than Solaris\footnote{See https://blogs.oracle.com/pgdh/entry/caring\_for\_the\_environment\_making}, no system supports thread-safe access of the environ global.}
+\item[\_\_ipairs] \hfill \\
+Similar to \_\_pairs, but the iterator returns an index integer as the key followed by the environment variable as a single string---``FOO=BAR''.
 \item[\_\_call] \hfill \\
 Identical to the \_\_pairs metamethod, to be used to create an iterator directly as Lua 5.1 doesn't support \texttt{\_\_pairs}.
 \end{description}
@@ -289,6 +291,34 @@ Returns a time value as a Lua floating point number, otherwise returns \nil, an 
 \subsubsection[\fn{closedir}]{\fn{closedir($dir$)}}
 
 Closes the DIR handle, releasing the underlying file descriptor.
+
+\subsubsection[\fn{execve}]{\fn{execve($path$[, $argv$][, $env$])}}
+
+Executes $path$, replacing the existing process image. $path$ should be an absolute pathname as the \$PATH environment variable is not used. $argv$ is a table or ipairs--iterable object specifying the argument vector to pass to the new process image. Traditionally the first such argument should be the basename of $path$, but this is not enforced. If absent or empty the new process image will be passed an empty argument vector. $env$ is a table or ipairs--iterable object specifying the new environment. If absent or empty the new process image will contain an empty environment.
+
+On success never returns. On failure returns \false, an error string, and an integer system error.
+
+\subsubsection[\fn{execl}]{\fn{execl($path$, $\ldots$)}}
+
+Executes $path$, replacing the existing process image. The \$PATH environment variable is not used. Any subsequent arguments are passed to the new process image. The new process image inherits the current environment table.
+
+On success never returns. On failure returns \false, an error string, and an integer system error.
+
+\subsubsection[\fn{execlp}]{\fn{execlp($file$, $\ldots$)}}
+
+Executes $file$, replacing the existing process image. The \$PATH environment variable is used to search for $file$. Any subsequent arguments are passed to the new process image. The new process image inherits the current environment table.
+
+On success never returns. On failure returns \false, an error string, and an integer system error.
+
+\subsubsection[\fn{execvp}]{\fn{execvp($file$[, $argv$])}}
+
+Executes $file$, replacing the existing process image. The \$PATH environment variable is used to search for $file$. Any subsequent arguments are passed to the new process image. The new process image inherits the current environment table.
+
+On success never returns. On failure returns \false, an error string, and an integer system error.
+
+\subsubsection[\fn{fork}]{\fn{fork()}}
+
+Forks a new process. On success returns the PID of the new process in the parent and the integer 0 in the child. Otherwise returns \false, an error string, and an integer system error.
 
 \subsubsection[\fn{getegid}]{\fn{getegid()}}
 
