@@ -316,6 +316,14 @@ Executes $file$, replacing the existing process image. The \$PATH environment va
 
 On success never returns. On failure returns \false, an error string, and an integer system error.
 
+\subsubsection[\fn{\_exit}]{\fn{\_exit([$status$])}}
+
+Exits the process immediately without first flushing and closing open streams, or calling \syscall{atexit} handlers. If $status$ is boolean \true or \false, exits with EXIT\_SUCCESS or EXIT\_FAILURE, respectively. Otherwise, $status$ is an optional integer status value which defaults to 0 (EXIT\_SUCCESS).
+
+\subsubsection[\fn{exit}]{\fn{exit([$status$])}}
+
+Like \fn{\_exit}, but first flushes and closes open streams, and calls \syscall{atexit} handlers.
+
 \subsubsection[\fn{fork}]{\fn{fork()}}
 
 Forks a new process. On success returns the PID of the new process in the parent and the integer 0 in the child. Otherwise returns \false, an error string, and an integer system error.
