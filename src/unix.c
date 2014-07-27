@@ -39,7 +39,7 @@
 #include <sys/wait.h>     /* waitpid(2) */
 #include <sys/ioctl.h>    /* SIOCGIFCONF SIOCGIFFLAGS SIOCGIFNETMASK SIOCGIFDSTADDR SIOCGIFBRDADDR SIOCGLIFADDR ioctl(2) */
 #include <net/if.h>       /* IF_NAMESIZE struct ifconf struct ifreq */
-#include <unistd.h>       /* _PC_NAME_MAX chdir(2) chroot(2) close(2) chdir(2) chown(2) chroot(2) dup2(2) fpathconf(3) getegid(2) geteuid(2) getgid(2) getpid(2) getuid(2) issetugid(2) link(2) rename(2) rmdir(2) setegid(2) seteuid(2) setgid(2) setuid(2) setsid(2) symlink(2) truncate(2) umask(2) unlink(2) */
+#include <unistd.h>       /* _PC_NAME_MAX chdir(2) chroot(2) close(2) chdir(2) chown(2) chroot(2) dup2(2) execve(2) execl(2) execlp(2) execvp(2) fork(2) fpathconf(3) getegid(2) geteuid(2) getgid(2) getpid(2) getuid(2) issetugid(2) link(2) rename(2) rmdir(2) setegid(2) seteuid(2) setgid(2) setuid(2) setsid(2) symlink(2) truncate(2) umask(2) unlink(2) */
 #include <fcntl.h>        /* F_DUPFD_CLOEXEC F_GETFD F_SETFD FD_CLOEXEC fcntl(2) open(2) */
 #include <pwd.h>          /* struct passwd getpwnam_r(3) */
 #include <grp.h>          /* struct group getgrnam_r(3) */
@@ -241,6 +241,9 @@ static void luaL_setfuncs(lua_State *L, const luaL_Reg *l, int nup) {
 #define luaL_newlib(L, l) \
 	(luaL_newlibtable((L), (l)), luaL_setfuncs((L), (l), 0))
 
+
+#define lua_rawlen lua_objlen
+
 #endif /* LUA_VERSION_NUM < 502 */
 
 
@@ -368,6 +371,37 @@ static u_error_t u_appendc(char **buf, size_t *size, size_t *p, int c) {
 
 	return 0;
 } /* u_appendc() */
+
+
+static u_error_t u_reallocarray(char ***arr, size_t *arrsiz, size_t count, size_t size) {
+	void *tmp;
+	size_t tmpsiz;
+
+	if (size && count > (size_t)-1 / size)
+		return ENOMEM;
+
+	tmpsiz = count * size;
+
+	if (tmpsiz <= *arrsiz)
+		return 0;
+
+	if (tmpsiz == (size_t)-1)
+		return ENOMEM;
+
+	if (tmpsiz > ~((size_t)-1 >> 1)) {
+		tmpsiz = (size_t)-1;
+	} else {
+		tmpsiz = u_power2(tmpsiz);
+	}
+
+	if (!(tmp = realloc(*arr, tmpsiz)))
+		return (tmpsiz)? errno : 0;
+
+	*arr = tmp;
+	*arrsiz = tmpsiz;
+
+	return 0;
+} /* u_reallocarray() */
 
 
 static void *u_memjunk(void *buf, size_t bufsiz) {
@@ -1315,6 +1349,11 @@ typedef struct unixL_State {
 		size_t bufsiz;
 	} env;
 
+	struct {
+		char **arr;
+		size_t arrsiz;
+	} exec;
+
 #if !HAVE_ARC4RANDOM
 	unixL_Random random;
 #endif
@@ -1357,6 +1396,10 @@ static void unixL_destroy(unixL_State *U) {
 #if !HAVE_ARC4RANDOM
 	arc4_destroy(&U->random);
 #endif
+
+	free(U->exec.arr);
+	U->exec.arr = NULL;
+	U->exec.arrsiz = 0;
 
 	free(U->env.buf);
 	U->env.buf = NULL;
@@ -2062,7 +2105,42 @@ static int env__newindex(lua_State *L) {
 	return unixL_setenv(L, 2, 3, 4);
 } /* env__newindex() */
 
-static int env__nextent(lua_State *L) {
+
+static int env_nextipair(lua_State *L) {
+	const char *src;
+	size_t end, p;
+	luaL_Buffer B;
+	int ch;
+
+	src = lua_tolstring(L, lua_upvalueindex(2), &end);
+	p = lua_tointeger(L, lua_upvalueindex(3));
+
+	luaL_buffinit(L, &B);
+
+	lua_pushinteger(L, lua_tointeger(L, 2) + 1);
+
+	while (p < end) {
+		switch ((ch = src[p++])) {
+		case '\0':
+			luaL_pushresult(&B);
+
+			/* save state */
+			lua_pushinteger(L, p);
+			lua_replace(L, lua_upvalueindex(3));
+
+			return 2;
+		default:
+			luaL_addchar(&B, ch);
+
+			break;
+		}
+	}
+
+	return 0;
+} /* env_nextipair() */
+
+
+static int env_nextpair(lua_State *L) {
 	const char *src;
 	size_t end, p;
 	luaL_Buffer B;
@@ -2107,7 +2185,8 @@ next:
 	}
 
 	return 0;
-} /* env__nextent() */
+} /* env_nextpair() */
+
 
 /*
  * TODO: Try to do this in a thread-safe manner which doesn't also create
@@ -2118,7 +2197,7 @@ next:
  * before updating the global pointer or ensuring its visible using a memory
  * barrier.
  */
-static int env__pairs(lua_State *L) {
+static int env_getitr(lua_State *L, int ipairs) {
 	extern char **environ;
 	unixL_State *U = unixL_getstate(L);
 	char **ep = environ, *cp;
@@ -2139,10 +2218,20 @@ static int env__pairs(lua_State *L) {
 	lua_pushvalue(L, lua_upvalueindex(1));
 	lua_pushlstring(L, U->env.buf, p);
 	lua_pushinteger(L, 0);
-	lua_pushcclosure(L, &env__nextent, 3);
+	lua_pushcclosure(L, (ipairs)? &env_nextipair : &env_nextpair, 3);
 
 	return 1;
+} /* env_getitr() */
+
+
+static int env__pairs(lua_State *L) {
+	return env_getitr(L, 0);
 } /* env__pairs() */
+
+
+static int env__ipairs(lua_State *L) {
+	return env_getitr(L, 1);
+} /* env__ipairs() */
 
 
 static const luaL_Reg env_metamethods[] = {
@@ -2150,6 +2239,7 @@ static const luaL_Reg env_metamethods[] = {
 	{ "__newindex", &env__newindex },
 	{ "__pairs",    &env__pairs },
 	{ "__call",     &env__pairs }, /* Lua 5.1 doesn't have __pairs */
+	{ "__ipairs",   &env__ipairs },
 	{ NULL,         NULL },
 }; /* env_metamethods[] */
 
@@ -2342,6 +2432,189 @@ static int dir_close(lua_State *);
 static int unix_closedir(lua_State *L) {
 	return dir_close(L);
 } /* unix_closedir() */
+
+
+/* from ipairsaux in Lua source */
+static int exec_nextipair(lua_State *L) {
+	int i = luaL_checkint(L, 2);
+	luaL_checktype(L, 1, LUA_TTABLE);
+	lua_pushinteger(L, ++i);
+	lua_rawgeti(L, 1, i);
+	return (lua_isnil(L, -1))? 1 : 2;
+} /* exec_nextipair() */
+
+
+/* emulate ipairs because missing from Lua 5.1 */
+static void exec_ipairs(lua_State *L, int index) {
+	if (luaL_getmetafield(L, index, "__ipairs")) {
+		lua_pushvalue(L, index);
+		lua_call(L, 1, 3);
+	} else {
+		lua_pushcfunction(L, &exec_nextipair);
+		lua_pushvalue(L, index);
+		lua_pushinteger(L, 0);
+	}
+} /* exec_ipairs() */
+
+
+static u_error_t exec_addarg(unixL_State *U, size_t *arrp, const char *s) {
+	int error;
+
+	if ((error = u_reallocarray(&U->exec.arr, &U->exec.arrsiz, (*arrp)+1, sizeof *U->exec.arr)))
+		return error;
+
+	U->exec.arr[(*arrp)++] = (char *)(s);
+
+	return 0;
+} /* exec_addarg() */
+
+
+static u_error_t exec_addtable(lua_State *L, unixL_State *U, size_t *arrp, int index, int anchorindex) {
+	size_t i;
+	int error;
+
+	exec_ipairs(L, index);
+
+	for (i = 1; i < INT_MAX; i++) {
+		lua_pushvalue(L, -3); /* iterator */
+		lua_pushvalue(L, -3); /* table */
+		lua_pushvalue(L, -3); /* index */
+
+		lua_call(L, 2, 2);
+
+		if (lua_isnil(L, -1)) {
+			lua_pop(L, 1); /* pop value */
+
+			break;
+		} else {
+			if ((error = exec_addarg(U, arrp, luaL_checkstring(L, -1))))
+				return error;
+
+			lua_rawseti(L, anchorindex, *arrp); /* anchor value */
+			lua_replace(L, -2); /* update index */
+		}
+	}
+
+	lua_pop(L, 3); /* pop iterator, table, index */
+
+	return 0;
+} /* exec_addtable() */
+
+
+static int unix_execve(lua_State *L) {
+	unixL_State *U = unixL_getstate(L);
+	const char *path = luaL_checkstring(L, 1);
+	size_t arrp = 0, argc = 0, i;
+	int error;
+
+	lua_settop(L, 3); /* path, argv, env */
+	lua_newtable(L); /* string anchor */
+
+	if (!lua_isnil(L, 2)) {
+		if ((error = exec_addtable(L, U, &arrp, 2, 4)))
+			goto error;
+	}
+
+	argc = arrp;
+
+	if ((error = exec_addarg(U, &arrp, NULL)))
+		goto error;
+
+	if (!lua_isnil(L, 3)) {
+		if ((error = exec_addtable(L, U, &arrp, 3, 4)))
+			goto error;
+	}
+
+	if ((error = exec_addarg(U, &arrp, NULL)))
+		goto error;
+
+	execve(path, U->exec.arr, &U->exec.arr[argc + 1]);
+	error = errno;
+error:
+	return unixL_pusherror(L, error, "execve", "0$#");
+} /* unix_execve() */
+
+
+static int unix_execl(lua_State *L) {
+	unixL_State *U = unixL_getstate(L);
+	const char *path = luaL_checkstring(L, 1);
+	size_t arrp = 0;
+	int top, i, error;
+
+	top = lua_gettop(L);
+
+	for (i = 2; i <= top; i++) {
+		if ((error = exec_addarg(U, &arrp, luaL_checkstring(L, i))))
+			goto error;
+	}
+
+	if ((error = exec_addarg(U, &arrp, NULL)))
+		goto error;
+
+	execv(path, U->exec.arr);
+	error = errno;
+error:
+	return unixL_pusherror(L, error, "execl", "0$#");
+} /* unix_execl() */
+
+
+static int unix_execlp(lua_State *L) {
+	unixL_State *U = unixL_getstate(L);
+	const char *file = luaL_checkstring(L, 1);
+	size_t arrp = 0;
+	int top, i, error;
+
+	top = lua_gettop(L);
+
+	for (i = 2; i <= top; i++) {
+		if ((error = exec_addarg(U, &arrp, luaL_checkstring(L, i))))
+			goto error;
+	}
+
+	if ((error = exec_addarg(U, &arrp, NULL)))
+		goto error;
+
+	execvp(file, U->exec.arr);
+	error = errno;
+error:
+	return unixL_pusherror(L, error, "execlp", "0$#");
+} /* unix_execlp() */
+
+
+static int unix_execvp(lua_State *L) {
+	unixL_State *U = unixL_getstate(L);
+	const char *file = luaL_checkstring(L, 1);
+	size_t arrp = 0;
+	int error;
+
+	lua_settop(L, 2); /* file, argv */
+	lua_newtable(L); /* string anchor */
+
+	if (!lua_isnil(L, 2)) {
+		if ((error = exec_addtable(L, U, &arrp, 2, 3)))
+			goto error;
+	}
+
+	if ((error = exec_addarg(U, &arrp, NULL)))
+		goto error;
+
+	execvp(file, U->exec.arr);
+	error = errno;
+error:
+	return unixL_pusherror(L, error, "execvp", "0$#");
+} /* unix_execvp() */
+
+
+static int unix_fork(lua_State *L) {
+	pid_t pid;
+
+	if (-1 == (pid = fork()))
+		return unixL_pusherror(L, errno, "fork", "~$#");
+
+	lua_pushinteger(L, pid);
+
+	return 1;
+} /* unix_fork() */
 
 
 static int unix_getegid(lua_State *L) {
@@ -3550,6 +3823,11 @@ static const luaL_Reg unix_routines[] = {
 	{ "chroot",             &unix_chroot },
 	{ "clock_gettime",      &unix_clock_gettime },
 	{ "closedir",           &unix_closedir },
+	{ "execve",             &unix_execve },
+	{ "execl",              &unix_execl },
+	{ "execlp",             &unix_execlp },
+	{ "execvp",             &unix_execvp },
+	{ "fork",               &unix_fork },
 	{ "getegid",            &unix_getegid },
 	{ "geteuid",            &unix_geteuid },
 	{ "getenv",             &unix_getenv },
