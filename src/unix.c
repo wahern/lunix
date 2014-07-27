@@ -3841,7 +3841,7 @@ static int unixL_wait(lua_State *L, const char *fn) {
 	int options = luaL_optint(L, 2, 0);
 	int status = 0;
 
-	if ((pid = waitpid(pid, &status, options)))
+	if (-1 == (pid = waitpid(pid, &status, options)))
 		return unixL_pusherror(L, errno, fn, "~$#");
 
 	lua_settop(L, 0);
