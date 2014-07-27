@@ -36,7 +36,7 @@
 #include <sys/sysctl.h>   /* CTL_KERN KERN_RANDOM RANDOM_UUID sysctl(2) */
 #endif
 #include <sys/utsname.h>  /* uname(2) */
-#include <sys/wait.h>     /* waitpid(2) */
+#include <sys/wait.h>     /* WNOHANG waitpid(2) */
 #include <sys/ioctl.h>    /* SIOCGIFCONF SIOCGIFFLAGS SIOCGIFNETMASK SIOCGIFDSTADDR SIOCGIFBRDADDR SIOCGLIFADDR ioctl(2) */
 #include <net/if.h>       /* IF_NAMESIZE struct ifconf struct ifreq */
 #include <unistd.h>       /* _PC_NAME_MAX chdir(2) chroot(2) close(2) chdir(2) chown(2) chroot(2) dup2(2) execve(2) execl(2) execlp(2) execvp(2) fork(2) fpathconf(3) getegid(2) geteuid(2) getgid(2) getpid(2) getuid(2) issetugid(2) link(2) rename(2) rmdir(2) setegid(2) seteuid(2) setgid(2) setuid(2) setsid(2) symlink(2) truncate(2) umask(2) unlink(2) */
@@ -3832,6 +3832,43 @@ static int unix_unsetenv(lua_State *L) {
 } /* unix_unsetenv() */
 
 
+/* emulate luaposix because we have no reason not to */
+static int unixL_wait(lua_State *L, const char *fn) {
+	pid_t pid = luaL_optint(L, 1, -1);
+	int options = luaL_optint(L, 2, 0);
+	int status = 0;
+
+	if ((pid = waitpid(pid, &status, options)))
+		return unixL_pusherror(L, errno, fn, "~$#");
+
+	lua_settop(L, 0);
+	lua_pushinteger(L, pid);
+
+	if (WIFEXITED(status)) {
+		lua_pushliteral(L, "exited");
+		lua_pushinteger(L, WEXITSTATUS(status));
+	} else if (WIFSIGNALED(status)) {
+		lua_pushliteral(L, "killed");
+		lua_pushinteger(L, WTERMSIG(status));
+	} else if (WIFSTOPPED(status)) {
+		lua_pushliteral(L, "stopped");
+		lua_pushinteger(L, WSTOPSIG(status));
+	}
+
+	return lua_gettop(L);
+} /* unixL_wait() */
+
+
+static int unix_wait(lua_State *L) {
+	return unixL_wait(L, "wait");
+} /* unix_wait() */
+
+
+static int unix_waitpid(lua_State *L) {
+	return unixL_wait(L, "waitpid");
+} /* unix_waitpid() */
+
+
 static int unix__gc(lua_State *L) {
 	unixL_destroy(lua_touserdata(L, 1));
 
@@ -3899,6 +3936,8 @@ static const luaL_Reg unix_routines[] = {
 	{ "uname",              &unix_uname },
 	{ "unlink",             &unix_unlink },
 	{ "unsetenv",           &unix_unsetenv },
+	{ "wait",               &unix_wait },
+	{ "waitpid",            &unix_waitpid },
 	{ NULL,                 NULL }
 }; /* unix_routines[] */
 
@@ -3949,6 +3988,15 @@ static const struct {
 
 	UNIX_ALIAS(CLOCK_MONOTONIC, U_CLOCK_MONOTONIC),
 	UNIX_ALIAS(CLOCK_REALTIME, U_CLOCK_REALTIME),
+
+#if defined WCONTINUED
+	UNIX_CONST(WCONTINUED),
+#endif
+	UNIX_CONST(WNOHANG),
+	UNIX_CONST(WUNTRACED),
+#if defined WSTOPPED
+	UNIX_CONST(WSTOPPED),
+#endif
 }; /* unix_consts[] */
 
 
