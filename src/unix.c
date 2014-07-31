@@ -262,12 +262,16 @@ static void luaL_setfuncs(lua_State *L, const luaL_Reg *l, int nup) {
 #endif
 #endif
 
+#define MAYBEUSED NOTUSED
+
 #if __clang__
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wmissing-braces"
+#pragma clang diagnostic ignored "-Wmissing-field-initializers"
 #elif (__GNUC__ == 4 && __GNUC_MINOR__ >= 6) || __GNUC__ > 4
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wmissing-braces"
+#pragma GCC diagnostic ignored "-Wmissing-field-initializers"
 #endif
 
 
@@ -297,6 +301,7 @@ static void luaL_setfuncs(lua_State *L, const luaL_Reg *l, int nup) {
 #endif
 
 #ifndef XPASTE
+#undef PASTE
 #define PASTE(x, y) x##y
 #define XPASTE(x, y) PASTE(x, y)
 #endif
@@ -311,7 +316,7 @@ static void luaL_setfuncs(lua_State *L, const luaL_Reg *l, int nup) {
 #elif GNUC_PREREQ(4,6) || (__clang__ && __has_feature(c_static_assert))
 #define u_static_assert(cond, msg) _Static_assert(cond, msg)
 #else
-#define u_static_assert(cond, msg) char XPASTE(assert_, __LINE__)[sizeof (int[1 - 2*!(cond)])]
+#define u_static_assert(cond, msg) extern char XPASTE(assert_, __LINE__)[sizeof (int[1 - 2*!(cond)])]
 #endif
 
 
@@ -462,8 +467,8 @@ static socklen_t u_sa_len(const struct sockaddr *sa) {
 
 
 /* derived from KAME source */
-static void u_in6_prefixlen2mask(struct in6_addr *mask, unsigned prefixlen) {
-	unsigned octets, bits, i;
+MAYBEUSED static void u_in6_prefixlen2mask(struct in6_addr *mask, unsigned prefixlen) {
+	unsigned octets, bits;
 
 	if (prefixlen > 128)
 		return;
@@ -539,7 +544,7 @@ static int u_sa_mask2prefixlen(const struct sockaddr *mask) {
 #define IN6_IS_ADDR_MC_INTFACELOCAL(in6) (IN6_IS_ADDR_MULTICAST(in6) || IPV6_ADDR_MC_SCOPE(in6) == IPV6_ADDR_SCOPE_INTFACELOCAL)
 #endif
 
-static int u_in6_clearscope(struct in6_addr *in6) {
+MAYBEUSED static int u_in6_clearscope(struct in6_addr *in6) {
 	int modified = 0;
 
 	if (IN6_IS_SCOPE_LINKLOCAL(in6) || IN6_IS_ADDR_MC_INTFACELOCAL(in6)) {
@@ -670,7 +675,6 @@ static u_error_t u_fixflags(int fd, u_flags_t flags) {
 
 
 static u_error_t u_open(int *fd, const char *path, u_flags_t flags, mode_t mode) {
-	u_flags_t _flags;
 	int error;
 
 	if (-1 == (*fd = open(path, (U_SYSFLAGS & flags), mode)))
@@ -748,7 +752,7 @@ static u_error_t u_dup3(int fd, int fd2, u_flags_t flags) {
 } /* u_dup3() */
 
 
-static u_error_t u_socket(int *fd, int family, int type, int proto, u_flags_t flags) {
+MAYBEUSED static u_error_t u_socket(int *fd, int family, int type, int proto, u_flags_t flags) {
 	int error;
 
 #if defined SOCK_CLOEXEC
@@ -2506,7 +2510,7 @@ static u_error_t exec_addtable(lua_State *L, unixL_State *U, size_t *arrp, int i
 static int unix_execve(lua_State *L) {
 	unixL_State *U = unixL_getstate(L);
 	const char *path = luaL_checkstring(L, 1);
-	size_t arrp = 0, argc = 0, i;
+	size_t arrp = 0, argc = 0;
 	int error;
 
 	lua_settop(L, 3); /* path, argv, env */
@@ -3140,13 +3144,13 @@ static int unix_getuid(lua_State *L) {
 #include <sys/auxv.h>
 #endif
 
-static int unix_issetugid_other(lua_State *L) {
+MAYBEUSED static int unix_issetugid_other(lua_State *L) {
 	lua_pushboolean(L, (geteuid() != getuid()) || (getegid() != getgid()));
 
 	return 0;
 } /* unix_issetugid_other() */
 
-static int unix_issetugid_linux(lua_State *L) {
+MAYBEUSED static int unix_issetugid_linux(lua_State *L) {
 #if HAVE_GETAUXVAL && defined AT_SECURE
 	unsigned long auxval;
 
@@ -3171,7 +3175,7 @@ static int unix_issetugid_linux(lua_State *L) {
 #endif
 } /* unix_issetugid_linux() */
 
-static int unix_issetugid(lua_State *L) {
+MAYBEUSED static int unix_issetugid(lua_State *L) {
 #if HAVE_ISSETUGID
 	lua_pushboolean(L, issetugid());
 
@@ -3374,7 +3378,7 @@ static int dir_nextent(lua_State *L) {
 	DIR *dp = dir_checkself(L, lua_upvalueindex(2));
 	int nup = lua_tointeger(L, lua_upvalueindex(3));
 	struct dirent *ent = NULL;
-	int i, error;
+	int error;
 
 	if ((error = unixL_readdir(L, dp, &ent)))
 		return luaL_error(L, "readdir: %s", unixL_strerror(L, error));
@@ -3399,8 +3403,9 @@ static int dir_nextent(lua_State *L) {
 
 
 static int dir_files(lua_State *L) {
-	DIR *dp = dir_checkself(L, 1);
 	int i, top = lua_gettop(L), nup = top + 2;
+
+	dir_checkself(L, 1);
 
 	lua_pushvalue(L, lua_upvalueindex(1)); /* unixL_State */
 	lua_pushvalue(L, 1);
