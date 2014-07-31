@@ -73,10 +73,6 @@
 #include <sys/feature_tests.h> /* _DTRACE_VERSION */
 #endif
 
-#ifndef __GNUC_PREREQ
-#define __GNUC_PREREQ(M, m) 0
-#endif
-
 #ifndef __has_feature
 #define __has_feature(...) 0
 #endif
@@ -85,7 +81,13 @@
 #define __NetBSD_Prereq__(M, m, p) 0
 #endif
 
-#define GNUC_PREREQ(M, m) __GNUC_PREREQ(M, m)
+#define GNUC_PREREQ(M, m) (defined __GNUC__ && ((__GNUC__ > M) || (__GNUC__ == M && __GNUC_MINOR__ >= m)))
+
+#if defined __GLIBC_PREREQ
+#define GLIBC_PREREQ(M, m) __GLIBC_PREREQ(M, m)
+#else
+#define GLIBC_PREREQ(M, m) 0
+#endif
 
 #define NETBSD_PREREQ(M, m) __NetBSD_Prereq__(M, m, 0)
 
@@ -108,11 +110,11 @@
 #endif
 
 #ifndef HAVE_PIPE2
-#define HAVE_PIPE2 (GNUC_PREREQ(2,9) || FREEBSD_PREREQ(10,0) || NETBSD_PREREQ(6,0))
+#define HAVE_PIPE2 (GLIBC_PREREQ(2,9) || FREEBSD_PREREQ(10,0) || NETBSD_PREREQ(6,0))
 #endif
 
 #ifndef HAVE_DUP3
-#define HAVE_DUP3 (GNUC_PREREQ(2,9) || FREEBSD_PREREQ(10,0) || NETBSD_PREREQ(6,0))
+#define HAVE_DUP3 (GLIBC_PREREQ(2,9) || FREEBSD_PREREQ(10,0) || NETBSD_PREREQ(6,0))
 #endif
 
 #ifndef HAVE_FDOPENDIR
@@ -124,7 +126,7 @@
 #endif
 
 #ifndef HAVE_GETAUXVAL
-#define HAVE_GETAUXVAL GNUC_PREREQ(2,16)
+#define HAVE_GETAUXVAL GLIBC_PREREQ(2,16)
 #endif
 
 #ifndef HAVE_IFADDRS_H
@@ -3158,7 +3160,7 @@ static int unix_issetugid_linux(lua_State *L) {
 	}
 #endif
 
-#if GNUC_PREREQ(2, 1) /* __libc_enable_secure added between 2.0.98 and 2.0.99 */
+#if GLIBC_PREREQ(2,1) /* __libc_enable_secure added between 2.0.98 and 2.0.99 */
 	extern int __libc_enable_secure;
 
 	lua_pushboolean(L, __libc_enable_secure);
