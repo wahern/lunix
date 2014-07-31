@@ -1,0 +1,30 @@
+Source: lua-unix
+Section: interpreters
+Priority: extra
+Maintainer: William Ahern <william@25thandClement.com>
+Build-Depends: debhelper (>= 9), dh-lua
+Standards-Version: 3.9.2
+Homepage: http://25thandClement.com/~william/projects/lunix.html
+
+Package: lua-unix
+Architecture: any
+Multi-Arch: same
+Pre-Depends:  multiarch-support
+Depends: ${shlibs:Depends}, ${misc:Depends}
+Provides: liblua5.1-unix, ${lua:Provides}
+XB-Lua-Versions: ${lua:Versions}
+Description: Unix library for the Lua language
+  Lua bindings and embedded implementations of common Unix interfaces,
+  both POSIX and widely supported non-standard interfaces. As much as
+  possible provides consistent interfaces and behaviors across different
+  Unix systems. 
+
+Package: lua-unix-dev
+Architecture: libdevel
+Multi-Arch: same
+Pre-Depends:  multiarch-support
+Depends: lua-unix, (=${binary:Version}), ${misc:Depends}
+Provides: liblua5.1-unix-dev, ${lua:Provides}
+XB-Lua-Versions: ${lua:Versions}
+Description: Lua unix development files for the Lua language
+  Development files for the Lua unix library.

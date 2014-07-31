@@ -133,6 +133,30 @@ clean~: $(d)/clean~
 
 
 #
+# D E B I A N  R U L E S
+#
+ifneq "$(filter $(abspath $(d))/%, $(abspath $(firstword $(MAKEFILE_LIST))))" ""
+
+DPKG_BUILDPACKAGE ?= dpkg-buildpackage
+FAKEROOT ?= fakeroot
+DPKG_BUILDPACKAGE_OPTIONS ?= -b -uc -us
+
+.PHONY: $(d)/debian $(d)/debian-clean debian deb debian-clean deb-clean
+
+$(d)/debian:
+	cd $(@D) && $(DPKG_BUILDPACKAGE) -rfakeroot $(DPKG_BUILDPACKAGE_OPTIONS)
+
+$(d)/debian-clean:
+	cd $(@D) && $(FAKEROOT) ./debian/rules clean
+
+debian deb: $(d)/debian
+
+debian-clean deb-clean: $(d)/debian-clean
+
+endif # debian guard
+
+
+#
 # R E L E A S E  T A R B A L L  R U L E S
 #
 ifneq "$(filter $(abspath $(d))/%, $(abspath $(firstword $(MAKEFILE_LIST))))" ""
