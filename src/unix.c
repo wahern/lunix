@@ -18,7 +18,7 @@
 #include <stdarg.h>       /* va_list va_start va_arg va_end */
 #include <stdint.h>       /* SIZE_MAX */
 #include <stdlib.h>       /* arc4random(3) _exit(2) exit(3) getenv(3) getenv_r(3) calloc(3) free(3) realloc(3) setenv(3) strtoul(3) unsetenv(3) */
-#include <stdio.h>        /* fileno(3) snprintf(3) */
+#include <stdio.h>        /* fileno(3) flockfile(3) ftrylockfile(3) funlockfile(3) snprintf(3) */
 #include <string.h>       /* memset(3) strerror_r(3) strsignal(3) strspn(3) strcspn(3) */
 #include <signal.h>       /* NSIG sigset_t sigfillset(3) sigemptyset(3) sigprocmask(2) */
 #include <ctype.h>        /* isspace(3) */
@@ -2208,6 +2208,15 @@ apply:
 } /* unixL_optmode() */
 
 
+static FILE *unixL_checkfile(lua_State *L, int index) {
+	luaL_Stream *fh = luaL_checkudata(L, index, LUA_FILEHANDLE);
+
+	luaL_argcheck(L, fh->f != NULL, index, "attempt to use a closed file");
+
+	return fh->f;
+} /* unixL_checkfile() */
+
+
 static int unixL_optfileno(lua_State *L, int index, int def) {
 	luaL_Stream *fh;
 	DIR **dp;
@@ -2985,6 +2994,31 @@ static int unix_exit(lua_State *L) {
 
 	return 0;
 } /* unix_exit() */
+
+
+static int unix_flockfile(lua_State *L) {
+	flockfile(unixL_checkfile(L, 1));
+
+	lua_pushboolean(L, 1);
+
+	return 1;
+} /* unix_flockfile() */
+
+
+static int unix_ftrylockfile(lua_State *L) {
+	lua_pushboolean(L, 0 == ftrylockfile(unixL_checkfile(L, 1)));
+
+	return 1;
+} /* unix_ftrylockfile() */
+
+
+static int unix_funlockfile(lua_State *L) {
+	funlockfile(unixL_checkfile(L, 1));
+
+	lua_pushboolean(L, 1);
+
+	return 1;
+} /* unix_funlockfile() */
 
 
 static int unix_fork(lua_State *L) {
@@ -4386,6 +4420,9 @@ static const luaL_Reg unix_routines[] = {
 	{ "execvp",             &unix_execvp },
 	{ "_exit",              &unix__exit },
 	{ "exit",               &unix_exit },
+	{ "flockfile",          &unix_flockfile },
+	{ "ftrylockfile",       &unix_ftrylockfile },
+	{ "funlockfile",        &unix_funlockfile },
 	{ "fork",               &unix_fork },
 	{ "getegid",            &unix_getegid },
 	{ "geteuid",            &unix_geteuid },
