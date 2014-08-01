@@ -26,12 +26,14 @@ SOFLAGS_$(d) = $(SOFLAGS_$(abspath $(@D)/../..))
 LDFLAGS_$(d) += -L$(DESTDIR)$(libdir) -L$(libdir)
 
 ifeq ($(shell uname -s), Linux)
-LDFLAGS_$(d) += -lrt -lm
+LDFLAGS_$(d) += -lrt
 endif
 
 ifeq ($(shell uname -s), SunOS)
 LDFLAGS_$(d) += -lsocket -lnsl
 endif
+
+LDFLAGS_$(d) += -lm
 
 
 #

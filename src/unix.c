@@ -325,6 +325,13 @@ static void luaL_setfuncs(lua_State *L, const luaL_Reg *l, int nup) {
 #endif
 
 
+#if defined __GNUC__ && (defined _AIX || (defined __NetBSD__ && !NETBSD_PREREQ(6,0)))
+#define U_NAN __builtin_nan("") /* avoid type punning warning */
+#else
+#define U_NAN NAN
+#endif
+
+
 static size_t u_power2(size_t i) {
 #if defined SIZE_MAX
 	i--;
@@ -3968,12 +3975,16 @@ static int unix_sigtimedwait(lua_State *L) {
 
 	if (lua_isnoneornil(L, 1)) {
 		sigfillset(&tmp);
-		set = &tmp;
 	} else {
-		set = unixL_tosigset(L, 1, &tmp);
+		if (&tmp != (set = unixL_tosigset(L, 1, &tmp)))
+			tmp = *set;
 	}
 
-	if ((error = u_sigtimedwait(&signo, set, &si, u_f2ts(&timeout, luaL_optnumber(L, 2, NAN)))))
+	/* these cannot be caught and will trigger EINVAL on AIX */
+	sigdelset(&tmp, SIGKILL);
+	sigdelset(&tmp, SIGSTOP);
+
+	if ((error = u_sigtimedwait(&signo, &tmp, &si, u_f2ts(&timeout, luaL_optnumber(L, 2, U_NAN)))))
 		return unixL_pusherror(L, error, "sigtimedwait", "~$#");
 
 	lua_pushinteger(L, signo);
