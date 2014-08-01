@@ -19,7 +19,7 @@
 #include <stdint.h>       /* SIZE_MAX */
 #include <stdlib.h>       /* arc4random(3) _exit(2) exit(3) getenv(3) getenv_r(3) calloc(3) free(3) realloc(3) setenv(3) strtoul(3) unsetenv(3) */
 #include <stdio.h>        /* fileno(3) snprintf(3) */
-#include <string.h>       /* memset(3) strerror_r(3) strspn(3) strcspn(3) */
+#include <string.h>       /* memset(3) strerror_r(3) strsignal(3) strspn(3) strcspn(3) */
 #include <signal.h>       /* NSIG sigset_t sigfillset(3) sigemptyset(3) sigprocmask(2) */
 #include <ctype.h>        /* isspace(3) */
 #include <time.h>         /* struct tm struct timespec gmtime_r(3) clock_gettime(3) tzset(3) */
@@ -1448,14 +1448,16 @@ static uint32_t unixL_random(lua_State *L NOTUSED) {
 /*
  * Thread-safety of strsignal(3) varies.
  *
- * 	    Solaris : safe; static buffer; not localized on 12.1
+ * 	    Solaris : safe; static buffer; not localized on 12.1;
+ * 	              NULL for bad signo
  * 	Linux/glibc : safe'ish since 1998; TLS buffer for bad signo;
- * 	              returns gettext (is gettext thread-safe?)
+ * 	              gettext for good signo (is gettext thread-safe?)
  * 	    FreeBSD : safe since 8.1; TLS buffer
  * 	     NetBSD : not safe as of 6.1; static buffer
  * 	    OpenBSD : not safe as of 5.6; static buffer
  * 	       OS X : safe on 10.9.4; TLS buffer
- * 	        AIX : safe; static buffer; not localized on AIX 7.1
+ * 	        AIX : safe; static buffer; not localized on AIX 7.1;
+ * 	              NULL for bad signo
  *
  * Use of sys_siglist isn't necessarily thread-safe either, but
  * implementations would have to work hard to make it unsafe.
