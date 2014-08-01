@@ -40,7 +40,7 @@
 #include <sys/wait.h>     /* WNOHANG waitpid(2) */
 #include <sys/ioctl.h>    /* SIOCGIFCONF SIOCGIFFLAGS SIOCGIFNETMASK SIOCGIFDSTADDR SIOCGIFBRDADDR SIOCGLIFADDR ioctl(2) */
 #include <net/if.h>       /* IF_NAMESIZE struct ifconf struct ifreq */
-#include <unistd.h>       /* _PC_NAME_MAX chdir(2) chroot(2) close(2) chdir(2) chown(2) chroot(2) dup2(2) execve(2) execl(2) execlp(2) execvp(2) fork(2) fpathconf(3) getegid(2) geteuid(2) getgid(2) getpid(2) getuid(2) issetugid(2) link(2) rename(2) rmdir(2) setegid(2) seteuid(2) setgid(2) setuid(2) setsid(2) symlink(2) truncate(2) umask(2) unlink(2) */
+#include <unistd.h>       /* _PC_NAME_MAX chdir(2) chroot(2) close(2) chdir(2) chown(2) chroot(2) dup2(2) execve(2) execl(2) execlp(2) execvp(2) fork(2) fpathconf(3) getegid(2) geteuid(2) getgid(2) getpid(2) getppid(2) getuid(2) issetugid(2) link(2) rename(2) rmdir(2) setegid(2) seteuid(2) setgid(2) setuid(2) setsid(2) symlink(2) truncate(2) umask(2) unlink(2) */
 #include <fcntl.h>        /* F_DUPFD_CLOEXEC F_GETFD F_GETLK F_SETLK F_SETLKW F_SETFD FD_CLOEXEC fcntl(2) open(2) */
 #include <pwd.h>          /* struct passwd getpwnam_r(3) */
 #include <grp.h>          /* struct group getgrnam_r(3) */
@@ -1751,6 +1751,22 @@ static const char *unixL_strerror(lua_State *L, int error) {
 } /* unixL_strerror() */
 
 
+#define unixL_pushinteger(L, i) do { \
+	if (sizeof (lua_Integer) >= sizeof (i)) \
+		lua_pushinteger((L), (i)); \
+	else \
+		lua_pushnumber((L), (i)); \
+} while (0)
+
+
+#define unixL_pushunsigned(L, i) do { \
+	if (sizeof (lua_Integer) > sizeof (i)) \
+		lua_pushinteger((L), (i)); \
+	else \
+		lua_pushnumber((L), (i)); \
+} while (0)
+
+
 static int unixL_pusherror(lua_State *L, int error, const char *fun NOTUSED, const char *fmt) {
 	int top = lua_gettop(L), fc;
 	unixL_State *U = unixL_getstate(L);
@@ -1764,7 +1780,7 @@ static int unixL_pusherror(lua_State *L, int error, const char *fun NOTUSED, con
 
 			break;
 		case '#':
-			lua_pushnumber(L, error);
+			unixL_pushinteger(L, error);
 
 			break;
 		case '$':
@@ -1782,14 +1798,6 @@ static int unixL_pusherror(lua_State *L, int error, const char *fun NOTUSED, con
 
 	return lua_gettop(L) - top;
 } /* unixL_pusherror() */
-
-
-#define unixL_pushinteger(L, i) do { \
-	if (sizeof (lua_Integer) >= sizeof (i)) \
-		lua_pushinteger((L), (i)); \
-	else \
-		lua_pushnumber((L), (i)); \
-} while (0)
 
 
 static u_error_t unixL_readdir(lua_State *L, DIR *dp, struct dirent **ent) {
@@ -2668,7 +2676,7 @@ static const luaL_Reg sigset_metamethods[] = {
 
 
 static int unix_arc4random(lua_State *L) {
-	lua_pushnumber(L, unixL_random(L));
+	unixL_pushunsigned(L, unixL_random(L));
 
 	return 1;
 } /* unix_arc4random() */
@@ -2729,7 +2737,7 @@ static int unix_arc4random_uniform(lua_State *L) {
 	lua_Number modn = luaL_optnumber(L, 1, 4294967296.0);
 
 	if (modn >= 4294967296.0) {
-		lua_pushnumber(L, unixL_random(L));
+		unixL_pushunsigned(L, unixL_random(L));
 	} else {
 		uint32_t n = (uint32_t)modn;
 		uint32_t r, min;
@@ -2743,7 +2751,7 @@ static int unix_arc4random_uniform(lua_State *L) {
 				break;
 		}
 
-		lua_pushnumber(L, r % n);
+		unixL_pushunsigned(L, r % n);
 	}
 
 	return 1;
@@ -2842,8 +2850,8 @@ static int unix_clock_gettime(lua_State *L) {
 
 		return 1;
 	} else {
-		lua_pushinteger(L, ts.tv_sec);
-		lua_pushinteger(L, ts.tv_nsec);
+		unixL_pushinteger(L, ts.tv_sec);
+		unixL_pushinteger(L, ts.tv_nsec);
 
 		return 2;
 	}
@@ -3026,23 +3034,28 @@ static int unix_exit(lua_State *L) {
 static int fcntl_flock(lua_State *L, int fd, int cmd, int index) {
 	struct flock l = { 0 };
 
-	luaL_checktype(L, index, LUA_TTABLE);
+	l.l_type = F_WRLCK;
+	l.l_whence = SEEK_SET;
 
-	lua_getfield(L, index, "type");
-	l.l_type = luaL_optint(L, -1, F_WRLCK);
-	lua_pop(L, 1);
+	if (!lua_isnoneornil(L, index)) {
+		luaL_checktype(L, index, LUA_TTABLE);
 
-	lua_getfield(L, index, "whence");
-	l.l_whence = luaL_optint(L, -1, SEEK_SET);
-	lua_pop(L, 1);
+		lua_getfield(L, index, "type");
+		l.l_type = luaL_optint(L, -1, l.l_type);
+		lua_pop(L, 1);
 
-	lua_getfield(L, index, "start");
-	l.l_start = luaL_optint(L, -1, 0);
-	lua_pop(L, 1);
+		lua_getfield(L, index, "whence");
+		l.l_whence = luaL_optint(L, -1, l.l_whence);
+		lua_pop(L, 1);
 
-	lua_getfield(L, index, "len");
-	l.l_len = luaL_optint(L, -1, 0);
-	lua_pop(L, 1);
+		lua_getfield(L, index, "start");
+		l.l_start = luaL_optint(L, -1, l.l_start);
+		lua_pop(L, 1);
+
+		lua_getfield(L, index, "len");
+		l.l_len = luaL_optint(L, -1, l.l_len);
+		lua_pop(L, 1);
+	}
 
 	if (-1 == fcntl(fd, cmd, &l))
 		return unixL_pusherror(L, errno, "fcntl", "~$#");
@@ -3190,7 +3203,7 @@ static int unix_fork(lua_State *L) {
 
 
 static int unix_getegid(lua_State *L) {
-	lua_pushnumber(L, getegid());
+	lua_pushinteger(L, getegid());
 
 	return 1;
 } /* unix_getegid() */
@@ -3202,7 +3215,7 @@ static int unix_getenv(lua_State *L) {
 
 
 static int unix_geteuid(lua_State *L) {
-	lua_pushnumber(L, geteuid());
+	lua_pushinteger(L, geteuid());
 
 	return 1;
 } /* unix_geteuid() */
@@ -3216,14 +3229,14 @@ static int unix_getmode(lua_State *L) {
 	fmt = luaL_optstring(L, 2, "0777");
 	omode = 07777 & strtoul(fmt, &end, 0);
 
-	lua_pushnumber(L, unixL_optmode(L, 1, 0777, omode));
+	lua_pushinteger(L, unixL_optmode(L, 1, 0777, omode));
 
 	return 1;
 } /* unix_getmode() */
 
 
 static int unix_getgid(lua_State *L) {
-	lua_pushnumber(L, getgid());
+	lua_pushinteger(L, getgid());
 
 	return 1;
 } /* unix_getgid() */
@@ -3525,10 +3538,17 @@ static const luaL_Reg ifs_metamethods[] = {
 
 
 static int unix_getpid(lua_State *L) {
-	lua_pushnumber(L, getpid());
+	lua_pushinteger(L, getpid());
 
 	return 1;
 } /* unix_getpid() */
+
+
+static int unix_getppid(lua_State *L) {
+	lua_pushinteger(L, getppid());
+
+	return 1;
+} /* unix_getppid() */
 
 
 static int unix_getpwnam(lua_State *L) {
@@ -3671,7 +3691,7 @@ static int unix_gettimeofday(lua_State *L) {
 
 
 static int unix_getuid(lua_State *L) {
-	lua_pushnumber(L, getuid());
+	lua_pushinteger(L, getuid());
 
 	return 1;
 } /* unix_getuid() */
@@ -4184,7 +4204,7 @@ static int unix_setsid(lua_State *L) {
 	if (-1 == (pg = setsid()))
 		return unixL_pusherror(L, errno, "setsid", "~$#");
 
-	lua_pushnumber(L, pg);
+	lua_pushinteger(L, pg);
 
 	return 1;
 } /* unix_setsid() */
@@ -4424,9 +4444,9 @@ static int unix_umask(lua_State *L) {
 	mode_t cmask = unixL_getumask(L);
 
 	if (lua_isnoneornil(L, 1)) {
-		lua_pushnumber(L, cmask);
+		lua_pushinteger(L, cmask);
 	} else {
-		lua_pushnumber(L, umask(unixL_optmode(L, 1, cmask, cmask)));
+		lua_pushinteger(L, umask(unixL_optmode(L, 1, cmask, cmask)));
 	}
 
 	return 1;
@@ -4590,6 +4610,7 @@ static const luaL_Reg unix_routines[] = {
 	{ "getgrgid",           &unix_getgrnam },
 	{ "getifaddrs",         &unix_getifaddrs },
 	{ "getpid",             &unix_getpid },
+	{ "getppid",            &unix_getppid },
 	{ "getpwnam",           &unix_getpwnam },
 	{ "getpwuid",           &unix_getpwnam },
 	{ "gettimeofday",       &unix_gettimeofday },
@@ -5092,7 +5113,7 @@ int luaopen_unix(lua_State *L) {
 			if (*table[j].name >= '0' && *table[j].name <= '9')
 				return luaL_error(L, "%s: bogus constant identifier string conversion (near %s)", table[j].name, (j == 0)? "?" : table[j - 1].name);
 
-			lua_pushnumber(L, table[j].value);
+			unixL_pushinteger(L, table[j].value);
 			lua_setfield(L, -2, table[j].name);
 		}
 	}
