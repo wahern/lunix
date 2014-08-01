@@ -25,6 +25,7 @@
 #include <time.h>         /* struct tm struct timespec gmtime_r(3) clock_gettime(3) tzset(3) */
 #include <errno.h>        /* ENOMEM ERANGE errno */
 #include <assert.h>       /* static_assert */
+#include <math.h>         /* NAN isnormal(3) signbit(3) */
 
 #include <sys/param.h>    /* __NetBSD_Version__ OpenBSD __FreeBSD_version */
 #include <sys/types.h>    /* gid_t mode_t off_t pid_t uid_t */
@@ -151,6 +152,10 @@
 
 #ifndef HAVE_GETENV_R
 #define HAVE_GETENV_R NETBSD_PREREQ(5,0)
+#endif
+
+#ifndef HAVE_SIGTIMEDWAIT
+#define HAVE_SIGTIMEDWAIT (!defined __APPLE__ && !defined __OpenBSD__)
 #endif
 
 
@@ -555,6 +560,123 @@ MAYBEUSED static int u_in6_clearscope(struct in6_addr *in6) {
 
 	return modified;
 } /* u_in6_clearscope() */
+
+
+static struct timespec *u_f2ts(struct timespec *ts, const double f) {
+	if ((isnormal(f) && !signbit(f)) || 0.0) {
+		if (f > INT_MAX) {
+			ts->tv_sec = INT_MAX;
+			ts->tv_nsec = 0;
+		} else {
+			ts->tv_sec = (time_t)f;
+			/* SunPRO chokes on modulo here unless unsigned. */
+			ts->tv_nsec = (unsigned long)(f * 1000000000.0) % 1000000000UL;
+		}
+
+		return ts;
+	} else {
+		return NULL;
+	}
+} /* u_f2ts() */
+
+
+#define ts_timercmp(a, b, cmp) \
+	(((a).tv_sec == (b).tv_sec) \
+	 ? ((a).tv_nsec cmp (b).tv_nsec) \
+	 : ((a).tv_sec cmp (b).tv_sec))
+
+static void ts_timeradd(struct timespec *r, struct timespec a, struct timespec b) {
+	r->tv_sec = a.tv_sec + b.tv_sec;
+	r->tv_nsec = a.tv_nsec + b.tv_nsec;
+
+	if (r->tv_nsec >= 1000000000) {
+		r->tv_sec++;
+		r->tv_nsec -= 1000000000;
+	}
+} /* ts_timeradd() */
+
+static void ts_timersub(struct timespec *r, struct timespec a, struct timespec b) {
+	r->tv_sec = a.tv_sec - b.tv_sec;
+	r->tv_nsec = a.tv_nsec - b.tv_nsec;
+
+	if (r->tv_nsec < 0) {
+		r->tv_sec--;
+		r->tv_nsec += 1000000000;
+	}
+} /* ts_timersub() */
+
+static u_error_t u_sigtimedwait(int *_signo, const sigset_t *set, siginfo_t *info, const struct timespec *timeout) {
+#if HAVE_SIGTIMEDWAIT
+	int signo, error;
+
+	*_signo = -1;
+
+	if (-1 == (signo = sigtimedwait(set, info, timeout)))
+		return errno;
+
+	*_signo = signo;
+
+	return 0;
+#else
+	struct timespec elapsed = { 0, 0 }, req, rem;
+	sigset_t pending;
+	int signo, error;
+
+	*_signo = -1;
+
+	do {
+		sigemptyset(&pending);
+		sigpending(&pending); /* doesn't clear pending queue */
+
+		for (signo = 1; signo < NSIG; signo++) {
+			if (!sigismember(set, signo) || !sigismember(&pending, signo))
+				continue;
+
+			/*
+			 * WARNING: If the signal is in the process's
+			 * pending set and another thread clears it, we
+			 * could hang forever.
+			 *
+			 * One possible solution is to raise the signal
+			 * here. Raise will add the signal to the thread's
+			 * pending set. However, POSIX leaves undefined what
+			 * sigwait does when a signal is both in the
+			 * thread's and the process's pending set. If the
+			 * kernel doesn't clear the signal from both pending
+			 * sets, then calling raise won't work.
+			 *
+			 * Also, calling raise won't work for queued
+			 * signals.
+			 */
+			//raise(signo);
+
+			if (info) {
+				memset(info, 0, sizeof *info);
+				info->si_signo = signo;
+			}
+
+			*_signo = signo;
+
+			return 0;
+		}
+
+		req.tv_sec = 0;
+		req.tv_nsec = 200000000L; /* 2/10ths second */
+		rem = req;
+
+		if (0 == nanosleep(&req, &rem)) {
+			ts_timeradd(&elapsed, elapsed, req);
+		} else if (errno == EINTR) {
+			ts_timersub(&req, req, rem);
+			ts_timeradd(&elapsed, elapsed, req);
+		} else {
+			return errno;
+		}
+	} while (!timeout || ts_timercmp(elapsed, *timeout, <));
+
+	return EAGAIN;
+#endif
+} /* u_sigtimedwait() */
 
 
 /*
@@ -3800,6 +3922,50 @@ static int unix_sigismember(lua_State *L) {
 } /* unix_sigismember() */
 
 
+static int unix_sigprocmask(lua_State *L) {
+	int how = luaL_optint(L, 1, SIG_BLOCK);
+	sigset_t tmp, *set, *oset;
+
+	lua_settop(L, 3);
+
+	set = (!lua_isnil(L, 2))? unixL_tosigset(L, 2, &tmp) : NULL;
+	oset = unixL_tosigset(L, 3, NULL);
+
+	sigemptyset(oset);
+
+	if (0 != sigprocmask(how, set, oset))
+		return unixL_pusherror(L, errno, "sigprocmask", "~$#");
+
+	return 1; /* returns oset */
+} /* unix_sigprocmask() */
+
+
+static int unix_sigtimedwait(lua_State *L) {
+	sigset_t tmp, *set;
+	struct timespec timeout;
+	siginfo_t si;
+	int signo, error;
+
+	if (lua_isnoneornil(L, 1)) {
+		sigfillset(&tmp);
+		set = &tmp;
+	} else {
+		set = unixL_tosigset(L, 1, &tmp);
+	}
+
+	if ((error = u_sigtimedwait(&signo, set, &si, u_f2ts(&timeout, luaL_optnumber(L, 2, NAN)))))
+		return unixL_pusherror(L, error, "sigtimedwait", "~$#");
+
+	lua_pushinteger(L, signo);
+
+	lua_newtable(L);
+	lua_pushinteger(L, si.si_signo);
+	lua_setfield(L, -2, "signo");
+
+	return 2;
+} /* unix_sigtimedwait() */
+
+
 static int unix_strerror(lua_State *L) {
 	lua_pushstring(L, unixL_strerror(L, luaL_checkint(L, 1)));
 
@@ -4112,6 +4278,8 @@ static const luaL_Reg unix_routines[] = {
 	{ "sigaddset",          &unix_sigaddset },
 	{ "sigdelset",          &unix_sigdelset },
 	{ "sigismember",        &unix_sigismember },
+	{ "sigprocmask",        &unix_sigprocmask },
+	{ "sigtimedwait",       &unix_sigtimedwait },
 	{ "strerror",           &unix_strerror },
 	{ "strsignal",          &unix_strsignal },
 	{ "symlink",            &unix_symlink },
@@ -4449,6 +4617,8 @@ static const struct unix_const const_signal[] = {
 	UNIX_CONST(SIGUSR1), UNIX_CONST(SIGUSR2), UNIX_CONST(SIGTRAP),
 	UNIX_CONST(SIGURG), UNIX_CONST(SIGXCPU), UNIX_CONST(SIGXFSZ),
 	UNIX_CONST(NSIG),
+
+	UNIX_CONST(SIG_BLOCK), UNIX_CONST(SIG_UNBLOCK), UNIX_CONST(SIG_SETMASK),
 }; /* const_signal[] */
 
 
