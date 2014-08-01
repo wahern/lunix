@@ -33,6 +33,10 @@ ifeq ($(shell uname -s), SunOS)
 LDFLAGS_$(d) += -lsocket -lnsl
 endif
 
+ifeq ($(shell uname -s), OpenBSD)
+LDFLAGS_$(d) += -lpthread # required for sigwait
+endif
+
 LDFLAGS_$(d) += -lm
 
 
