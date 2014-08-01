@@ -670,9 +670,9 @@ static u_error_t u_sigtimedwait(int *_signo, const sigset_t *set, siginfo_t *_in
 			if (0 != sigwait(set, &signo))
 				return errno;
 
-			if (info) {
-				memset(info, 0, sizeof *info);
-				info->si_signo = signo;
+			if (_info) {
+				memset(_info, 0, sizeof *_info);
+				_info->si_signo = signo;
 			}
 
 			*_signo = signo;
