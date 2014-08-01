@@ -706,10 +706,8 @@ static u_error_t u_strerror_r(int error, char *dst, size_t lim) {
 
 	return 0;
 #else
-	int error;
-
 	/* glibc between 2.3.4 and 2.13 returns -1 on error */
-	if (-1 == (error = strerror_r(error, U->errmsg, sizeof U->errmsg)))
+	if (-1 == (error = strerror_r(error, dst, lim)))
 		return errno;
 	else
 		return error;
