@@ -41,7 +41,7 @@
 #include <sys/ioctl.h>    /* SIOCGIFCONF SIOCGIFFLAGS SIOCGIFNETMASK SIOCGIFDSTADDR SIOCGIFBRDADDR SIOCGLIFADDR ioctl(2) */
 #include <net/if.h>       /* IF_NAMESIZE struct ifconf struct ifreq */
 #include <unistd.h>       /* _PC_NAME_MAX chdir(2) chroot(2) close(2) chdir(2) chown(2) chroot(2) dup2(2) execve(2) execl(2) execlp(2) execvp(2) fork(2) fpathconf(3) getegid(2) geteuid(2) getgid(2) getpid(2) getuid(2) issetugid(2) link(2) rename(2) rmdir(2) setegid(2) seteuid(2) setgid(2) setuid(2) setsid(2) symlink(2) truncate(2) umask(2) unlink(2) */
-#include <fcntl.h>        /* F_DUPFD_CLOEXEC F_GETFD F_SETFD FD_CLOEXEC fcntl(2) open(2) */
+#include <fcntl.h>        /* F_DUPFD_CLOEXEC F_GETFD F_GETLK F_SETLK F_SETLKW F_SETFD FD_CLOEXEC fcntl(2) open(2) */
 #include <pwd.h>          /* struct passwd getpwnam_r(3) */
 #include <grp.h>          /* struct group getgrnam_r(3) */
 #include <dirent.h>       /* closedir(3) fdopendir(3) opendir(3) readdir_r(3) rewinddir(3) */
@@ -884,6 +884,7 @@ static u_error_t u_getflags(int fd, u_flags_t *flags) {
 
 	*flags = _flags;
 
+	/* F_GETFL isn't defined to return O_CLOEXEC */
 	if (!(*flags & U_CLOEXEC)) {
 		if (-1 == (_flags = fcntl(fd, F_GETFD)))
 			return errno;
@@ -1783,6 +1784,14 @@ static int unixL_pusherror(lua_State *L, int error, const char *fun NOTUSED, con
 } /* unixL_pusherror() */
 
 
+#define unixL_pushinteger(L, i) do { \
+	if (sizeof (lua_Integer) >= sizeof (i)) \
+		lua_pushinteger((L), (i)); \
+	else \
+		lua_pushnumber((L), (i)); \
+} while (0)
+
+
 static u_error_t unixL_readdir(lua_State *L, DIR *dp, struct dirent **ent) {
 	unixL_State *U = unixL_getstate(L);
 
@@ -2242,8 +2251,26 @@ static int unixL_optfileno(lua_State *L, int index, int def) {
 		return fd;
 	}
 
+	if (lua_isnumber(L, index)) {
+		fd = lua_tointeger(L, index);
+
+		if (fd < 0)
+			luaL_argcheck(L, 0, index, lua_pushfstring(L, "bad file descriptor (%d)", fd));
+
+		return fd;
+	}
+
 	return def;
 } /* unixL_optfileno() */
+
+
+static int unixL_checkfileno(lua_State *L, int index) {
+	int fd = unixL_optfileno(L, index, -1);
+
+	luaL_argcheck(L, fd >= 0, index, "no file descriptor specified");
+
+	return fd;
+} /* unixL_checkfileno() */
 
 
 static int unixL_optfint(lua_State *L, int index, const char *name, int def) {
@@ -2994,6 +3021,135 @@ static int unix_exit(lua_State *L) {
 
 	return 0;
 } /* unix_exit() */
+
+
+static int fcntl_flock(lua_State *L, int fd, int cmd, int index) {
+	struct flock l = { 0 };
+
+	luaL_checktype(L, index, LUA_TTABLE);
+
+	lua_getfield(L, index, "type");
+	l.l_type = luaL_optint(L, -1, F_WRLCK);
+	lua_pop(L, 1);
+
+	lua_getfield(L, index, "whence");
+	l.l_whence = luaL_optint(L, -1, SEEK_SET);
+	lua_pop(L, 1);
+
+	lua_getfield(L, index, "start");
+	l.l_start = luaL_optint(L, -1, 0);
+	lua_pop(L, 1);
+
+	lua_getfield(L, index, "len");
+	l.l_len = luaL_optint(L, -1, 0);
+	lua_pop(L, 1);
+
+	if (-1 == fcntl(fd, cmd, &l))
+		return unixL_pusherror(L, errno, "fcntl", "~$#");
+
+	if (cmd == F_GETLK) {
+		lua_createtable(L, 0, 5);
+
+		lua_pushinteger(L, l.l_type);
+		lua_setfield(L, -2, "type");
+
+		lua_pushinteger(L, l.l_whence);
+		lua_setfield(L, -2, "whence");
+
+		lua_pushinteger(L, l.l_start);
+		lua_setfield(L, -2, "start");
+
+		lua_pushinteger(L, l.l_len);
+		lua_setfield(L, -2, "len");
+
+		lua_pushinteger(L, l.l_pid);
+		lua_setfield(L, -2, "pid");
+
+		return 1;
+	} else {
+		lua_pushboolean(L, 1);
+
+		return 1;
+	}
+} /* fcntl_flock() */
+
+
+static int unix_fcntl(lua_State *L) {
+	int fd = unixL_checkfileno(L, 1);
+	int cmd = luaL_checkint(L, 2);
+	u_flags_t flags;
+	int pid, error;
+
+	switch (cmd) {
+	case F_GETFD:
+		if ((flags = fcntl(fd, cmd)) < 0)
+			goto syerr;
+
+		unixL_pushinteger(L, flags);
+
+		return 1;
+	case F_GETFL:
+		if ((error = u_getflags(fd, &flags)))
+			goto error;
+
+		unixL_pushinteger(L, flags);
+
+		return 1;
+	case F_SETFD:
+		if (-1 == fcntl(fd, cmd, (int)luaL_checkint(L, 3)))
+			goto syerr;
+
+		lua_pushboolean(L, 1);
+
+		return 1;
+	case F_SETFL:
+		flags = luaL_checknumber(L, 3);
+
+		if (-1 == fcntl(fd, cmd, (int)(U_SYSFLAGS & flags)))
+			goto syerr;
+
+		if (flags & U_CLOEXEC) {
+			if (-1 == fcntl(fd, F_SETFD, FD_CLOEXEC))
+				goto syerr;
+		}
+
+		lua_pushboolean(L, 1);
+
+		return 1;
+	case F_GETOWN:
+		if (-1 == (pid = fcntl(fd, cmd)))
+			goto syerr;
+
+		lua_pushinteger(L, pid);
+
+		return 1;
+	case F_SETOWN:
+		pid = luaL_checkint(L, 3);
+
+		if (-1 == fcntl(fd, cmd, pid))
+			goto syerr;
+
+		lua_pushboolean(L, 1);
+
+		return 1;
+	case F_GETLK:
+	case F_SETLK:
+	case F_SETLKW:
+		return fcntl_flock(L, fd, cmd, 3);
+	default:
+		/*
+		 * NOTE: We don't allow unsupported operations because we
+		 * cannot know the argument type that fcntl expects. If it's
+		 * a pointer then this interface becomes a vector for
+		 * reading or writing random process memory.
+		 */
+		return luaL_error(L, "%d: unsupported fcntl operation", cmd);
+	} /* switch () */
+syerr:
+	error = errno;
+error:
+	return unixL_pusherror(L, error, "fcntl", "~$#");
+} /* unix_fcntl() */
 
 
 static int unix_flockfile(lua_State *L) {
@@ -4420,6 +4576,7 @@ static const luaL_Reg unix_routines[] = {
 	{ "execvp",             &unix_execvp },
 	{ "_exit",              &unix__exit },
 	{ "exit",               &unix_exit },
+	{ "fcntl",              &unix_fcntl },
 	{ "flockfile",          &unix_flockfile },
 	{ "ftrylockfile",       &unix_ftrylockfile },
 	{ "funlockfile",        &unix_funlockfile },
@@ -4810,6 +4967,47 @@ static const struct unix_const const_signal[] = {
 }; /* const_signal[] */
 
 
+static const struct unix_const const_fcntl[] = {
+	UNIX_CONST(F_GETLK), UNIX_CONST(F_SETLK), UNIX_CONST(F_SETLKW),
+	UNIX_CONST(F_RDLCK), UNIX_CONST(F_WRLCK), UNIX_CONST(F_UNLCK),
+	UNIX_CONST(SEEK_SET), UNIX_CONST(SEEK_CUR), UNIX_CONST(SEEK_END),
+	UNIX_CONST(F_GETFD), UNIX_CONST(F_GETFL), UNIX_CONST(F_GETOWN),
+	UNIX_CONST(F_SETFD), UNIX_CONST(F_SETFL), UNIX_CONST(F_SETOWN),
+
+	UNIX_CONST(FD_CLOEXEC),
+
+	{ "O_CLOEXEC", U_CLOEXEC }, /* not natively supported on NetBSD 5.1 */
+	UNIX_CONST(O_CREAT),
+#if defined O_DIRECTORY
+	UNIX_CONST(O_DIRECTORY),
+#endif
+	UNIX_CONST(O_EXCL),
+	UNIX_CONST(O_NOCTTY),
+	UNIX_CONST(O_NOFOLLOW),
+	UNIX_CONST(O_TRUNC),
+
+	UNIX_CONST(O_APPEND),
+	UNIX_CONST(O_NONBLOCK),
+#if defined O_SYNC
+	UNIX_CONST(O_SYNC),
+#endif
+#if defined O_DSYNC
+	UNIX_CONST(O_DSYNC),
+#endif
+#if defined O_RSYNC
+	UNIX_CONST(O_RSYNC),
+#endif
+
+	UNIX_CONST(O_RDONLY), UNIX_CONST(O_RDWR), UNIX_CONST(O_WRONLY),
+#if defined O_EXEC
+	UNIX_CONST(O_EXEC),
+#endif
+#if defined O_SEARCH
+	UNIX_CONST(O_SEARCH),
+#endif
+}; /* const_fcntl[] */
+
+
 static const struct {
 	const struct unix_const *table;
 	size_t size;
@@ -4820,6 +5018,7 @@ static const struct {
 	{ const_iff,    countof(const_iff) },
 	{ const_wait,   countof(const_wait) },
 	{ const_signal, countof(const_signal) },
+	{ const_fcntl,  countof(const_fcntl) },
 }; /* unix_const[] */
 
 
