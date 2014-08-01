@@ -326,6 +326,20 @@ Exits the process immediately without first flushing and closing open streams, o
 
 Like \fn{\_exit}, but first flushes and closes open streams, and calls \syscall{atexit} handlers.
 
+\subsubsection[\fn{flockfile}]{\fn{flockfile($fh$)}}
+
+Locks the FILE handle $fh$, blocking the current thread if already locked. Returns \true.
+
+This function only works on FILE handles and not DIR handlers or integer descriptors.
+
+\subsubsection[\fn{ftrylockfile}]{\fn{ftrylockfile($fh$)}}
+
+Attempts to lock the FILE handle $fh$. Returns \true on success or \false if $fh$ was locked by another thread.
+
+\subsubsection[\fn{funlockfile}]{\fn{funlockfile($fh$)}}
+
+Unlocks the FILE handle $fh$. Returns \true.
+
 \subsubsection[\fn{fork}]{\fn{fork()}}
 
 Forks a new process. On success returns the PID of the new process in the parent and the integer 0 in the child. Otherwise returns \false, an error string, and an integer system error.
