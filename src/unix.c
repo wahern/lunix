@@ -3425,6 +3425,16 @@ static int unix_link(lua_State *L) {
 } /* unix_link() */
 
 
+static int unix_kill(lua_State *L) {
+	if (0 != kill(luaL_checkint(L, 1), luaL_checkint(L, 2)))
+		return unixL_pusherror(L, errno, "kill", "0$#");
+
+	lua_pushboolean(L, 1);
+
+	return 1;
+} /* unix_kill() */
+
+
 /*
  * Emulate mkdir except with well-defined SUID, SGID, SVTIX behavior. If you
  * want to set bits restricted by the umask you must manually use chmod.
@@ -3726,6 +3736,16 @@ error:
 
 	return unixL_pusherror(L, error, "opendir", "~$#");
 } /* unix_opendir() */
+
+
+static int unix_raise(lua_State *L) {
+	if (0 != raise(luaL_checkint(L, 1)))
+		return unixL_pusherror(L, errno, "raise", "0$#");
+
+	lua_pushboolean(L, 1);
+
+	return 1;
+} /* unix_raise() */
 
 
 static int unix_readdir(lua_State *L) {
@@ -4252,10 +4272,12 @@ static const luaL_Reg unix_routines[] = {
 	{ "gettimeofday",       &unix_gettimeofday },
 	{ "getuid",             &unix_getuid },
 	{ "issetugid",          &unix_issetugid },
+	{ "kill",               &unix_kill },
 	{ "link",               &unix_link },
 	{ "mkdir",              &unix_mkdir },
 	{ "mkpath",             &unix_mkpath },
 	{ "opendir",            &unix_opendir },
+	{ "raise",              &unix_raise },
 	{ "readdir",            &unix_readdir },
 	{ "rename",             &unix_rename },
 	{ "rewinddir",          &unix_rewinddir },
