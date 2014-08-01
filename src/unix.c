@@ -612,6 +612,10 @@ MAYBEUSED static void ts_timersub(struct timespec *r, struct timespec a, struct 
 	}
 } /* ts_timersub() */
 
+MAYBEUSED static void sa_discard(int signo NOTUSED) {
+	return;
+} /* sa_discard() */
+
 static u_error_t u_sigtimedwait(int *_signo, const sigset_t *set, siginfo_t *_info, const struct timespec *timeout) {
 #if HAVE_SIGTIMEDWAIT
 	siginfo_t info;
@@ -634,6 +638,76 @@ static u_error_t u_sigtimedwait(int *_signo, const sigset_t *set, siginfo_t *_in
 		*_info = info;
 
 	return 0;
+#elif defined __OpenBSD__
+	/*
+	 * OpenBSD implements sigwait in libpthread. OpenBSD also requires
+	 * libpthread to be loaded at process initialization. But stock Lua
+	 * will not have been linked against libpthread. So we use
+	 * an alternative sigtimedwait implementation on OpenBSD.
+	 *
+	 * TODO: Use dlsym to detect if sigwait is available.
+	 */
+	struct timespec elapsed = { 0, 0 }, req, rem;
+	sigset_t pending, unblock, omask;
+	struct sigaction act, oact;
+	int signo, error;
+
+	*_signo = -1;
+
+	do {
+		sigemptyset(&pending);
+		sigpending(&pending);
+
+		for (signo = 1; signo < NSIG; signo++) {
+			if (!sigismember(set, signo) || !sigismember(&pending, signo))
+				continue;
+
+			/*
+			 * sigtimedwait and sigwait will atomically clear a
+			 * pending signal without delivering the signal. 
+			 * Emulate that behavior by allowing the signal to
+			 * be delivered to our noop signal handler.
+			 *
+			 * Note that this is definitely not thread-safe. 
+			 * But OpenBSD leaves us little choice.
+			 */
+			act.sa_handler = &sa_discard;
+			sigfillset(&act.sa_mask);
+			act.sa_flags = 0;
+			sigaction(signo, &act, &oact);
+
+			sigemptyset(&unblock);
+			sigaddset(&unblock, signo);
+			sigprocmask(SIG_UNBLOCK, &unblock, &omask);
+			sigprocmask(SIG_SETMASK, &omask, NULL);
+
+			sigaction(signo, &oact, NULL);
+
+			if (_info) {
+				memset(_info, 0, sizeof *_info);
+				_info->si_signo = signo;
+			}
+
+			*_signo = signo;
+
+			return 0;
+		}
+
+		req.tv_sec = 0;
+		req.tv_nsec = 200000000L; /* 2/10ths second */
+		rem = req;
+
+		if (0 == nanosleep(&req, &rem)) {
+			ts_timeradd(&elapsed, elapsed, req);
+		} else if (errno == EINTR) {
+			ts_timersub(&req, req, rem);
+			ts_timeradd(&elapsed, elapsed, req);
+		} else {
+			return errno;
+		}
+	} while (!timeout || ts_timercmp(elapsed, *timeout, <));
+
+	return EAGAIN;
 #else
 	struct timespec elapsed = { 0, 0 }, req, rem;
 	sigset_t pending;
