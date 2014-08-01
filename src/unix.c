@@ -592,7 +592,7 @@ static struct timespec *u_f2ts(struct timespec *ts, const double f) {
 	 ? ((a).tv_nsec cmp (b).tv_nsec) \
 	 : ((a).tv_sec cmp (b).tv_sec))
 
-static void ts_timeradd(struct timespec *r, struct timespec a, struct timespec b) {
+MAYBEUSED static void ts_timeradd(struct timespec *r, struct timespec a, struct timespec b) {
 	r->tv_sec = a.tv_sec + b.tv_sec;
 	r->tv_nsec = a.tv_nsec + b.tv_nsec;
 
@@ -602,7 +602,7 @@ static void ts_timeradd(struct timespec *r, struct timespec a, struct timespec b
 	}
 } /* ts_timeradd() */
 
-static void ts_timersub(struct timespec *r, struct timespec a, struct timespec b) {
+MAYBEUSED static void ts_timersub(struct timespec *r, struct timespec a, struct timespec b) {
 	r->tv_sec = a.tv_sec - b.tv_sec;
 	r->tv_nsec = a.tv_nsec - b.tv_nsec;
 
@@ -614,7 +614,7 @@ static void ts_timersub(struct timespec *r, struct timespec a, struct timespec b
 
 static u_error_t u_sigtimedwait(int *_signo, const sigset_t *set, siginfo_t *info, const struct timespec *timeout) {
 #if HAVE_SIGTIMEDWAIT
-	int signo, error;
+	int signo;
 
 	*_signo = -1;
 
