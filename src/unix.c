@@ -20,7 +20,7 @@
 #include <stdlib.h>       /* arc4random(3) _exit(2) exit(3) getenv(3) getenv_r(3) calloc(3) free(3) realloc(3) setenv(3) strtoul(3) unsetenv(3) */
 #include <stdio.h>        /* fileno(3) snprintf(3) */
 #include <string.h>       /* memset(3) strerror_r(3) strspn(3) strcspn(3) */
-#include <signal.h>       /* sigset_t sigfillset(3) sigemptyset(3) sigprocmask(2) */
+#include <signal.h>       /* NSIG sigset_t sigfillset(3) sigemptyset(3) sigprocmask(2) */
 #include <ctype.h>        /* isspace(3) */
 #include <time.h>         /* struct tm struct timespec gmtime_r(3) clock_gettime(3) tzset(3) */
 #include <errno.h>        /* ENOMEM ERANGE errno */
@@ -1325,7 +1325,7 @@ static int unixL_newmetatable(lua_State *L, const char *name, const luaL_Reg *me
 typedef struct unixL_State {
 	int error; /* errno value from last failed syscall */
 
-	char errmsg[MIN(NL_TEXTMAX, 512)]; /* NL_TEXTMAX == INT_MAX for glibc */
+	char errmsg[MIN(NL_TEXTMAX, 256)]; /* NL_TEXTMAX == INT_MAX for glibc */
 
 	struct {
 		struct passwd ent;
@@ -1443,6 +1443,46 @@ static uint32_t unixL_random(lua_State *L NOTUSED) {
 	return arc4random();
 }
 #endif
+
+
+/*
+ * Thread-safety of strsignal(3) varies.
+ *
+ * 	    Solaris : safe; static buffer; not localized on 12.1
+ * 	Linux/glibc : safe'ish since 1998; TLS buffer for bad signo;
+ * 	              returns gettext (is gettext thread-safe?)
+ * 	    FreeBSD : safe since 8.1; TLS buffer
+ * 	     NetBSD : not safe as of 6.1; static buffer
+ * 	    OpenBSD : not safe as of 5.6; static buffer
+ * 	       OS X : safe on 10.9.4; TLS buffer
+ * 	        AIX : safe; static buffer; not localized on AIX 7.1
+ *
+ * Use of sys_siglist isn't necessarily thread-safe either, but
+ * implementations would have to work hard to make it unsafe.
+ *
+ * Note that AIX requires explicit declaration of sys_siglist, and Solaris
+ * has _sys_siglistp instead of sys_siglist. But we use strsignal on those
+ * platforms.
+ */
+static const char *unixL_strsignal(lua_State *L, int signo) {
+	const char *info;
+	unixL_State *U;
+
+#if __sun || GLIBC_PREREQ(0,0) || FREEBSD_PREREQ(8,1) || defined __APPLE__ || defined _AIX
+	if ((info = strsignal(signo)))
+		return info;
+#else
+	if (signo >= 0 && signo < NSIG && (info = sys_siglist[signo]))
+		return info;
+#endif
+
+	U = unixL_getstate(L);
+
+	if (0 > snprintf(U->errmsg, sizeof U->errmsg, "Unknown signal: %d", signo))
+		luaL_error(L, "snprintf failure");
+
+	return U->errmsg;
+} /* unixL_strsignal() */
 
 
 static const char *unixL_strerror3(lua_State *L, unixL_State *U, int error) {
@@ -3652,6 +3692,13 @@ static int unix_strerror(lua_State *L) {
 } /* unix_strerror() */
 
 
+static int unix_strsignal(lua_State *L) {
+	lua_pushstring(L, unixL_strsignal(L, luaL_checkint(L, 1)));
+
+	return 1;
+} /* unix_strsignal() */
+
+
 static int unix_symlink(lua_State *L) {
 	const char *src = luaL_checkstring(L, 1);
 	const char *dst = luaL_checkstring(L, 2);
@@ -3946,6 +3993,7 @@ static const luaL_Reg unix_routines[] = {
 	{ "setuid",             &unix_setuid },
 	{ "setsid",             &unix_setsid },
 	{ "strerror",           &unix_strerror },
+	{ "strsignal",          &unix_strsignal },
 	{ "symlink",            &unix_symlink },
 	{ "timegm",             &unix_timegm },
 	{ "truncate",           &unix_truncate },
@@ -4271,15 +4319,28 @@ static const struct unix_const const_wait[] = {
 }; /* const_wait[] */
 
 
+static const struct unix_const const_signal[] = {
+	UNIX_CONST(SIGABRT), UNIX_CONST(SIGALRM), UNIX_CONST(SIGBUS),
+	UNIX_CONST(SIGCHLD), UNIX_CONST(SIGCONT), UNIX_CONST(SIGFPE),
+	UNIX_CONST(SIGHUP), UNIX_CONST(SIGILL), UNIX_CONST(SIGINT),
+	UNIX_CONST(SIGKILL), UNIX_CONST(SIGPIPE), UNIX_CONST(SIGQUIT),
+	UNIX_CONST(SIGSEGV), UNIX_CONST(SIGSTOP), UNIX_CONST(SIGTERM),
+	UNIX_CONST(SIGTSTP), UNIX_CONST(SIGTTIN), UNIX_CONST(SIGTTOU),
+	UNIX_CONST(SIGUSR1), UNIX_CONST(SIGUSR2), UNIX_CONST(SIGTRAP),
+	UNIX_CONST(SIGURG), UNIX_CONST(SIGXCPU), UNIX_CONST(SIGXFSZ),
+}; /* const_signal[] */
+
+
 static const struct {
 	const struct unix_const *table;
 	size_t size;
 } unix_const[] = {
-	{ const_af,    countof(const_af) },
-	{ const_clock, countof(const_clock) },
-	{ const_errno, countof(const_errno) },
-	{ const_iff,   countof(const_iff) },
-	{ const_wait,  countof(const_wait) },
+	{ const_af,     countof(const_af) },
+	{ const_clock,  countof(const_clock) },
+	{ const_errno,  countof(const_errno) },
+	{ const_iff,    countof(const_iff) },
+	{ const_wait,   countof(const_wait) },
+	{ const_signal, countof(const_signal) },
 }; /* unix_const[] */
 
 
