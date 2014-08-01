@@ -570,7 +570,7 @@ MAYBEUSED static int u_in6_clearscope(struct in6_addr *in6) {
 
 
 static struct timespec *u_f2ts(struct timespec *ts, const double f) {
-	if ((isnormal(f) && !signbit(f)) || 0.0) {
+	if ((isnormal(f) && !signbit(f)) || f == 0.0) {
 		if (f > INT_MAX) {
 			ts->tv_sec = INT_MAX;
 			ts->tv_nsec = 0;
@@ -656,6 +656,9 @@ static u_error_t u_sigtimedwait(int *_signo, const sigset_t *set, siginfo_t *inf
 			 * signals.
 			 */
 			//raise(signo);
+
+			if (0 != sigwait(set, &signo))
+				return errno;
 
 			if (info) {
 				memset(info, 0, sizeof *info);
