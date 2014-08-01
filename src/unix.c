@@ -2293,6 +2293,97 @@ static const luaL_Reg env_metamethods[] = {
 }; /* env_metamethods[] */
 
 
+/* from ipairsaux in Lua source */
+static int unixL_nextipair(lua_State *L) {
+	int i = luaL_checkint(L, 2);
+	luaL_checktype(L, 1, LUA_TTABLE);
+	lua_pushinteger(L, ++i);
+	lua_rawgeti(L, 1, i);
+	return (lua_isnil(L, -1))? 1 : 2;
+} /* unixL_nextipair() */
+
+
+/* emulate ipairs because missing from Lua 5.1 */
+static void unixL_ipairs(lua_State *L, int index) {
+	if (luaL_getmetafield(L, index, "__ipairs")) {
+		lua_pushvalue(L, index);
+		lua_call(L, 1, 3);
+	} else {
+		lua_pushcfunction(L, &unixL_nextipair);
+		lua_pushvalue(L, index);
+		lua_pushinteger(L, 0);
+	}
+} /* unixL_ipairs() */
+
+#define IPAIRS_BEGIN(L, index) \
+	do { \
+	unixL_ipairs((L), (index)); \
+	for (;;) { \
+		lua_pushvalue(L, -3); /* iterator */ \
+		lua_pushvalue(L, -3); /* table */ \
+		lua_pushvalue(L, -3); /* index */ \
+		lua_call(L, 2, 2); \
+		if (lua_isnil(L, -1)) { \
+			lua_pop(L, 5); \
+			break; \
+		} else { \
+			lua_pushvalue(L, -2); \
+			lua_replace(L, -4); /* update index */ \
+		}
+
+#define IPAIRS_END(L) \
+	lua_pop(L, 2); } } while (0)
+
+#define IPAIRS_STOP(L) if (1) { lua_pop(L, 5); break; }
+
+
+static sigset_t *unixL_tosigset(lua_State *L, int index, sigset_t *buf) {
+	sigset_t tmp, *set;
+
+	if ((set = luaL_testudata(L, index, "sigset_t*")))
+		return set;
+
+	sigemptyset(&tmp);
+
+	if (lua_istable(L, index)) {
+		IPAIRS_BEGIN(L, index);
+		sigaddset(&tmp, luaL_checkint(L, -1));
+		IPAIRS_END(L);
+	} else {
+		static const char *opts[] = { "*", "", NULL };
+
+		switch (luaL_checkoption(L, index, "", opts)) {
+		case 0:
+			sigfillset(&tmp);
+
+			break;
+		default:
+			break;
+		}
+	}
+
+	if (!buf) {
+		buf = lua_newuserdata(L, sizeof *buf);
+		luaL_setmetatable(L, "sigset_t*");
+		lua_replace(L, index);
+	}
+
+	*buf = tmp;
+
+	return buf;
+} /* unixL_tosigset() */
+
+
+static const luaL_Reg sigset_methods[] = {
+	{ NULL, NULL }
+}; /* sigset_methods[] */
+
+
+static const luaL_Reg sigset_metamethods[] = {
+	{ NULL, NULL }
+}; /* sigset_metamethods[] */
+
+
 static int unix_arc4random(lua_State *L) {
 	lua_pushnumber(L, unixL_random(L));
 
@@ -2483,29 +2574,6 @@ static int unix_closedir(lua_State *L) {
 } /* unix_closedir() */
 
 
-/* from ipairsaux in Lua source */
-static int exec_nextipair(lua_State *L) {
-	int i = luaL_checkint(L, 2);
-	luaL_checktype(L, 1, LUA_TTABLE);
-	lua_pushinteger(L, ++i);
-	lua_rawgeti(L, 1, i);
-	return (lua_isnil(L, -1))? 1 : 2;
-} /* exec_nextipair() */
-
-
-/* emulate ipairs because missing from Lua 5.1 */
-static void exec_ipairs(lua_State *L, int index) {
-	if (luaL_getmetafield(L, index, "__ipairs")) {
-		lua_pushvalue(L, index);
-		lua_call(L, 1, 3);
-	} else {
-		lua_pushcfunction(L, &exec_nextipair);
-		lua_pushvalue(L, index);
-		lua_pushinteger(L, 0);
-	}
-} /* exec_ipairs() */
-
-
 static u_error_t exec_addarg(unixL_State *U, size_t *arrp, const char *s) {
 	int error;
 
@@ -2519,34 +2587,23 @@ static u_error_t exec_addarg(unixL_State *U, size_t *arrp, const char *s) {
 
 
 static u_error_t exec_addtable(lua_State *L, unixL_State *U, size_t *arrp, int index, int anchorindex) {
-	size_t i;
-	int error;
+	size_t i = 0;
+	int error = 0;
 
-	exec_ipairs(L, index);
+	IPAIRS_BEGIN(L, index);
 
-	for (i = 1; i < INT_MAX; i++) {
-		lua_pushvalue(L, -3); /* iterator */
-		lua_pushvalue(L, -3); /* table */
-		lua_pushvalue(L, -3); /* index */
+	if (i++ >= INT_MAX)
+		IPAIRS_STOP(L);
 
-		lua_call(L, 2, 2);
+	if ((error = exec_addarg(U, arrp, luaL_checkstring(L, -1))))
+		IPAIRS_STOP(L);
 
-		if (lua_isnil(L, -1)) {
-			lua_pop(L, 1); /* pop value */
+	lua_pushvalue(L, -1);
+	lua_rawseti(L, anchorindex, *arrp); /* anchor value */
 
-			break;
-		} else {
-			if ((error = exec_addarg(U, arrp, luaL_checkstring(L, -1))))
-				return error;
+	IPAIRS_END(L);
 
-			lua_rawseti(L, anchorindex, *arrp); /* anchor value */
-			lua_replace(L, -2); /* update index */
-		}
-	}
-
-	lua_pop(L, 3); /* pop iterator, table, index */
-
-	return 0;
+	return error;
 } /* exec_addtable() */
 
 
@@ -3688,6 +3745,59 @@ static int unix_setuid(lua_State *L) {
 } /* unix_setuid() */
 
 
+static int unix_sigfillset(lua_State *L) {
+	lua_settop(L, 1);
+
+	sigfillset(unixL_tosigset(L, 1, NULL));
+
+	return 1;
+} /* unix_sigfillset() */
+
+
+static int unix_sigemptyset(lua_State *L) {
+	lua_settop(L, 1);
+
+	sigemptyset(unixL_tosigset(L, 1, NULL));
+
+	return 1;
+} /* unix_sigemptyset() */
+
+
+static int unix_sigaddset(lua_State *L) {
+	sigset_t *set = unixL_tosigset(L, 1, NULL);
+	int i;
+
+	for (i = 2; i <= lua_gettop(L); i++)
+		sigaddset(set, luaL_checkint(L, i));
+
+	lua_settop(L, 1);
+
+	return 1;
+} /* unix_sigaddset() */
+
+
+static int unix_sigdelset(lua_State *L) {
+	sigset_t *set = unixL_tosigset(L, 1, NULL);
+	int i;
+
+	for (i = 2; i <= lua_gettop(L); i++)
+		sigdelset(set, luaL_checkint(L, i));
+
+	lua_settop(L, 1);
+
+	return 1;
+} /* unix_sigdelset() */
+
+
+static int unix_sigismember(lua_State *L) {
+	sigset_t tmp;
+
+	lua_pushboolean(L, sigismember(unixL_tosigset(L, 1, &tmp), luaL_checkint(L, 2)));
+
+	return 1;
+} /* unix_sigismember() */
+
+
 static int unix_strerror(lua_State *L) {
 	lua_pushstring(L, unixL_strerror(L, luaL_checkint(L, 1)));
 
@@ -3995,6 +4105,11 @@ static const luaL_Reg unix_routines[] = {
 	{ "setgid",             &unix_setgid },
 	{ "setuid",             &unix_setuid },
 	{ "setsid",             &unix_setsid },
+	{ "sigfillset",         &unix_sigfillset },
+	{ "sigemptyset",        &unix_sigemptyset },
+	{ "sigaddset",          &unix_sigaddset },
+	{ "sigdelset",          &unix_sigdelset },
+	{ "sigismember",        &unix_sigismember },
 	{ "strerror",           &unix_strerror },
 	{ "strsignal",          &unix_strsignal },
 	{ "symlink",            &unix_symlink },
@@ -4380,6 +4495,13 @@ int luaopen_unix(lua_State *L) {
 	 */
 	lua_pushvalue(L, -1);
 	unixL_newmetatable(L, "DIR*", dir_methods, dir_metamethods, 1);
+	lua_pop(L, 1);
+
+	/*
+	 * add sigset_t* class
+	 */
+	lua_pushvalue(L, -1);
+	unixL_newmetatable(L, "sigset_t*", sigset_methods, sigset_metamethods, 1);
 	lua_pop(L, 1);
 
 	/*
