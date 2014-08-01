@@ -2349,6 +2349,8 @@ static sigset_t *unixL_tosigset(lua_State *L, int index, sigset_t *buf) {
 		IPAIRS_BEGIN(L, index);
 		sigaddset(&tmp, luaL_checkint(L, -1));
 		IPAIRS_END(L);
+	} else if (lua_isnumber(L, index)) {
+		sigaddset(&tmp, luaL_checkint(L, index));
 	} else {
 		static const char *opts[] = { "*", "", NULL };
 
