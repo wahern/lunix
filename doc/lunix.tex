@@ -1,3 +1,4 @@
+%:
 \documentclass[11pt, oneside]{memoir}
 
 \usepackage{fullpage}
@@ -21,6 +22,7 @@
 %
 \newcommand*{\lunix}[0]{\texttt{lunix}\xspace}
 \newcommand*{\luaposix}[0]{\texttt{luaposix}\xspace}
+\newcommand*{\cqueues}[0]{\texttt{cqueues}\xspace}
 \newcommand*{\true}[0]{\texttt{true}\xspace}
 \newcommand*{\false}[0]{\texttt{false}\xspace}
 \newcommand*{\nil}[0]{\texttt{nil}\xspace}
@@ -450,6 +452,10 @@ Returns the real process UID as a Lua number.
 
 Returns \true if the process environment is considered unsafe because of setuid, setgid, or similar operations, otherwise \false.
 
+\subsubsection[\fn{kill}]{\fn{kill($pid$, $signo$)}}
+
+Sends signal $signo$ to process or process group $pid$. Returns \true on success, otherwise \false, an error string, and an integer system error.
+
 \subsubsection[\fn{link}]{\fn{link($path1$, $path2$)}}
 
 Creates a new directory entry at $path2$ as a hard link to $path1$.
@@ -473,6 +479,10 @@ Returns \true on success, otherwise \false, an error string, and an integer syst
 Creates a DIR handle for reading directory entries. Caller may specify a path string, a Lua FILE handle, another DIR handle, or an integer descriptor. In the latter three cases, the underlying descriptor is duplicated using \syscall{dup3} (if available) or \syscall{dup2} because there's no safe way to steal the descriptor from existing FILE or DIR handles. But it's not a good idea to mix reads between the two original and duplicated descriptors as they will normally share the same open file entry in the kernel, including the same position cursor.\footnote{In the future may add ability to open /proc/self/fd or /dev/fd entries, which should create a new open file entry.}
 
 Returns a DIR handle on success, otherwise nil, an error string, and an integer system error.
+
+\subsubsection[\fn{raise}]{\fn{raise($signo$)}}
+
+Sends signal $signo$ to calling thread. Returns \true on success, otherwise \false, an error string, and an integer system error.
 
 \subsubsection[\fn{readdir}]{\fn{readdir($dir$[, $field$ $\ldots$])}}
 
@@ -590,6 +600,44 @@ Returns the new process group ID on success, otherwise \nil, an error string, an
 Set the real process UID to $uid$. $uid$ must be an integer or symbolic user name.
 
 Returns \true on success, otherwise \false, an error string, and an integer system error.
+
+\subsubsection[\fn{sigfillset}]{\fn{sigfillset([$set$])}}
+
+Returns a sigset\_t userdata object with all bits filled. If $set$ is specified should be an existing
+sigset\_t userdata object to reuse.
+
+\subsubsection[\fn{sigemptyset}]{\fn{sigemptyset([$set$])}}
+
+Returns a sigset\_t userdata object with all bits cleared. If $set$ is specified should be an existing
+sigset\_t userdata object to reuse.
+
+\subsubsection[\fn{sigaddset}]{\fn{sigaddset($set$[, $signo$ $\ldots$])}}
+
+Returns a sigset\_t userdata object with the specified signals set. If $set$ is not a sigset\_t object, a new, empty sigset\_t is instantiated and initialized according to whether $set$ is \nil, an integer signal number, an array of integer signal numbers, or the string ``*'' (filled) or ``'' (empty). If specified, $signo$ and additional arguments should be integer signal numbers to be added to the sigset\_t object.
+
+\subsubsection[\fn{sigdelset}]{\fn{sigdelset($set$[, $signo$ $\ldots$])}}
+
+Like \fn{sigaddset}, but $signo$ and subsequent integer signal numbers are cleared from the sigset\_t object.
+
+\subsubsection[\fn{sigismember}]{\fn{sigismember($set$, $signo$)}}
+
+Returns \true if $signo$ is a member of sigset\_t $set$, otherwise false.
+
+\subsubsection[\fn{sigprocmask}]{\fn{sigprocmask([$how$, $set$[, $oset$]])}}
+
+If $how$ and $set$ are defined, sets the signal mask of the current process or thread. $how$ should be one of \texttt{SIG\_BLOCK}, \texttt{SIG\_UNBLOCK}, or \texttt{SIG\_SETMASK}. $set$ should be a sigset\_t userdata object, or a number, string, or array suitable for initializing a sigset\_t object as discussed in \fn{sigaddset}.
+
+Returns the old mask as a sigset\_t userdata object on success, otherwise \nil, an error string, and an integer system error. $oset$ is an optional sigset\_t userdata object to be reused as the return value, and is first cleared before passing to the system call.
+
+\emph{Whether the process or thread mask is set is implementation defined, and varies across platforms. Threaded applications should use \syscall{pthread\_sigmask}, which is guaranteed to set the mask of the current thread.\footnote{Use of \syscall{pthread\_sigmask} requires linking with --lpthread on some platforms and for this reason is presently not supported by \lunix.} Unfortunately, there is no interface which is guaranteed to only set the process mask. New threads inherit the mask of the creating thread, so standard practice is typically to block everything in the main thread while creating new threads.}
+
+\subsubsection[\fn{sigtimedwait}]{\fn{sigtimedwait($set$[, $timeout$])}}
+
+Atomically clears any pending signal specified in $set$ from the pending set of the process \emph{and} thread. If none are pending, waits for $timeout$ seconds, or indefinitely if $timeout$ is not specified. Fractional seconds are supported.
+
+On success returns an integer signal number cleared from the pending set and an array representing the members of the siginfo\_t structure (without the ``si\_'' prefix).\footnote{Currently only the .si\_signo member is copied from siginfo\_t.} On error returns \nil, an error string, and an integer system error. If $timeout$ is specified and no signal was cleared before the timeout, the system error will be \texttt{ETIMEDOUT}.
+
+\emph{OS X and OpenBSD lack a native \syscall{sigtimedwait} implementation. On these platforms \lunix uses \syscall{sigpending} and \syscall{sigwait} to emulate the behavior. However, in a multi--threaded application if another thread clears a signal between \syscall{sigpending} and \syscall{sigwait} then \syscall{sigwait} could block indefinitely. There's no way to solve this race condition.\footnote{One possible solution is to explicitly \syscall{raise} the signal before calling \syscall{sigpending}, but this solutions relies on untested assumptions about signal handling on these platforms.} Threaded applications on these platforms should be mindful of this limitation. The \cqueues project supports signal listening with \syscall{kqueue} on both OpenBSD and Mac OS X.}
 
 \subsubsection[\fn{symlink}]{\fn{symlink($path1$, $path2$)}}
 
