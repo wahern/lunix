@@ -1449,7 +1449,7 @@ static uint32_t unixL_random(lua_State *L NOTUSED) {
  * Thread-safety of strsignal(3) varies.
  *
  * 	    Solaris : safe; static buffer; not localized on 12.1;
- * 	              NULL for bad signo
+ * 	              returns NULL on bad signo
  * 	Linux/glibc : safe'ish since 1998; TLS buffer for bad signo;
  * 	              gettext for good signo (is gettext thread-safe?)
  * 	    FreeBSD : safe since 8.1; TLS buffer
@@ -1457,7 +1457,7 @@ static uint32_t unixL_random(lua_State *L NOTUSED) {
  * 	    OpenBSD : not safe as of 5.6; static buffer
  * 	       OS X : safe on 10.9.4; TLS buffer
  * 	        AIX : safe; static buffer; not localized on AIX 7.1;
- * 	              NULL for bad signo
+ * 	              segfaults on bad signo
  *
  * Use of sys_siglist isn't necessarily thread-safe either, but
  * implementations would have to work hard to make it unsafe.
@@ -1471,7 +1471,8 @@ static const char *unixL_strsignal(lua_State *L, int signo) {
 	unixL_State *U;
 
 #if __sun || GLIBC_PREREQ(0,0) || FREEBSD_PREREQ(8,1) || defined __APPLE__ || defined _AIX
-	if ((info = strsignal(signo)))
+	/* AIX strsignal(3) cannot handle bad signo */
+	if (signo >= 0 && signo < NSIG && (info = strsignal(signo)))
 		return info;
 #else
 	if (signo >= 0 && signo < NSIG && (info = sys_siglist[signo]))
@@ -4330,6 +4331,7 @@ static const struct unix_const const_signal[] = {
 	UNIX_CONST(SIGTSTP), UNIX_CONST(SIGTTIN), UNIX_CONST(SIGTTOU),
 	UNIX_CONST(SIGUSR1), UNIX_CONST(SIGUSR2), UNIX_CONST(SIGTRAP),
 	UNIX_CONST(SIGURG), UNIX_CONST(SIGXCPU), UNIX_CONST(SIGXFSZ),
+	UNIX_CONST(NSIG),
 }; /* const_signal[] */
 
 
