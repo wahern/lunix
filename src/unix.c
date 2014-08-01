@@ -687,6 +687,37 @@ static u_error_t u_sigtimedwait(int *_signo, const sigset_t *set, siginfo_t *inf
 
 
 /*
+ * We define _GNU_SOURCE on Linux because we don't want a strict POSIX
+ * environment. But _GNU_SOURCE causes the GNU strerror_r interface to be
+ * exposed rather than the POSIX-compliant interface.
+ */
+static u_error_t u_strerror_r(int error, char *dst, size_t lim) {
+#if GLIBC_PREREQ(0,0) && defined _GNU_SOURCE
+	char *src;
+
+	if (!(src = strerror_r(error, dst, lim)))
+		return EINVAL;
+
+	if (src != dst && lim > 0) {
+		size_t n = strnlen(src, lim - 1);
+		memcpy(dst, src, n);
+		dst[n] = '\0';
+	}
+
+	return 0;
+#else
+	int error;
+
+	/* glibc between 2.3.4 and 2.13 returns -1 on error */
+	if (-1 == (error = strerror_r(error, U->errmsg, sizeof U->errmsg)))
+		return errno;
+	else
+		return error;
+#endif
+} /* u_strerror_r() */
+
+
+/*
  * T H R E A D - S A F E  I / O  O P E R A T I O N S
  *
  * Principally we're concerned with atomically setting the
@@ -1618,7 +1649,7 @@ static const char *unixL_strsignal(lua_State *L, int signo) {
 
 
 static const char *unixL_strerror3(lua_State *L, unixL_State *U, int error) {
-	if (0 != strerror_r(error, U->errmsg, sizeof U->errmsg) || U->errmsg[0] == '\0') {
+	if (0 != u_strerror_r(error, U->errmsg, sizeof U->errmsg) || U->errmsg[0] == '\0') {
 		if (0 > snprintf(U->errmsg, sizeof U->errmsg, "%s: %d", ((error)? "Unknown error" : "Undefined error"), error))
 			luaL_error(L, "snprintf failure");
 	}
