@@ -1,6 +1,8 @@
 lua-unix (20140731-0) unstable; urgency=low
 
-  * Add strsignal.
+  * Add strsignal, sigprocmask, sigtimedwait, kill, raise, and sigset_t
+    bindings.
+  * Fix strerror_r usage on glibc with _GNU_SOURCE defined.
 
  -- William Ahern <william@25thandClement.com>  Thu, 31 Jul 2014 18:27:01 -0700
 
