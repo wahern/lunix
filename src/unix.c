@@ -2259,7 +2259,8 @@ static int unixL_optfileno(lua_State *L, int index, int def) {
 		return fd;
 	}
 
-	if (lua_isnumber(L, index)) {
+	/* bindings like chdir accept string paths, so don't coerce */
+	if (lua_type(L, index) == LUA_TNUMBER) {
 		fd = lua_tointeger(L, index);
 
 		if (fd < 0)
