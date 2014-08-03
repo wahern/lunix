@@ -741,8 +741,8 @@ static u_error_t u_sigtimedwait(int *_signo, const sigset_t *set, siginfo_t *_in
 			 */
 			//raise(signo);
 
-			if (0 != sigwait(set, &signo))
-				return errno;
+			if ((error = sigwait(set, &signo)))
+				return error;
 
 			if (_info) {
 				memset(_info, 0, sizeof *_info);
