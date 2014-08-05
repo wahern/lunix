@@ -40,7 +40,7 @@
 #include <sys/wait.h>     /* WNOHANG waitpid(2) */
 #include <sys/ioctl.h>    /* SIOCGIFCONF SIOCGIFFLAGS SIOCGIFNETMASK SIOCGIFDSTADDR SIOCGIFBRDADDR SIOCGLIFADDR ioctl(2) */
 #include <net/if.h>       /* IF_NAMESIZE struct ifconf struct ifreq */
-#include <unistd.h>       /* _PC_NAME_MAX chdir(2) chroot(2) close(2) chdir(2) chown(2) chroot(2) dup2(2) execve(2) execl(2) execlp(2) execvp(2) fork(2) fpathconf(3) getegid(2) geteuid(2) getgid(2) getpid(2) getppid(2) getuid(2) issetugid(2) link(2) rename(2) rmdir(2) setegid(2) seteuid(2) setgid(2) setuid(2) setsid(2) symlink(2) truncate(2) umask(2) unlink(2) */
+#include <unistd.h>       /* _PC_NAME_MAX chdir(2) chroot(2) close(2) chdir(2) chown(2) chroot(2) dup2(2) execve(2) execl(2) execlp(2) execvp(2) fork(2) fpathconf(3) getegid(2) geteuid(2) getgid(2) gethostname(3) getpid(2) getppid(2) getuid(2) issetugid(2) lchown(2) link(2) pread(2) pwrite(2) rename(2) rmdir(2) setegid(2) seteuid(2) setgid(2) setuid(2) setsid(2) symlink(2) truncate(2) umask(2) unlink(2) */
 #include <fcntl.h>        /* F_DUPFD_CLOEXEC F_GETFD F_GETLK F_SETLK F_SETLKW F_SETFD FD_CLOEXEC fcntl(2) open(2) */
 #include <pwd.h>          /* struct passwd getpwnam_r(3) */
 #include <grp.h>          /* struct group getgrnam_r(3) */
@@ -352,6 +352,7 @@ static size_t u_power2(size_t i) {
 
 #define u_error_t int
 
+/* this function will always grow the array even if minsiz < *size */
 static u_error_t u_realloc(char **buf, size_t *size, size_t minsiz) {
 	void *tmp;
 	size_t tmpsiz;
@@ -363,7 +364,7 @@ static u_error_t u_realloc(char **buf, size_t *size, size_t minsiz) {
 		tmpsiz = (size_t)-1;
 	} else {
 		tmpsiz = u_power2(*size + 1);
-		tmpsiz = MIN(tmpsiz, minsiz);
+		tmpsiz = MAX(tmpsiz, minsiz);
 	}
 
 	if (!(tmp = realloc(*buf, tmpsiz)))
@@ -1571,7 +1572,10 @@ static int unixL_newmetatable(lua_State *L, const char *name, const luaL_Reg *me
 typedef struct unixL_State {
 	int error; /* errno value from last failed syscall */
 
-	char errmsg[MIN(NL_TEXTMAX, 256)]; /* NL_TEXTMAX == INT_MAX for glibc */
+	char text[MIN(NL_TEXTMAX, 256)]; /* NL_TEXTMAX == INT_MAX for glibc */
+
+	char *buf;
+	size_t bufsiz;
 
 	struct {
 		struct passwd ent;
@@ -1595,11 +1599,6 @@ typedef struct unixL_State {
 		struct dirent *ent;
 		size_t bufsiz;
 	} dir;
-
-	struct {
-		char *buf;
-		size_t bufsiz;
-	} env;
 
 	struct {
 		char **arr;
@@ -1653,10 +1652,6 @@ static void unixL_destroy(unixL_State *U) {
 	U->exec.arr = NULL;
 	U->exec.arrsiz = 0;
 
-	free(U->env.buf);
-	U->env.buf = NULL;
-	U->env.bufsiz = 0;
-
 	free(U->dir.ent);
 	U->dir.ent = NULL;
 	U->dir.bufsiz = 0;
@@ -1672,6 +1667,10 @@ static void unixL_destroy(unixL_State *U) {
 
 	u_close(&U->ts.fd[0]);
 	u_close(&U->ts.fd[1]);
+
+	free(U->buf);
+	U->buf = NULL;
+	U->bufsiz = 0;
 } /* unixL_destroy() */
 
 
@@ -1727,20 +1726,20 @@ static const char *unixL_strsignal(lua_State *L, int signo) {
 
 	U = unixL_getstate(L);
 
-	if (0 > snprintf(U->errmsg, sizeof U->errmsg, "Unknown signal: %d", signo))
+	if (0 > snprintf(U->text, sizeof U->text, "Unknown signal: %d", signo))
 		luaL_error(L, "snprintf failure");
 
-	return U->errmsg;
+	return U->text;
 } /* unixL_strsignal() */
 
 
 static const char *unixL_strerror3(lua_State *L, unixL_State *U, int error) {
-	if (0 != u_strerror_r(error, U->errmsg, sizeof U->errmsg) || U->errmsg[0] == '\0') {
-		if (0 > snprintf(U->errmsg, sizeof U->errmsg, "%s: %d", ((error)? "Unknown error" : "Undefined error"), error))
+	if (0 != u_strerror_r(error, U->text, sizeof U->text) || U->text[0] == '\0') {
+		if (0 > snprintf(U->text, sizeof U->text, "%s: %d", ((error)? "Unknown error" : "Undefined error"), error))
 			luaL_error(L, "snprintf failure");
 	}
 
-	return U->errmsg;
+	return U->text;
 } /* unixL_strerror3() */
 
 
@@ -1751,20 +1750,26 @@ static const char *unixL_strerror(lua_State *L, int error) {
 } /* unixL_strerror() */
 
 
-#define unixL_pushinteger(L, i) do { \
-	if (sizeof (lua_Integer) >= sizeof (i)) \
-		lua_pushinteger((L), (i)); \
-	else \
-		lua_pushnumber((L), (i)); \
-} while (0)
+/* assumes two's-complement, no padding bits, and sizeof lua_Integer <= sizeof (long long) */
+#define unixL_IntegerMax ((1ULL << (sizeof (lua_Integer) * 8 - 1)) - 1)
+#define unixL_IntegerMin (-unixL_IntegerMax - 1)
+
+static void unixL_pushinteger(lua_State *L, long long i) {
+	if (sizeof (lua_Integer) >= sizeof (i))
+		lua_pushinteger(L, i);
+	else
+		lua_pushnumber(L, i);
+} /* unixL_pushinteger() */
 
 
-#define unixL_pushunsigned(L, i) do { \
-	if (sizeof (lua_Integer) > sizeof (i)) \
-		lua_pushinteger((L), (i)); \
-	else \
-		lua_pushnumber((L), (i)); \
-} while (0)
+static void unixL_pushunsigned(lua_State *L, unsigned long long i) {
+	if (i <= unixL_IntegerMax)
+		lua_pushinteger(L, i);
+	else if (i == (unsigned long long)(lua_Number)i)
+		lua_pushnumber(L, i);
+	else
+		luaL_error(L, "unsigned integer value not representable as lua_Number");
+} /* unixL_pushunsigned() */
 
 
 static int unixL_pusherror(lua_State *L, int error, const char *fun NOTUSED, const char *fmt) {
@@ -2282,6 +2287,32 @@ static int unixL_checkfileno(lua_State *L, int index) {
 } /* unixL_checkfileno() */
 
 
+static size_t unixL_checksize(lua_State *L, int index) {
+	if (sizeof (lua_Integer) >= sizeof (size_t)) {
+		lua_Integer size = luaL_checkinteger(L, 1);
+
+		luaL_argcheck(L, size >= 0, index, "unable to convert value to size_t");
+
+		/* TODO: check that our lua_Integer value fits size_t */
+
+		return size;
+	} else {
+		lua_Number size = luaL_checknumber(L, index);
+
+		luaL_argcheck(L, size == 0.0 || (isnormal(size) && !signbit(size)), index, "unable to convert value to size_t");
+
+		/* TODO: check that our lua_Number value fits size_t */
+
+		return size;
+	}
+} /* unixL_checksize() */
+
+
+static void unixL_pushsize(lua_State *L, size_t size) {
+	unixL_pushunsigned(L, size);
+} /* unixL_pushsize() */
+
+
 static int unixL_optfint(lua_State *L, int index, const char *name, int def) {
 	int i;
 
@@ -2546,16 +2577,16 @@ static int env_getitr(lua_State *L, int ipairs) {
 	/* take snapshot of environ */
 	for (; ep && *ep; ep++) {
 		for (cp = *ep; *cp; cp++) {
-			if ((error = u_appendc(&U->env.buf, &U->env.bufsiz, &p, *cp)))
+			if ((error = u_appendc(&U->buf, &U->bufsiz, &p, *cp)))
 				return luaL_error(L, "%s", unixL_strerror(L, error));
 		}
 
-		if ((error = u_appendc(&U->env.buf, &U->env.bufsiz, &p, '\0')))
+		if ((error = u_appendc(&U->buf, &U->bufsiz, &p, '\0')))
 			return luaL_error(L, "%s", unixL_strerror(L, error));
 	}
 
 	lua_pushvalue(L, lua_upvalueindex(1));
-	lua_pushlstring(L, U->env.buf, p);
+	lua_pushlstring(L, U->buf, p);
 	lua_pushinteger(L, 0);
 	lua_pushcclosure(L, (ipairs)? &env_nextipair : &env_nextpair, 3);
 
@@ -3344,6 +3375,22 @@ static int unix_getgrnam(lua_State *L) {
 } /* unix_getgrnam() */
 
 
+static int unix_gethostname(lua_State *L) {
+	luaL_Buffer B;
+	char *host;
+
+	luaL_buffinit(L, &B);
+
+	if (0 != gethostname((host = luaL_prepbuffer(&B)), LUAL_BUFFERSIZE))
+		return unixL_pusherror(L, errno, "gethostname", "~$#");
+
+	luaL_addsize(&B, strlen(host));
+	luaL_pushresult(&B);
+
+	return 1;
+} /* unix_gethostname() */
+
+
 enum ifs_field {
 	IF_NAME,
 	IF_FLAGS,
@@ -3746,6 +3793,29 @@ MAYBEUSED static int unix_issetugid(lua_State *L) {
 } /* unix_issetugid() */
 
 
+static int unix_kill(lua_State *L) {
+	if (0 != kill(luaL_checkint(L, 1), luaL_checkint(L, 2)))
+		return unixL_pusherror(L, errno, "kill", "0$#");
+
+	lua_pushboolean(L, 1);
+
+	return 1;
+} /* unix_kill() */
+
+
+static int unix_lchown(lua_State *L) {
+	uid_t uid = unixL_optuid(L, 2, -1);
+	gid_t gid = unixL_optgid(L, 3, -1);
+
+	if (0 != lchown(luaL_checkstring(L, 1), uid, gid))
+		return unixL_pusherror(L, errno, "lchown", "0$#");
+
+	lua_pushboolean(L, 1);
+
+	return 1;
+} /* unix_lchown() */
+
+
 static int unix_link(lua_State *L) {
 	const char *src = luaL_checkstring(L, 1);
 	const char *dst = luaL_checkstring(L, 2);
@@ -3757,16 +3827,6 @@ static int unix_link(lua_State *L) {
 
 	return 1;
 } /* unix_link() */
-
-
-static int unix_kill(lua_State *L) {
-	if (0 != kill(luaL_checkint(L, 1), luaL_checkint(L, 2)))
-		return unixL_pusherror(L, errno, "kill", "0$#");
-
-	lua_pushboolean(L, 1);
-
-	return 1;
-} /* unix_kill() */
 
 
 /*
@@ -4072,6 +4132,42 @@ error:
 } /* unix_opendir() */
 
 
+static int unix_pread(lua_State *L) {
+	unixL_State *U = unixL_getstate(L);
+	int fd = unixL_checkfileno(L, 1);
+	size_t size = unixL_checksize(L, 2);
+	size_t offset = unixL_checksize(L, 3);
+	ssize_t n;
+	int error;
+
+	if (U->bufsiz < size && ((error = u_realloc(&U->buf, &U->bufsiz, size))))
+		return unixL_pusherror(L, error, "pread", "~$#");
+
+	if (-1 == (n = pread(fd, U->buf, size, offset)))
+		return unixL_pusherror(L, errno, "pread", "~$#");
+
+	lua_pushlstring(L, U->buf, n);
+
+	return 1;
+} /* unix_pread() */
+
+
+static int unix_pwrite(lua_State *L) {
+	int fd = unixL_checkfileno(L, 1);
+	size_t size;
+	const char *src = luaL_checklstring(L, 2, &size);
+	size_t offset = unixL_checksize(L, 3);
+	ssize_t n;
+
+	if (-1 == (n = pwrite(fd, src, size, offset)))
+		return unixL_pusherror(L, errno, "pwrite", "~$#");
+
+	unixL_pushsize(L, n);
+
+	return 1;
+} /* unix_pwrite() */
+
+
 static int unix_raise(lua_State *L) {
 	if (0 != raise(luaL_checkint(L, 1)))
 		return unixL_pusherror(L, errno, "raise", "0$#");
@@ -4080,6 +4176,25 @@ static int unix_raise(lua_State *L) {
 
 	return 1;
 } /* unix_raise() */
+
+
+static int unix_read(lua_State *L) {
+	unixL_State *U = unixL_getstate(L);
+	int fd = unixL_checkfileno(L, 1);
+	size_t size = unixL_checksize(L, 2);
+	ssize_t n;
+	int error;
+
+	if (U->bufsiz < size && ((error = u_realloc(&U->buf, &U->bufsiz, size))))
+		return unixL_pusherror(L, error, "read", "~$#");
+
+	if (-1 == (n = read(fd, U->buf, size)))
+		return unixL_pusherror(L, errno, "read", "~$#");
+
+	lua_pushlstring(L, U->buf, n);
+
+	return 1;
+} /* unix_read() */
 
 
 static int unix_readdir(lua_State *L) {
@@ -4574,6 +4689,21 @@ static int unix_waitpid(lua_State *L) {
 } /* unix_waitpid() */
 
 
+static int unix_write(lua_State *L) {
+	int fd = unixL_checkfileno(L, 1);
+	size_t size;
+	const char *src = luaL_checklstring(L, 2, &size);
+	ssize_t n;
+
+	if (-1 == (n = write(fd, src, size)))
+		return unixL_pusherror(L, errno, "write", "~$#");
+
+	unixL_pushsize(L, n);
+
+	return 1;
+} /* unix_write() */
+
+
 static int unix__gc(lua_State *L) {
 	unixL_destroy(lua_touserdata(L, 1));
 
@@ -4609,6 +4739,7 @@ static const luaL_Reg unix_routines[] = {
 	{ "getgid",             &unix_getgid },
 	{ "getgrnam",           &unix_getgrnam },
 	{ "getgrgid",           &unix_getgrnam },
+	{ "gethostname",        &unix_gethostname },
 	{ "getifaddrs",         &unix_getifaddrs },
 	{ "getpid",             &unix_getpid },
 	{ "getppid",            &unix_getppid },
@@ -4618,11 +4749,15 @@ static const luaL_Reg unix_routines[] = {
 	{ "getuid",             &unix_getuid },
 	{ "issetugid",          &unix_issetugid },
 	{ "kill",               &unix_kill },
+	{ "lchown",             &unix_lchown },
 	{ "link",               &unix_link },
 	{ "mkdir",              &unix_mkdir },
 	{ "mkpath",             &unix_mkpath },
 	{ "opendir",            &unix_opendir },
+	{ "pread",              &unix_pread },
+	{ "pwrite",             &unix_pwrite },
 	{ "raise",              &unix_raise },
+	{ "read",               &unix_read },
 	{ "readdir",            &unix_readdir },
 	{ "rename",             &unix_rename },
 	{ "rewinddir",          &unix_rewinddir },
@@ -4659,6 +4794,7 @@ static const luaL_Reg unix_routines[] = {
 	{ "unsetenv",           &unix_unsetenv },
 	{ "wait",               &unix_wait },
 	{ "waitpid",            &unix_waitpid },
+	{ "write",              &unix_write },
 	{ NULL,                 NULL }
 }; /* unix_routines[] */
 
