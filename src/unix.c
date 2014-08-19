@@ -2859,6 +2859,21 @@ static int unix_clock_gettime(lua_State *L) {
 
 		break;
 	case U_CLOCK_MONOTONIC:
+		/*
+		 * TODO: Use clock_get_time on ARM if TSC is not invariant.
+		 *
+		 * NOTE: mach_absolute_time uses the CPU TSC. On some
+		 * architectures the TSC is not invariant across cores or
+		 * across processor packages. It might be better to use
+		 * Mach's clock_get_time+SYSTEM_CLOCK.
+		 *
+		 * See http://stackoverflow.com/questions/11680461/monotonic-clock-on-osx
+		 *
+		 * On all modern x86 platforms and in particular all Intel
+		 * x86 platforms that Apple ships the TSC is invariant
+		 * across both cores and packages, and has been for several
+		 * generations.
+		 */
 		abt = mach_absolute_time();
 		abt = abt * U->timebase.numer / U->timebase.denom;
 
