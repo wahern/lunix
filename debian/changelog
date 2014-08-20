@@ -1,3 +1,11 @@
+lua-unix (20140819-0) unstable; urgency=low
+
+  * Add flockfile, ftrylockfile, funlockfile, getppid, fcntl, gethostname,
+    lchown, pread, pwrite, read, write.
+  * Fix Debian dh_lua build to link with -lrt.
+
+ -- William Ahern <william@25thandClement.com>  Tue, 19 Aug 2014 21:03:45 -0700
+
 lua-unix (20140801-0) unstable; urgency=low
 
   * Fix sigtimedwait emulation on OS X and OpenBSD.
