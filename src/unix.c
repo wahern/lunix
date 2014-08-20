@@ -147,11 +147,11 @@
 #endif
 
 #ifndef HAVE_NETINET_IN6_VAR_H
-#define HAVE_NETINET_IN6_VAR_H defined _AIX
+#define HAVE_NETINET_IN6_VAR_H (defined _AIX)
 #endif
 
 #ifndef HAVE_NETINET6_IN6_VAR_H
-#define HAVE_NETINET6_IN6_VAR_H defined __KAME__
+#define HAVE_NETINET6_IN6_VAR_H (defined __KAME__)
 #endif
 
 #ifndef HAVE_GETENV_R
