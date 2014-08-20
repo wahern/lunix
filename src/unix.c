@@ -55,6 +55,10 @@
 #endif
 
 #if __APPLE__
+#if USE_CLOCK_GET_TIME
+#include <mach/mach.h>    /* MACH_PORT_NULL KERN_SUCCESS host_name_port_t mach_host_self() mach_task_self() mach_port_deallocate() */
+#include <mach/clock.h>   /* SYSTEM_CLOCK clock_serv_t host_get_block_service() clock_get_time() */
+#endif
 #include <mach/mach_time.h> /* mach_timebase_info() mach_absolute_time() */
 #endif
 
@@ -1610,7 +1614,14 @@ typedef struct unixL_State {
 #endif
 
 #if __APPLE__
-	mach_timebase_info_data_t timebase;
+	struct {
+#if USE_CLOCK_GET_TIME
+		host_name_port_t host;
+		clock_serv_t clock;
+#else
+		mach_timebase_info_data_t timebase;
+#endif
+	} tm;
 #endif
 } unixL_State;
 
@@ -1618,6 +1629,9 @@ static const unixL_State unixL_initializer = {
 	.ts = { { -1, -1 } },
 #if !HAVE_ARC4RANDOM
 	.random = UNIXL_RANDOM_INITIALIZER,
+#endif
+#if USE_CLOCK_GET_TIME
+	.tm = { MACH_PORT_NULL, MACH_PORT_NULL },
 #endif
 };
 
@@ -1635,8 +1649,16 @@ static int unixL_init(unixL_State *U) {
 #endif
 
 #if __APPLE__
-	if (KERN_SUCCESS != mach_timebase_info(&U->timebase))
-		return (errno)? errno : ENOTSUP;
+#if USE_CLOCK_GET_TIME
+	if (MACH_PORT_NULL == (U->tm.host = mach_host_self()))
+		return EMFILE; /* unable to allocate port */
+
+	if (KERN_SUCCESS != host_get_clock_service(U->tm.host, SYSTEM_CLOCK, &U->tm.clock))
+		return ENOTSUP;
+#else
+	if (KERN_SUCCESS != mach_timebase_info(&U->tm.timebase))
+		return ENOTSUP;
+#endif
 #endif
 
 	return 0;
@@ -1644,6 +1666,19 @@ static int unixL_init(unixL_State *U) {
 
 
 static void unixL_destroy(unixL_State *U) {
+#if USE_CLOCK_GET_TIME
+	/* NOTE: no need to deallocate mach_task_self() port */
+	if (MACH_PORT_NULL != U->tm.clock) {
+		mach_port_deallocate(mach_task_self(), U->tm.clock);
+		U->tm.clock = MACH_PORT_NULL;
+	}
+
+	if (MACH_PORT_NULL != U->tm.host) {
+		mach_port_deallocate(mach_task_self(), U->tm.host);
+		U->tm.host = MACH_PORT_NULL;
+	}
+#endif
+
 #if !HAVE_ARC4RANDOM
 	arc4_destroy(&U->random);
 #endif
@@ -2848,7 +2883,11 @@ static int unix_clock_gettime(lua_State *L) {
 	int id = unixL_optclockid(L, 1, U_CLOCK_REALTIME);
 	struct timeval tv;
 	struct timespec ts;
+#if USE_CLOCK_GET_TIME
+	mach_timespec_t abt;
+#else
 	uint64_t abt;
+#endif
 
 	switch (id) {
 	case U_CLOCK_REALTIME:
@@ -2859,27 +2898,55 @@ static int unix_clock_gettime(lua_State *L) {
 
 		break;
 	case U_CLOCK_MONOTONIC:
+#if USE_CLOCK_GET_TIME
+		if (KERN_SUCCESS != clock_get_time(U->tm.clock, &abt))
+			return unixL_pusherror(L, ENOTSUP, "clock_gettime", "~$#");
+
+		ts.tv_sec = abt.tv_sec;
+		ts.tv_nsec = abt.tv_nsec;
+#else
 		/*
-		 * TODO: Use clock_get_time on ARM if TSC is not invariant.
+		 * NOTE: On some platforms mach_absolute_time uses the CPU
+		 * TSC, on some architectures the TSC is not invariant
+		 * across cores or processor packages, and Apple does not
+		 * document that mach_absolute_time will account for such
+		 * invariance. By contrast, Linux clock_gettime() will use
+		 * the TSC as an optimization but still guarantees monotonic
+		 * behavior even when the TSC is not invariant.
 		 *
-		 * NOTE: mach_absolute_time uses the CPU TSC. On some
-		 * architectures the TSC is not invariant across cores or
-		 * across processor packages. It might be better to use
-		 * Mach's clock_get_time+SYSTEM_CLOCK.
+		 * If mach_absolute_time isn't invariant then clock_get_time
+		 * should be used. However, clock_get_time isn't used by
+		 * default because
 		 *
-		 * See http://stackoverflow.com/questions/11680461/monotonic-clock-on-osx
+		 * 1) clock_get_time is ~15x slower than mach_absolute_time
+		 * on x86;
 		 *
-		 * On all modern x86 platforms and in particular all Intel
-		 * x86 platforms that Apple ships the TSC is invariant
-		 * across both cores and packages, and has been for several
-		 * generations.
+		 * 2) on all x86 platforms that Apple ships the TSC is
+		 * invariant across both cores and packages, has been
+		 * invariant for several generations, and will continue to
+		 * be invariant in the future according to Intel;
+		 *
+		 * 3) on some platforms mach_absolute_time appears to be
+		 * implemented as a read of a Mach commpage (shared data
+		 * between userspace and kernel), which is probably updated
+		 * by an HPET, in which case it would be simple to make the
+		 * timestamp monotonic.
+		 *
+		 * In other words, mach_absolute_time is and probably will
+		 * continue to be invariant across cores and packages,
+		 * notwithstanding that it might use a CPU TSC.
+		 *
+		 * NOTE: While monotonic, mach_absolute_time is not steady,
+		 * according to my Google research. If the device enters a
+		 * sleep mode than the kernel does not seem to jump
+		 * mach_absolute_time forward.
 		 */
 		abt = mach_absolute_time();
-		abt = abt * U->timebase.numer / U->timebase.denom;
+		abt = abt * U->tm.timebase.numer / U->tm.timebase.denom;
 
 		ts.tv_sec = abt / 1000000000L;
 		ts.tv_nsec = abt % 1000000000L;
-
+#endif
 		break;
 	default:
 		return luaL_argerror(L, 1, "invalid clock");
