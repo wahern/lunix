@@ -3279,6 +3279,15 @@ error:
 } /* unix_fcntl() */
 
 
+static int unix_fileno(lua_State *L) {
+	int fd = unixL_checkfileno(L, 1);
+
+	lua_pushinteger(L, fd);
+
+	return 1;
+} /* unix_fileno() */
+
+
 static int unix_flockfile(lua_State *L) {
 	flockfile(unixL_checkfile(L, 1));
 
@@ -4810,6 +4819,7 @@ static const luaL_Reg unix_routines[] = {
 	{ "_exit",              &unix__exit },
 	{ "exit",               &unix_exit },
 	{ "fcntl",              &unix_fcntl },
+	{ "fileno",             &unix_fileno },
 	{ "flockfile",          &unix_flockfile },
 	{ "ftrylockfile",       &unix_ftrylockfile },
 	{ "funlockfile",        &unix_funlockfile },
