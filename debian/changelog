@@ -1,8 +1,8 @@
-lua-unix (20141017-0) unstable; urgency=low
+lua-unix (20141017-1) unstable; urgency=low
 
-  * Add fileno.
+  * Add fileno, dup2.
 
- -- William Ahern <william@25thandClement.com>  Fri, 17 Oct 2014 17:16:21 -0700
+ -- William Ahern <william@25thandClement.com>  Fri, 17 Oct 2014 19:21:17 -0700
 
 lua-unix (20140819-0) unstable; urgency=low
 

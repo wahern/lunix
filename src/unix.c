@@ -2979,6 +2979,19 @@ static int unix_closedir(lua_State *L) {
 } /* unix_closedir() */
 
 
+static int unix_dup2(lua_State *L) {
+	int ofd = unixL_checkfileno(L, 1);
+	int nfd = unixL_checkfileno(L, 2);
+
+	if (-1 == dup2(ofd, nfd))
+		return unixL_pusherror(L, errno, "dup2", "~$#");
+
+	lua_pushinteger(L, nfd);
+
+	return 1;
+} /* unix_dup2() */
+
+
 static u_error_t exec_addarg(unixL_State *U, size_t *arrp, const char *s) {
 	int error;
 
@@ -4812,6 +4825,7 @@ static const luaL_Reg unix_routines[] = {
 	{ "chroot",             &unix_chroot },
 	{ "clock_gettime",      &unix_clock_gettime },
 	{ "closedir",           &unix_closedir },
+	{ "dup2",               &unix_dup2 },
 	{ "execve",             &unix_execve },
 	{ "execl",              &unix_execl },
 	{ "execlp",             &unix_execlp },
