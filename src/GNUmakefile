@@ -42,13 +42,14 @@ LDFLAGS_$(d) += -lm
 define BUILD_$(d)
 
 $$(d)/$(1)/%.so: $$(d)/%.c
-	test "$$(notdir $$(@D))" = "$$(call LUAPATH_$$(<D), $$(notdir $$(@D)), version)"
+	@test '$$(notdir $$(@D))' = '$$(call LUAPATH_$$(<D), $$(notdir $$(@D)), version)' \
+	|| (printf '%s'"\n" 'Unable to find Lua $(1) API headers (CPPFLAGS = $$(strip $$(call LUAPATH_$$(<D), $$(notdir $$(@D)), cppflags) $(CPPFLAGS)))' >&2; false)
 	$$(MKDIR) -p $$(@D)
 	$$(CC) $$(CFLAGS_$$(<D)) $$(CFLAGS) $$(call LUAPATH_$$(<D), $$(notdir $$(@D)), cppflags) $$(CPPFLAGS_$$(<D)) $$(CPPFLAGS) -o $$@ $$< $$(SOFLAGS_$$(abspath $$(@D)/..)) $$(SOFLAGS) $$(LDFLAGS_$$(abspath $$(@D)/..)) $$(LDFLAGS)
 
-.SECONDARY: liblua$(1)-unix
+.SECONDARY: liblua$(1)-unix unix$(1)
 
-liblua$(1)-unix: $$(d)/$(1)/unix.so
+liblua$(1)-unix unix$(1): $$(d)/$(1)/unix.so
 
 endef # BUILD_$(d)
 

@@ -7,7 +7,7 @@ ifeq ($(origin GUARD_$(d)), undefined)
 GUARD_$(d) := 1
 
 
-all: # default target
+$(d)/help: # default target
 
 
 #
@@ -130,6 +130,51 @@ $(d)/clean~:
 	$(RM) -f $(@D)/*~
 
 clean~: $(d)/clean~
+
+
+#
+# H E L P  R U L E S
+#
+.PHONY: $(d)/help help
+
+$(d)/help: # default target
+	@echo 'Module targets:'
+	@echo '  config     - store all variables for subsequent make invocations'
+	@echo '  all        - build Lua 5.1 and 5.2 modules'
+	@echo '  all5.1     - build Lua 5.1 module'
+	@echo '  all5.2     - build Lua 5.2 module'
+	@echo '  all5.3     - build Lua 5.3 module'
+	@echo '  install    - install Lua 5.1 and 5.2 modules'
+	@echo '  install5.1 - install Lua 5.1 module'
+	@echo '  install5.2 - install Lua 5.2 module'
+	@echo '  install5.3 - install Lua 5.3 module'
+	@echo '  clean      - remove generated files'
+	@echo '  clean~     - remove *~ files'
+	@echo '  help       - display this help message'
+	@echo 'Module variables:'
+	@echo '  DESTDIR    - prefix for installation targets'
+	@echo '  prefix     - default prefix for includedir, libdir, datadata, and bindir'
+	@echo '  includedir - default local include/ directory'
+	@echo '  libdir     - default local lib/ directory'
+	@echo '  datadir    - default local share/ directory'
+	@echo '  bindir     - default local bin/ directory (for finding lua and luac)'
+	@echo '  lua51cpath - Lua 5.1 C module installation path'
+	@echo '  lua51path  - Lua 5.1 module installation path'
+	@echo '  lua52cpath - Lua 5.2 C module installation path'
+	@echo '  lua52path  - Lua 5.2 module installation path'
+	@echo '  lua53cpath - Lua 5.3 C module installation path'
+	@echo '  lua53path  - Lua 5.3 module installation path'
+	@echo '  CC         - C compiler path'
+	@echo '  CFLAGS     - C compiler flags'
+	@echo '  CPPFLAGS   - C preprocessor flags, particularly -I paths for Lua headers'
+	@echo '  LDFLAGS    - C compiler linker flags'
+	@echo '  SOFLAGS    - C compiler flags necessary for creating loadable module'
+	@echo 'Debian package targets:'
+	@echo '  debian           - build Debian package containing 5.1 and 5.2 modules'
+	@echo '  debian-clean     - make debian/rules clean'
+	@echo '  debian-distclean - removed all unversioned files in debian/'
+
+help: $(d)/help
 
 
 #
