@@ -171,6 +171,7 @@ endif # debian guard
 # R E L E A S E  T A R B A L L  R U L E S
 #
 ifneq "$(filter $(abspath $(d))/%, $(abspath $(firstword $(MAKEFILE_LIST))))" ""
+ifneq "$(findstring release, $(MAKECMDGOALS))" ""
 
 LUNIX_VERSION := $(shell git tag --list | sed -ne 's/^rel-\([[:digit:]]\{8\}\)/\1/p' | sort -n | tail -1)
 
@@ -181,6 +182,7 @@ $(d)/lunix-$(LUNIX_VERSION).tgz:
 
 release: $(d)/lunix-$(LUNIX_VERSION).tgz
 
+endif # release in MAKECMDGOALS
 endif # release guard
 
 
