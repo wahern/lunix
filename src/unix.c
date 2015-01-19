@@ -62,6 +62,7 @@
 #include <mach/mach_time.h> /* mach_timebase_info() mach_absolute_time() */
 #endif
 
+#define LUA_COMPAT_5_2 1
 #include <lua.h>
 #include <lualib.h>
 #include <lauxlib.h>
