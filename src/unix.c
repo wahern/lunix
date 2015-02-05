@@ -26,6 +26,7 @@
 #include <errno.h>        /* ENOMEM ERANGE errno */
 #include <assert.h>       /* static_assert */
 #include <math.h>         /* NAN isnormal(3) signbit(3) */
+#include <locale.h>       /* LC_ALL LC_COLLATE LC_CTYPE LC_MONETARY LC_NUMERIC LC_TIME setlocale(3) */
 
 #include <sys/param.h>    /* __NetBSD_Version__ OpenBSD __FreeBSD_version */
 #include <sys/types.h>    /* gid_t mode_t off_t pid_t uid_t */
@@ -4419,6 +4420,18 @@ static int unix_setgid(lua_State *L) {
 } /* unix_setgid() */
 
 
+static int unix_setlocale(lua_State *L) {
+	const char *locale;
+
+	if ((locale = setlocale(luaL_checkint(L, 1), luaL_optstring(L, 2, NULL))))
+		lua_pushstring(L, locale);
+	else
+		lua_pushnil(L);
+
+	return 1;
+} /* unix_setlocale() */
+
+
 static int unix_setsid(lua_State *L) {
 	pid_t pg;
 
@@ -4880,6 +4893,7 @@ static const luaL_Reg unix_routines[] = {
 	{ "setenv",             &unix_setenv },
 	{ "seteuid",            &unix_seteuid },
 	{ "setgid",             &unix_setgid },
+	{ "setlocale",          &unix_setlocale },
 	{ "setuid",             &unix_setuid },
 	{ "setsid",             &unix_setsid },
 	{ "sigfillset",         &unix_sigfillset },
@@ -5272,6 +5286,11 @@ static const struct unix_const const_fcntl[] = {
 #endif
 }; /* const_fcntl[] */
 
+static const struct unix_const const_locale[] = {
+	UNIX_CONST(LC_ALL), UNIX_CONST(LC_COLLATE), UNIX_CONST(LC_CTYPE),
+	UNIX_CONST(LC_MONETARY), UNIX_CONST(LC_NUMERIC), UNIX_CONST(LC_TIME),
+}; /* const_locale[] */
+
 
 static const struct {
 	const struct unix_const *table;
@@ -5284,6 +5303,7 @@ static const struct {
 	{ const_wait,   countof(const_wait) },
 	{ const_signal, countof(const_signal) },
 	{ const_fcntl,  countof(const_fcntl) },
+	{ const_locale, countof(const_locale) },
 }; /* unix_const[] */
 
 

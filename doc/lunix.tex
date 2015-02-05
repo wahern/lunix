@@ -603,6 +603,14 @@ Set the real process GID to $gid$. $gid$ must be an integer or symbolic group na
 
 Returns \true on success, otherwise \false, an error string, and an integer system error.
 
+\subsubsection[\fn{setlocale}]{\fn{setlocale($category$ [, $locale$])}}
+
+Set or query the program locale. $category$ is an integer constant which specifies the category of localization, and should be one of \texttt{LC\_ALL}, \texttt{LC\_COLLATE}, \texttt{LC\_CTYPE}, \texttt{LC\_MONETARY}, \texttt{LC\_NUMERIC}, or \texttt{LC\_TIME}.
+
+$locale$ can be either a string identifier for the locale, or \nil to query the specified category. An empty locale string selects the system's native locale.
+
+Returns a locale string identifier on success, otherwise \nil if the specified $category$ and $locale$ could not be honored.
+
 \subsubsection[\fn{setsid}]{\fn{setsid()}}
 
 Create a new session and process group.

@@ -1,3 +1,9 @@
+lua-unix (20150205-1) unstable; urgency=low
+
+  * Add setlocale.
+
+ -- William Ahern <william@25thandClement.com>  Thu, 05 Feb 2015 14:07:51 -0800
+
 lua-unix (20141017-1) unstable; urgency=low
 
   * Add fileno, dup2.
