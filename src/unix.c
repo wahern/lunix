@@ -20,7 +20,7 @@
 #include <stdlib.h>       /* arc4random(3) _exit(2) exit(3) getenv(3) getenv_r(3) calloc(3) free(3) realloc(3) setenv(3) strtoul(3) unsetenv(3) */
 #include <stdio.h>        /* fileno(3) flockfile(3) ftrylockfile(3) funlockfile(3) snprintf(3) */
 #include <string.h>       /* memset(3) strerror_r(3) strsignal(3) strspn(3) strcspn(3) */
-#include <signal.h>       /* NSIG sigset_t sigfillset(3) sigemptyset(3) sigprocmask(2) */
+#include <signal.h>       /* NSIG struct sigaction sigset_t sigaction(3) sigfillset(3) sigemptyset(3) sigprocmask(2) */
 #include <ctype.h>        /* isspace(3) */
 #include <time.h>         /* struct tm struct timespec gmtime_r(3) clock_gettime(3) tzset(3) */
 #include <errno.h>        /* ENOMEM ERANGE errno */
@@ -2753,6 +2753,7 @@ static sigset_t *unixL_tosigset(lua_State *L, int index, sigset_t *buf) {
 	}
 
 	if (!buf) {
+		index = lua_absindex(L, index);
 		buf = lua_newuserdata(L, sizeof *buf);
 		luaL_setmetatable(L, "sigset_t");
 		lua_replace(L, index);
@@ -2772,6 +2773,38 @@ static const luaL_Reg sigset_methods[] = {
 static const luaL_Reg sigset_metamethods[] = {
 	{ NULL, NULL }
 }; /* sigset_metamethods[] */
+
+
+static u_sighandler_t *unixL_tosighandler(lua_State *L, int index) {
+	return *(u_sighandler_t **)luaL_checkudata(L, index, "sighandler_t*");
+} /* unixL_tosighandler() */
+
+
+static const luaL_Reg sighandler_methods[] = {
+	{ NULL, NULL }
+}; /* sighandler_methods[] */
+
+
+static int sighandler__eq(lua_State *L) {
+	/*
+	 * NOTE: All versions of Lua up to and including Lua 5.3.0 don't
+	 * appear to check whether two userdata objects share the same __eq
+	 * metamethod. The 5.1-5.3 manuals, however, document that a
+	 * comparison metamethod is only selected and executed if both
+	 * objects share it for the operation.
+	 */
+	u_sighandler_t **op1 = luaL_testudata(L, 1, "sighandler_t*");
+	u_sighandler_t **op2 = luaL_testudata(L, 2, "sighandler_t*");
+
+	lua_pushboolean(L, op1 && op2 && (*op1 == *op2));
+
+	return 1;
+} /* sighandler__eq() */
+
+static const luaL_Reg sighandler_metamethods[] = {
+	{ "__eq", &sighandler__eq },
+	{ NULL,   NULL }
+}; /* sighandler_metamethods[] */
 
 
 static int unix_arc4random(lua_State *L) {
@@ -4486,6 +4519,60 @@ static int unix_setuid(lua_State *L) {
 } /* unix_setuid() */
 
 
+static int unix_sigaction(lua_State *L) {
+	int signo = luaL_checkint(L, 1);
+	struct sigaction act, oact;
+
+	lua_settop(L, 3);
+
+	memset(&oact, 0, sizeof oact);
+
+	if (lua_isnil(L, 2)) {
+		if (0 != sigaction(signo, NULL, &oact))
+			goto syerr;
+	} else {
+		luaL_checktype(L, 2, LUA_TTABLE);
+
+		memset(&act, 0, sizeof act);
+
+		lua_getfield(L, 2, "handler");
+		act.sa_handler = unixL_tosighandler(L, -1);
+		lua_pop(L, 1);
+
+		lua_getfield(L, 2, "mask");
+		if (!lua_isnil(L, -1))
+			act.sa_mask = *unixL_tosigset(L, -1, NULL);
+		lua_pop(L, 1);
+
+		act.sa_flags = unixL_optfint(L, 2, "flags", 0);
+
+		if (0 != sigaction(signo, &act, &oact))
+			goto syerr;
+	}
+
+	if (lua_toboolean(L, 3)) {
+		lua_newtable(L);
+
+		*(u_sighandler_t **)lua_newuserdata(L, sizeof (u_sighandler_t *)) = (u_sighandler_t *)oact.sa_handler;
+		luaL_setmetatable(L, "sighandler_t*");
+		lua_setfield(L, -2, "handler");
+
+		*(sigset_t *)lua_newuserdata(L, sizeof (sigset_t)) = oact.sa_mask;
+		luaL_setmetatable(L, "sigset_t");
+		lua_setfield(L, -2, "mask");
+
+		unixL_pushinteger(L, oact.sa_flags);
+		lua_setfield(L, -2, "flags");
+	} else {
+		lua_pushboolean(L, 1);
+	}
+
+	return 1;
+syerr:
+	return unixL_pusherror(L, errno, "sigaction", "~$#");
+} /* unix_sigaction() */
+
+
 static int unix_sigfillset(lua_State *L) {
 	lua_settop(L, 1);
 
@@ -4926,6 +5013,7 @@ static const luaL_Reg unix_routines[] = {
 	{ "setlocale",          &unix_setlocale },
 	{ "setuid",             &unix_setuid },
 	{ "setsid",             &unix_setsid },
+	{ "sigaction",          &unix_sigaction },
 	{ "sigfillset",         &unix_sigfillset },
 	{ "sigemptyset",        &unix_sigemptyset },
 	{ "sigaddset",          &unix_sigaddset },
@@ -5399,7 +5487,7 @@ int luaopen_unix(lua_State *L) {
 	 * See note at typedef of u_sighandler_t.
 	 */
 	lua_pushvalue(L, -1);
-	unixL_newmetatable(L, "sighandler_t*", &(luaL_Reg){ NULL, NULL }, &(luaL_Reg){ NULL, NULL }, 1);
+	unixL_newmetatable(L, "sighandler_t*", sighandler_methods, sighandler_metamethods, 1);
 	lua_pop(L, 1);
 
 	/*
