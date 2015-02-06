@@ -26,12 +26,12 @@
 #include <errno.h>        /* ENOMEM ERANGE errno */
 #include <assert.h>       /* static_assert */
 #include <math.h>         /* NAN isnormal(3) signbit(3) */
-#include <locale.h>       /* LC_ALL LC_COLLATE LC_CTYPE LC_MONETARY LC_NUMERIC LC_TIME setlocale(3) */
+#include <locale.h>       /* LC_* setlocale(3) */
 
 #include <sys/param.h>    /* __NetBSD_Version__ OpenBSD __FreeBSD_version */
 #include <sys/types.h>    /* gid_t mode_t off_t pid_t uid_t */
 #include <sys/resource.h> /* RUSAGE_SELF struct rusage getrusage(2) */
-#include <sys/socket.h>   /* AF_INET AF_INET6 SOCK_DGRAM struct sockaddr socket(2) */
+#include <sys/socket.h>   /* AF_* SOCK_* struct sockaddr socket(2) */
 #include <sys/stat.h>     /* S_ISDIR() */
 #include <sys/time.h>     /* struct timeval gettimeofday(2) */
 #if __linux
@@ -42,13 +42,13 @@
 #include <sys/ioctl.h>    /* SIOCGIFCONF SIOCGIFFLAGS SIOCGIFNETMASK SIOCGIFDSTADDR SIOCGIFBRDADDR SIOCGLIFADDR ioctl(2) */
 #include <net/if.h>       /* IF_NAMESIZE struct ifconf struct ifreq */
 #include <unistd.h>       /* _PC_NAME_MAX chdir(2) chroot(2) close(2) chdir(2) chown(2) chroot(2) dup2(2) execve(2) execl(2) execlp(2) execvp(2) fork(2) fpathconf(3) getegid(2) geteuid(2) getgid(2) gethostname(3) getpid(2) getppid(2) getuid(2) issetugid(2) lchown(2) link(2) pread(2) pwrite(2) rename(2) rmdir(2) setegid(2) seteuid(2) setgid(2) setuid(2) setsid(2) symlink(2) truncate(2) umask(2) unlink(2) */
-#include <fcntl.h>        /* F_DUPFD_CLOEXEC F_GETFD F_GETLK F_SETLK F_SETLKW F_SETFD FD_CLOEXEC fcntl(2) open(2) */
+#include <fcntl.h>        /* F_* fcntl(2) open(2) */
 #include <pwd.h>          /* struct passwd getpwnam_r(3) */
 #include <grp.h>          /* struct group getgrnam_r(3) */
 #include <dirent.h>       /* closedir(3) fdopendir(3) opendir(3) readdir_r(3) rewinddir(3) */
 #include <arpa/inet.h>    /* ntohl(3) */
-#include <netinet/in.h>   /* __KAME__ */
-#include <netdb.h>        /* NI_MAXHOST gai_strerror(3) getnameinfo(3) */
+#include <netinet/in.h>   /* __KAME__ IPPROTO_* */
+#include <netdb.h>        /* NI_* AI_* gai_strerror(3) getaddrinfo(3) getnameinfo(3) freeaddrinfo(3) */
 
 #if __sun
 #include <sys/feature_tests.h> /* _DTRACE_VERSION */
@@ -3403,6 +3403,207 @@ static int unix_fork(lua_State *L) {
 } /* unix_fork() */
 
 
+static int unix_gai_strerror(lua_State *L) {
+	lua_pushstring(L, gai_strerror(luaL_checkint(L, 1)));
+
+	return 1;
+} /* unix_gai_strerror() */
+
+
+enum gai_field {
+	GAI_FAMILY,
+	GAI_SOCKTYPE,
+	GAI_PROTOCOL,
+	GAI_ADDR,
+	GAI_CANONNAME,
+	GAI_PORT,
+}; /* enum gai_field */
+
+static const char *gai_field[] = {
+	"family", "socktype", "protocol", "addr", "canonname", "port", NULL
+};
+
+static int gai_pushaddr(lua_State *L, struct sockaddr *addr, socklen_t addrlen) {
+	char host[NI_MAXHOST + 1];
+	int error;
+
+	if ((error = getnameinfo(addr, addrlen, host, sizeof host, NULL, 0, NI_NUMERICHOST))) {
+		lua_pushnil(L);
+	} else {
+		lua_pushstring(L, host);
+	}
+
+	return 1;
+} /* gai_pushaddr() */
+
+static int gai_pushport(lua_State *L, struct sockaddr *addr) {
+	switch (addr->sa_family) {
+	case AF_INET:
+		lua_pushinteger(L, ntohs(((struct sockaddr_in *)addr)->sin_port));
+		break;
+	case AF_INET6:
+		lua_pushinteger(L, ntohs(((struct sockaddr_in6 *)addr)->sin6_port));
+		break;
+	default:
+		lua_pushnil(L);
+		break;
+	}
+
+	return 1;
+} /* gai_pushport() */
+
+static void gai_pushfield(lua_State *L, const struct addrinfo *res, enum gai_field type) {
+	switch (type) {
+	case GAI_FAMILY:
+		lua_pushinteger(L, res->ai_family);
+		break;
+	case GAI_SOCKTYPE:
+		lua_pushinteger(L, res->ai_socktype);
+		break;
+	case GAI_PROTOCOL:
+		lua_pushinteger(L, res->ai_protocol);
+		break;
+	case GAI_ADDR:
+		gai_pushaddr(L, res->ai_addr, res->ai_addrlen);
+		break;
+	case GAI_CANONNAME:
+		if (res->ai_canonname) {
+			lua_pushstring(L, res->ai_canonname);
+		} else {
+			lua_pushnil(L);
+		}
+		break;
+	case GAI_PORT:
+		gai_pushport(L, res->ai_addr);
+		break;
+	default:
+		lua_pushnil(L);
+		break;
+	}
+} /* gai_pushfield() */
+
+static void gai_pushtable(lua_State *L, const struct addrinfo *res) {
+	lua_createtable(L, 0, 6);
+
+	gai_pushfield(L, res, GAI_FAMILY);
+	lua_setfield(L, -2, "family");
+
+	gai_pushfield(L, res, GAI_SOCKTYPE);
+	lua_setfield(L, -2, "socktype");
+
+	gai_pushfield(L, res, GAI_PROTOCOL);
+	lua_setfield(L, -2, "protocol");
+
+	gai_pushfield(L, res, GAI_ADDR);
+	lua_setfield(L, -2, "addr");
+
+	gai_pushfield(L, res, GAI_CANONNAME);
+	lua_setfield(L, -2, "canonname");
+
+	gai_pushfield(L, res, GAI_PORT);
+	lua_setfield(L, -2, "port");
+} /* gai_pushtable() */
+
+static int gai_nextai(lua_State *L) {
+	struct addrinfo *res = lua_touserdata(L, lua_upvalueindex(2));
+
+	if (!res)
+		return 0;
+
+	lua_pushlightuserdata(L, res->ai_next);
+	lua_replace(L, lua_upvalueindex(2));
+
+	if (lua_isnone(L, lua_upvalueindex(4))) {
+		gai_pushtable(L, res);
+
+		return 1;
+	} else {
+		int i;
+
+		for (i = 4; !lua_isnone(L, lua_upvalueindex(i)); i++) {
+			gai_pushfield(L, res, luaL_checkoption(L, lua_upvalueindex(i), NULL, gai_field));
+		}
+
+		return i - 4;
+	}
+} /* gai_nextai() */
+
+static int unix_getaddrinfo(lua_State *L) {
+	const char *host = luaL_optstring(L, 1, NULL);
+	const char *serv = luaL_optstring(L, 2, NULL);
+	/*
+	 * POSIX 2013: "If hints is a null pointer, the behavior shall be as
+	 * if it referred to a structure containing the value zero for the
+	 * ai_flags, ai_socktype, and ai_protocol fields, and AF_UNSPEC for
+	 * the ai_family field."
+	 */
+	struct addrinfo hints = { .ai_family = AF_UNSPEC }, **res;
+	int error;
+
+	if (!lua_isnoneornil(L, 3)) {
+		luaL_checktype(L, 3, LUA_TTABLE);
+
+		hints.ai_flags = unixL_optfint(L, 3, "flags", hints.ai_flags);
+		hints.ai_family = unixL_optfint(L, 3, "family", hints.ai_family);
+		hints.ai_socktype = unixL_optfint(L, 3, "socktype", hints.ai_socktype);
+		hints.ai_protocol = unixL_optfint(L, 3, "protocol", hints.ai_protocol);
+	}
+
+	res = lua_newuserdata(L, sizeof *res);
+	*res = NULL;
+	luaL_setmetatable(L, "struct addrinfo*");
+
+	if ((error = getaddrinfo(host, serv, &hints, res))) {
+		if (error == EAI_SYSTEM) {
+			int syerr = errno;
+
+			lua_pushnil(L);
+			lua_pushstring(L, unixL_strerror(L, syerr));
+			lua_pushinteger(L, error);
+			lua_pushinteger(L, syerr);
+
+			return 4;
+		} else {
+			lua_pushnil(L);
+			lua_pushstring(L, gai_strerror(error));
+			lua_pushinteger(L, error);
+
+			return 3;
+		}
+	}
+
+	lua_replace(L, 1);
+
+	lua_pushlightuserdata(L, *res);
+	lua_replace(L, 2);
+
+	lua_pushcclosure(L, &gai_nextai, lua_gettop(L));
+
+	return 1;
+} /* unix_getaddrinfo() */
+
+
+static int gai__gc(lua_State *L) {
+	struct addrinfo **res = luaL_checkudata(L, 1, "struct addrinfo*");
+
+	if (*res) {
+		freeaddrinfo(*res);
+		*res = NULL;
+	}
+
+	return 0;
+} /* gai__gc() */
+
+static const luaL_Reg gai_methods[] = {
+	{ NULL, NULL }
+}; /* gai_methods[] */
+
+static const luaL_Reg gai_metamethods[] = {
+	{ "__gc", &gai__gc },
+	{ NULL,   NULL }
+}; /* gai_metamethods[] */
+
+
 static int unix_getegid(lua_State *L) {
 	lua_pushinteger(L, getegid());
 
@@ -3572,8 +3773,10 @@ enum ifs_field {
 	IF_PREFIXLEN,
 }; /* enum ifs_field */
 
-static const char *ifs_field[] = { "name", "flags", "addr", "netmask", "dstaddr", "broadaddr", "data", "family", "prefixlen", NULL };
-
+static const char *ifs_field[] = {
+	"name", "flags", "addr", "netmask", "dstaddr", "broadaddr", "data",
+	"family", "prefixlen", NULL
+};
 
 static int ifs_pushaddr(lua_State *L, struct sockaddr *sa) {
 	char host[NI_MAXHOST + 1];
@@ -3588,7 +3791,6 @@ static int ifs_pushaddr(lua_State *L, struct sockaddr *sa) {
 
 	return 1;
 } /* ifs_pushaddr() */
-
 
 static void ifs_pushfield(lua_State *L, const struct u_ifaddrs *ifa, enum ifs_field type) {
 	switch (type) {
@@ -3644,7 +3846,6 @@ static void ifs_pushfield(lua_State *L, const struct u_ifaddrs *ifa, enum ifs_fi
 	}
 } /* ifs_pushfield() */
 
-
 static void ifs_pushtable(lua_State *L, const struct u_ifaddrs *ifa) {
 	lua_createtable(L, 0, 7);
 
@@ -3683,7 +3884,6 @@ static void ifs_pushtable(lua_State *L, const struct u_ifaddrs *ifa) {
 	lua_setfield(L, -2, "prefixlen");
 } /* ifs_pushtable() */
 
-
 static int ifs_nextif(lua_State *L) {
 	struct u_ifaddrs *ifa = lua_touserdata(L, lua_upvalueindex(2));
 
@@ -3707,7 +3907,6 @@ static int ifs_nextif(lua_State *L) {
 		return i - 3;
 	}
 } /* ifs_nextif() */
-
 
 static int unix_getifaddrs(lua_State *L) {
 	struct u_ifaddrs **ifs;
@@ -4969,6 +5168,8 @@ static const luaL_Reg unix_routines[] = {
 	{ "ftrylockfile",       &unix_ftrylockfile },
 	{ "funlockfile",        &unix_funlockfile },
 	{ "fork",               &unix_fork },
+	{ "gai_strerror",       &unix_gai_strerror },
+	{ "getaddrinfo",        &unix_getaddrinfo },
 	{ "getegid",            &unix_getegid },
 	{ "geteuid",            &unix_geteuid },
 	{ "getenv",             &unix_getenv },
@@ -5045,18 +5246,49 @@ struct unix_const {
 	long long value;
 }; /* struct unix_const */
 
-
 static const struct unix_const const_af[] = {
 	UNIX_CONST(AF_UNSPEC), UNIX_CONST(AF_UNIX), UNIX_CONST(AF_INET),
 	UNIX_CONST(AF_INET6),
 }; /* const_af[] */
 
+static const struct unix_const const_sock[] = {
+	UNIX_CONST(SOCK_DGRAM), UNIX_CONST(SOCK_STREAM),
+#if defined SOCK_RAW
+	UNIX_CONST(SOCK_RAW),
+#endif
+#if defined SOCK_SEQPACKET
+	UNIX_CONST(SOCK_SEQPACKET),
+#endif
+}; /* const_sock[] */
+
+static const struct unix_const const_ipproto[] = {
+	UNIX_CONST(IPPROTO_IP), UNIX_CONST(IPPROTO_IPV6),
+	UNIX_CONST(IPPROTO_TCP), UNIX_CONST(IPPROTO_UDP),
+	UNIX_CONST(IPPROTO_ICMP),
+#if defined IPPRPTO_RAW
+	UNIX_CONST(IPPROTO_RAW),
+#endif
+}; /* const_ipproto[] */
+
+static const struct unix_const const_ai[] = {
+	UNIX_CONST(AI_PASSIVE), UNIX_CONST(AI_CANONNAME),
+	UNIX_CONST(AI_NUMERICHOST), UNIX_CONST(AI_NUMERICSERV),
+	UNIX_CONST(AI_V4MAPPED), UNIX_CONST(AI_ALL),
+	UNIX_CONST(AI_ADDRCONFIG),
+}; /* const_ai[] */
+
+static const struct unix_const const_eai[] = {
+	UNIX_CONST(EAI_AGAIN), UNIX_CONST(EAI_BADFLAGS), UNIX_CONST(EAI_FAIL),
+	UNIX_CONST(EAI_FAMILY), UNIX_CONST(EAI_MEMORY),
+	UNIX_CONST(EAI_NONAME), UNIX_CONST(EAI_SERVICE),
+	UNIX_CONST(EAI_SOCKTYPE), UNIX_CONST(EAI_SYSTEM),
+	UNIX_CONST(EAI_OVERFLOW),
+}; /* const_eai[] */
 
 static const struct unix_const const_clock[] = {
 	{ "CLOCK_MONOTONIC", U_CLOCK_MONOTONIC },
 	{ "CLOCK_REALTIME",  U_CLOCK_REALTIME },
 }; /* const_clock[] */
-
 
 static const struct unix_const const_errno[] = {
 	/* ISO C */
@@ -5299,7 +5531,6 @@ static const struct unix_const const_errno[] = {
 #endif
 }; /* const_errno[] */
 
-
 static const struct unix_const const_iff[] = {
 #if defined IFF_UP
 	UNIX_CONST(IFF_UP),
@@ -5336,7 +5567,6 @@ static const struct unix_const const_iff[] = {
 #endif
 }; /* const_iff[] */
 
-
 static const struct unix_const const_wait[] = {
 #if defined WCONTINUED
 	UNIX_CONST(WCONTINUED),
@@ -5347,7 +5577,6 @@ static const struct unix_const const_wait[] = {
 	UNIX_CONST(WSTOPPED),
 #endif
 }; /* const_wait[] */
-
 
 static const struct unix_const const_signal[] = {
 	UNIX_CONST(SIGABRT), UNIX_CONST(SIGALRM), UNIX_CONST(SIGBUS),
@@ -5367,7 +5596,6 @@ static const struct unix_const const_signal[] = {
 	UNIX_CONST(SA_NOCLDWAIT), UNIX_CONST(SA_NODEFER),
 }; /* const_signal[] */
 
-
 static const struct {
 	char name[24];
 	u_sighandler_t *func;
@@ -5376,7 +5604,6 @@ static const struct {
 	{ "SIG_ERR", (u_sighandler_t *)SIG_ERR },
 	{ "SIG_IGN", (u_sighandler_t *)SIG_IGN },
 }; /* unix_sighandler[] */
-
 
 static const struct unix_const const_fcntl[] = {
 	UNIX_CONST(F_GETLK), UNIX_CONST(F_SETLK), UNIX_CONST(F_SETLKW),
@@ -5418,25 +5645,27 @@ static const struct unix_const const_fcntl[] = {
 #endif
 }; /* const_fcntl[] */
 
-
 static const struct unix_const const_locale[] = {
 	UNIX_CONST(LC_ALL), UNIX_CONST(LC_COLLATE), UNIX_CONST(LC_CTYPE),
 	UNIX_CONST(LC_MONETARY), UNIX_CONST(LC_NUMERIC), UNIX_CONST(LC_TIME),
 }; /* const_locale[] */
 
-
 static const struct {
 	const struct unix_const *table;
 	size_t size;
 } unix_const[] = {
-	{ const_af,     countof(const_af) },
-	{ const_clock,  countof(const_clock) },
-	{ const_errno,  countof(const_errno) },
-	{ const_iff,    countof(const_iff) },
-	{ const_wait,   countof(const_wait) },
-	{ const_signal, countof(const_signal) },
-	{ const_fcntl,  countof(const_fcntl) },
-	{ const_locale, countof(const_locale) },
+	{ const_af,      countof(const_af) },
+	{ const_sock,    countof(const_sock) },
+	{ const_ipproto, countof(const_ipproto) },
+	{ const_ai,      countof(const_ai) },
+	{ const_eai,     countof(const_eai) },
+	{ const_clock,   countof(const_clock) },
+	{ const_errno,   countof(const_errno) },
+	{ const_iff,     countof(const_iff) },
+	{ const_wait,    countof(const_wait) },
+	{ const_signal,  countof(const_signal) },
+	{ const_fcntl,   countof(const_fcntl) },
+	{ const_locale,  countof(const_locale) },
 }; /* unix_const[] */
 
 
@@ -5465,6 +5694,13 @@ int luaopen_unix(lua_State *L) {
 	 */
 	lua_pushvalue(L, -1);
 	unixL_newmetatable(L, "struct ifaddrs*", ifs_methods, ifs_metamethods, 1);
+	lua_pop(L, 1);
+
+	/*
+	 * add struct addrinfo* class
+	 */
+	lua_pushvalue(L, -1);
+	unixL_newmetatable(L, "struct addrinfo*", gai_methods, gai_metamethods, 1);
 	lua_pop(L, 1);
 
 	/*
