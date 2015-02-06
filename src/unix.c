@@ -619,6 +619,36 @@ MAYBEUSED static void ts_timersub(struct timespec *r, struct timespec a, struct 
 	}
 } /* ts_timersub() */
 
+
+/*
+ * glibc defines sighandler_t as type pointer-to-function, while FreeBSD
+ * defines sighandler_t as type function. Which to choose?
+ *
+ * The sizeof operator cannot be applied to an expression with function
+ * type. C99 6.5.3.4p1 (N1256). To be able to do `sizeof (u_sighandler_t)',
+ * u_sighandler_t needs to be a pointer type. Furthermore, an expression of
+ * type function usually decays to pointer-to-function. C99 6.3.2.1p4. The
+ * exceptions are the sizeof and & operators.
+ *
+ * The upshot of the above notes is that the type of a function in an
+ * expression, whether the unary & operator was applied or not, and
+ * including when passed as a parameter, is almost always type
+ * pointer-to-function. Defining sighandler_t as type pointer-to-function as
+ * Linux does makes declarations more concise and is perhaps more
+ * convenient.
+ *
+ * However, I've chosen the FreeBSD method because in the context of casting
+ * Lua userdata pointers it more clearly documents that what is being stored
+ * and manipulated is a pointer-to-function, not a function. It's possible
+ * to load an actual function into a Lua userdata object using methods
+ * outside the purview of C, in which case lua_touserdata would return
+ * pointer-to-function. But that's not what is expected by our sigaction
+ * binding. SIG_DFL, SIG_IGN, and user-defined C handlers can only be
+ * manipulated in C as type pointer-to-function. Accordingly, our code
+ * expects lua_touserdata to return pointer-to-pointer-to-function.
+ */
+typedef void u_sighandler_t();
+
 MAYBEUSED static void sa_discard(int signo NOTUSED) {
 	return;
 } /* sa_discard() */
@@ -2698,7 +2728,7 @@ static void unixL_ipairs(lua_State *L, int index) {
 static sigset_t *unixL_tosigset(lua_State *L, int index, sigset_t *buf) {
 	sigset_t tmp, *set;
 
-	if ((set = luaL_testudata(L, index, "sigset_t*")))
+	if ((set = luaL_testudata(L, index, "sigset_t")))
 		return set;
 
 	sigemptyset(&tmp);
@@ -2724,7 +2754,7 @@ static sigset_t *unixL_tosigset(lua_State *L, int index, sigset_t *buf) {
 
 	if (!buf) {
 		buf = lua_newuserdata(L, sizeof *buf);
-		luaL_setmetatable(L, "sigset_t*");
+		luaL_setmetatable(L, "sigset_t");
 		lua_replace(L, index);
 	}
 
@@ -5243,7 +5273,21 @@ static const struct unix_const const_signal[] = {
 	UNIX_CONST(NSIG),
 
 	UNIX_CONST(SIG_BLOCK), UNIX_CONST(SIG_UNBLOCK), UNIX_CONST(SIG_SETMASK),
+
+	UNIX_CONST(SA_NOCLDSTOP), UNIX_CONST(SA_ONSTACK), UNIX_CONST(SA_RESETHAND),
+	UNIX_CONST(SA_RESETHAND), UNIX_CONST(SA_RESTART), UNIX_CONST(SA_SIGINFO),
+	UNIX_CONST(SA_NOCLDWAIT), UNIX_CONST(SA_NODEFER),
 }; /* const_signal[] */
+
+
+static const struct {
+	char name[24];
+	u_sighandler_t *func;
+} unix_sighandler[] = {
+	{ "SIG_DFL", (u_sighandler_t *)SIG_DFL },
+	{ "SIG_ERR", (u_sighandler_t *)SIG_ERR },
+	{ "SIG_IGN", (u_sighandler_t *)SIG_IGN },
+}; /* unix_sighandler[] */
 
 
 static const struct unix_const const_fcntl[] = {
@@ -5285,6 +5329,7 @@ static const struct unix_const const_fcntl[] = {
 	UNIX_CONST(O_SEARCH),
 #endif
 }; /* const_fcntl[] */
+
 
 static const struct unix_const const_locale[] = {
 	UNIX_CONST(LC_ALL), UNIX_CONST(LC_COLLATE), UNIX_CONST(LC_CTYPE),
@@ -5342,10 +5387,19 @@ int luaopen_unix(lua_State *L) {
 	lua_pop(L, 1);
 
 	/*
-	 * add sigset_t* class
+	 * add sigset_t class
 	 */
 	lua_pushvalue(L, -1);
-	unixL_newmetatable(L, "sigset_t*", sigset_methods, sigset_metamethods, 1);
+	unixL_newmetatable(L, "sigset_t", sigset_methods, sigset_metamethods, 1);
+	lua_pop(L, 1);
+
+	/*
+	 * add sighandler_t class
+	 *
+	 * See note at typedef of u_sighandler_t.
+	 */
+	lua_pushvalue(L, -1);
+	unixL_newmetatable(L, "sighandler_t*", &(luaL_Reg){ NULL, NULL }, &(luaL_Reg){ NULL, NULL }, 1);
 	lua_pop(L, 1);
 
 	/*
@@ -5366,7 +5420,7 @@ int luaopen_unix(lua_State *L) {
 	lua_setfield(L, -2, "environ");
 
 	/*
-	 * insert constants
+	 * insert integer constants
 	 */
 	for (i = 0; i < countof(unix_const); i++) {
 		const struct unix_const *const table = unix_const[i].table;
@@ -5380,6 +5434,16 @@ int luaopen_unix(lua_State *L) {
 			unixL_pushinteger(L, table[j].value);
 			lua_setfield(L, -2, table[j].name);
 		}
+	}
+
+	/*
+	 * insert signal handlers
+	 */
+	for (i = 0; i < countof(unix_sighandler); i++) {
+		/* See note at typeof of u_sighandler_t */
+		*(u_sighandler_t **)lua_newuserdata(L, sizeof unix_sighandler[i].func) = unix_sighandler[i].func;
+		luaL_setmetatable(L, "sighandler_t*");
+		lua_setfield(L, -2, unix_sighandler[i].name);
 	}
 
 	return 1;
