@@ -5273,8 +5273,13 @@ static const struct unix_const const_ipproto[] = {
 static const struct unix_const const_ai[] = {
 	UNIX_CONST(AI_PASSIVE), UNIX_CONST(AI_CANONNAME),
 	UNIX_CONST(AI_NUMERICHOST), UNIX_CONST(AI_NUMERICSERV),
-	UNIX_CONST(AI_V4MAPPED), UNIX_CONST(AI_ALL),
 	UNIX_CONST(AI_ADDRCONFIG),
+#if defined AI_V4MAPPED
+	UNIX_CONST(AI_V4MAPPED),
+#endif
+#if defined AI_ALL
+	UNIX_CONST(AI_ALL),
+#endif
 }; /* const_ai[] */
 
 static const struct unix_const const_eai[] = {
