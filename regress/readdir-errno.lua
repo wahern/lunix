@@ -82,7 +82,9 @@ local goterror = dofail{
 		text = "testing readdir_r error by duping over descriptor during read",
 		func = function (dir, name)
 			if name then
-				check(unix.dup2(check(io.tmpfile()), dir), "unable to dup2")
+				local fh = check(io.tmpfile())
+				check(unix.dup2(fh, dir), "unable to dup2")
+				fh:close()
 			end
 		end
 	},
@@ -90,7 +92,9 @@ local goterror = dofail{
 		text = "testing readdir_r error by duping over descriptor before read",
 		func = function (dir, name)
 			if not name then
-				check(unix.dup2(check(io.tmpfile()), dir), "unable to dup2")
+				local fh = check(io.tmpfile())
+				check(unix.dup2(fh, dir), "unable to dup2")
+				fh:close()
 			end
 		end
 	},
