@@ -2324,6 +2324,46 @@ static gid_t unixL_checkgid(lua_State *L, int index) {
 	return unixL_optgid(L, index, -1);
 } /* unixL_checkgid() */
 
+static int ts_nthreads_pstatus(void) {
+#if SIZEOF_STRUCT_PSTATUS_PR_NLWP > 0 && OFFSETOF_STRUCT_PSTATUS_PR_NLWP >= 0
+	char data[OFFSETOF_STRUCT_PSTATUS_PR_NLWP + SIZEOF_STRUCT_PSTATUS_PR_NLWP];
+	char path[64];
+	int fd = -1, pr_nlwp;
+
+	if (SIZEOF_STRUCT_PSTATUS_PR_NLWP != sizeof pr_nlwp)
+		goto oops;
+
+	if (0 > snprintf(path, sizeof path, "/proc/%ld/status", (long)getpid()))
+		goto oops;
+
+	if (0 != u_open(&fd, path, O_RDONLY|U_CLOEXEC, 0))
+		goto oops;
+
+	if (sizeof data != read(fd, data, sizeof data))
+		goto oops;
+
+	u_close(&fd);
+
+	memcpy(&pr_nlwp, &data[OFFSETOF_STRUCT_PSTATUS_PR_NLWP], SIZEOF_STRUCT_PSTATUS_PR_NLWP);
+
+	return pr_nlwp;
+oops:
+	u_close(&fd);
+
+	return -1;
+#else
+	return -1;
+#endif
+} /* ts_nthreads_pstatus() */
+
+MAYBEUSED static int ts_nthreads(void) {
+	int n;
+
+	if ((n = ts_nthreads_pstatus()) > 0)
+		return n;
+
+	return -1;
+} /* ts_nthreads() */
 
 static int ts_reset(unixL_State *U) {
 	if (!U->ts.pid || U->ts.pid != getpid()) {
@@ -2353,6 +2393,15 @@ static mode_t unixL_getumask(lua_State *L) {
 	mode_t mask;
 	int error, status;
 	ssize_t n;
+
+#if 0
+	if (ts_nthreads() == 1) {
+		mask = umask(0);
+		umask(mask);
+
+		return mask;
+	}
+#endif
 
 	if ((error = ts_reset(U)))
 		return luaL_error(L, "getumask: %s", unixL_strerror(L, error));
