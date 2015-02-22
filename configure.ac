@@ -74,4 +74,36 @@ AC_LINK_IFELSE([
 	AC_MSG_RESULT([no])
 ])
 
+# Check for size and offset of pr_nlwp. If compiling in 32-bit mode with
+# Large File Support, we can't include <sys/procfs.h> directly. So compute
+# the information we need in order to read pr_nlwp from /proc/$$/status.
+AC_CHECK_HEADERS([sys/procfs.h], [
+	AC_CHECK_MEMBERS([struct pstatus.pr_nlwp], [
+		WA_CHECK_SIZEOF_MEMBERS([struct pstatus.pr_nlwp], [
+			#if HAVE_SYS_PROCFS_H
+			#undef _FILE_OFFSET_BITS
+			#define _STRUCTURED_PROC 1
+			#include <sys/procfs.h>
+			#endif
+		])
+
+		WA_CHECK_OFFSETOF_MEMBERS([struct pstatus.pr_nlwp], [
+			#if HAVE_SYS_PROCFS_H
+			#undef _FILE_OFFSET_BITS
+			#define _STRUCTURED_PROC 1
+			#include <sys/procfs.h>
+			#endif
+		])
+	], [], [
+		#if HAVE_SYS_PROCFS_H
+		#undef _FILE_OFFSET_BITS
+		#define _STRUCTURED_PROC 1
+		#include <sys/procfs.h>
+		#endif
+	])
+], [], [
+	#undef _FILE_OFFSET_BITS
+	#define _STRUCTURED_PROC 1
+])
+
 AC_OUTPUT
