@@ -34,9 +34,6 @@
 #include <sys/socket.h>   /* AF_* SOCK_* struct sockaddr socket(2) */
 #include <sys/stat.h>     /* S_ISDIR() */
 #include <sys/time.h>     /* struct timeval gettimeofday(2) */
-#if __linux
-#include <sys/sysctl.h>   /* CTL_KERN KERN_RANDOM RANDOM_UUID sysctl(2) */
-#endif
 #include <sys/utsname.h>  /* uname(2) */
 #include <sys/wait.h>     /* WNOHANG waitpid(2) */
 #include <sys/ioctl.h>    /* SIOCGIFCONF SIOCGIFFLAGS SIOCGIFNETMASK SIOCGIFDSTADDR SIOCGIFBRDADDR SIOCGLIFADDR ioctl(2) */
@@ -164,11 +161,48 @@
 #define HAVE_SIGTIMEDWAIT (!defined __APPLE__ && !defined __OpenBSD__)
 #endif
 
+#ifndef HAVE_SYS_SYSCTL_H
+/*
+ * XXX: This is currently an intermediate hack for the arc4random
+ * implementation. Many other systems have <sys/sysctl.h> (e.g. BSDs), and
+ * not all Linux systems have <sys/sysctl.h> (e.g. Alpine Linux using
+ * MUSL).
+ */
+#define HAVE_SYS_SYSCTL_H __linux
+#endif
+
+#ifndef HAVE_SYSCTL
+#define HAVE_SYSCTL HAVE_SYS_SYSCTL_H
+#endif
+
+#ifndef HAVE_CTL_KERN
+#define HAVE_CTL_KERN (HAVE_SYS_SYSCTL_H && __linux)
+#endif
+
+#ifndef HAVE_KERN_RANDOM
+#define HAVE_KERN_RANDOM (HAVE_SYS_SYSCTL_H && __linux)
+#endif
+
+#ifndef HAVE_RANDOM_UUID
+#define HAVE_RANDOM_UUID (HAVE_SYS_SYSCTL_H && __linux)
+#endif
+
+#ifndef HAVE_STRSIGNAL
+#define HAVE_STRSIGNAL 1
+#endif
+
+#ifndef HAVE_SYS_SIGLIST
+#define HAVE_SYS_SIGLIST 1
+#endif
 
 /*
  * N O N - P O R T A B L E  S Y S T E M  I N C L U D E S
  *
  * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
+
+#if HAVE_SYS_SYSCTL_H
+#include <sys/sysctl.h>   /* CTL_KERN KERN_RANDOM RANDOM_UUID sysctl(2) */
+#endif
 
 #if HAVE_IFADDRS_H
 #include <ifaddrs.h> /* struct ifaddrs getifaddrs(3) freeifaddrs(3) */
@@ -1500,7 +1534,7 @@ static void arc4_stir(unixL_Random *R, int force) {
 	if (R->count > 0 && R->pid == getpid() && !force)
 		return;
 
-#if __linux
+#if HAVE_SYSCTL && HAVE_CTL_KERN && HAVE_KERN_RANDOM && HAVE_RANDOM_UUID
 	{	
 		int mib[] = { CTL_KERN, KERN_RANDOM, RANDOM_UUID };
 
@@ -1782,11 +1816,11 @@ static const char *unixL_strsignal(lua_State *L, int signo) {
 	const char *info;
 	unixL_State *U;
 
-#if __sun || GLIBC_PREREQ(0,0) || FREEBSD_PREREQ(8,1) || defined __APPLE__ || defined _AIX
+#if HAVE_STRSIGNAL && (USE_STRSIGNAL || __sun || GLIBC_PREREQ(0,0) || FREEBSD_PREREQ(8,1) || defined __APPLE__ || defined _AIX)
 	/* AIX strsignal(3) cannot handle bad signo */
 	if (signo >= 0 && signo < NSIG && (info = strsignal(signo)))
 		return info;
-#else
+#elif HAVE_SYS_SIGLIST
 	if (signo >= 0 && signo < NSIG && (info = sys_siglist[signo]))
 		return info;
 #endif
