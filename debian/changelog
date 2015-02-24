@@ -1,3 +1,9 @@
+lua-unix (20150224-1) unstable; urgency=low
+
+  * Fix MUSL libc build.
+
+ -- William Ahern <william@25thandClement.com>  Tue, 24 Feb 2015 15:15:55 -0800
+
 lua-unix (20150205-1) unstable; urgency=low
 
   * Add setlocale.
