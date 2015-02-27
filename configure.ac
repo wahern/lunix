@@ -36,7 +36,7 @@ AC_CHECK_DECLS([sys_siglist],,,[[#include <signal.h>]])
 
 # Checks for library functions.
 AC_CHECK_FUNCS([ \
-	arc4random arc4random_addrandom arc4random_stire clock_gettime \
+	arc4random arc4random_addrandom arc4random_stir clock_gettime \
 	dup2 dup3 fopendir getauxval getenv_r getifaddrs issetugid pipe2 \
 	sigtimedwait sysctl \
 ])
