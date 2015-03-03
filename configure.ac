@@ -15,6 +15,9 @@ AC_PROG_RANLIB
 # Define _GNU_SOURCE, __EXTENSIONS__, _POSIX_PTHREAD_SEMANTICS, etc.
 AC_USE_SYSTEM_EXTENSIONS
 
+# Largefile support
+AC_SYS_LARGEFILE
+
 # Checks for libraries.
 AC_SEARCH_LIBS([isnormal], [m])
 AC_SEARCH_LIBS([clock_gettime], [rt])
