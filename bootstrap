@@ -1,6 +1,7 @@
 #!/bin/sh
 
 aclocal
+autoheader
 #automake --foreign -a -c
 #libtoolize
 autoconf
