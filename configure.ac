@@ -29,14 +29,13 @@ AX_LIB_SOCKET_NSL # -lsocket and -lnsl
 AC_CHECK_HEADERS([ \
 	ifaddrs.h mach/mach.h netinet/in6_var.h sys/sysctl.h \
 ])
-
 AC_CHECK_HEADERS([netinet6/in6_var.h], [], [], [/* silence autoconf */])
 
-# Checks for typedefs, structures, and compiler characteristics.
-AC_TYPE_UINT32_T
-AC_TYPE_UINT64_T
-AC_TYPE_SSIZE_T
-AC_CHECK_DECLS([sys_siglist],,,[[#include <signal.h>]])
+# Checks for library objects.
+AC_CHECK_DECL([sys_siglist],[],[],[[#include <signal.h>]])
+WA_CHECK_VAR([sys_siglist])
+AC_CHECK_DECL([__libc_enable_secure])
+WA_CHECK_VAR([__libc_enable_secure])
 
 # Checks for library functions.
 AC_CHECK_FUNCS([ \
@@ -45,11 +44,5 @@ AC_CHECK_FUNCS([ \
 	sigtimedwait sysctl \
 ])
 
-# Configure automake.
-#AM_INIT_AUTOMAKE
-
-# Configure libtool.
-#LT_INIT
-#AC_SUBST([LIBTOOL_DEPS])
 
 AC_OUTPUT
