@@ -24,9 +24,10 @@ AX_LIB_SOCKET_NSL # -lsocket and -lnsl
 
 # Checks for header files.
 AC_CHECK_HEADERS([ \
-	ifaddrs.h mach/mach.h netinet/in6_var.h netinet6/in6_var.h \
-	sys/sysctl.h \
+	ifaddrs.h mach/mach.h netinet/in6_var.h sys/sysctl.h \
 ])
+
+AC_CHECK_HEADERS([netinet6/in6_var.h], [], [], [/* silence autoconf */])
 
 # Checks for typedefs, structures, and compiler characteristics.
 AC_TYPE_UINT32_T
