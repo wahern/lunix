@@ -13,6 +13,8 @@ $(d)/help: # default target
 #
 # E N V I R O N M E N T  C O N F I G U R A T I O N
 #
+-include $(d)/Makeflags
+
 -include $(d)/.config
 
 prefix ?= /usr/local
@@ -34,6 +36,7 @@ RM ?= rm
 CP ?= cp
 RMDIR ?= rmdir
 MKDIR ?= mkdir
+MKDIR_P ?= $(MKDIR) -p
 CHMOD ?= chmod
 INSTALL ?= install
 INSTALL_DATA ?= $(INSTALL) -m 644
@@ -64,6 +67,7 @@ $(d)/config:
 	printf 'CP ?= $(value CP)'"\n" >> $(@D)/.config
 	printf 'RMDIR ?= $(value RMDIR)'"\n" >> $(@D)/.config
 	printf 'MKDIR ?= $(value MKDIR)'"\n" >> $(@D)/.config
+	printf 'MKDIR_P ?= $(value MKDIR_P)'"\n" >> $(@D)/.config
 	printf 'CHMOD ?= $(value CHMOD)'"\n" >> $(@D)/.config
 	printf 'INSTALL ?= $(value INSTALL)'"\n" >> $(@D)/.config
 	printf 'INSTALL_DATA ?= $(value INSTALL_DATA)'"\n" >> $(@D)/.config

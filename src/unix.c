@@ -1,3 +1,7 @@
+#if HAVE_CONFIG_H
+#include "config.h"
+#endif
+
 /*
  * P O R T A B L E  S Y S T E M  I N C L U D E S
  *
@@ -10,10 +14,6 @@
  * Non-portable headers are included after the feature detection section.
  *
  * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
-#ifndef _POSIX_PTHREAD_SEMANTICS
-#define _POSIX_PTHREAD_SEMANTICS 1 /* Solaris */
-#endif
-
 #include <limits.h>       /* INT_MAX NL_TEXTMAX */
 #include <stdarg.h>       /* va_list va_start va_arg va_end */
 #include <stdint.h>       /* SIZE_MAX */
@@ -28,7 +28,6 @@
 #include <math.h>         /* NAN isnormal(3) signbit(3) */
 #include <locale.h>       /* LC_* setlocale(3) */
 
-#include <sys/param.h>    /* __NetBSD_Version__ OpenBSD __FreeBSD_version */
 #include <sys/types.h>    /* gid_t mode_t off_t pid_t uid_t */
 #include <sys/resource.h> /* RUSAGE_SELF struct rusage getrusage(2) */
 #include <sys/socket.h>   /* AF_* SOCK_* struct sockaddr socket(2) */
@@ -47,19 +46,6 @@
 #include <netinet/in.h>   /* __KAME__ IPPROTO_* */
 #include <netdb.h>        /* NI_* AI_* gai_strerror(3) getaddrinfo(3) getnameinfo(3) freeaddrinfo(3) */
 
-#if __sun
-#include <sys/feature_tests.h> /* _DTRACE_VERSION */
-#include <sys/sockio.h>   /* SIOCGIFCONF SIOCGIFFLAGS SIOCGIFNETMASK SIOCGIFDSTADDR SIOCGIFBRDADDR */
-#endif
-
-#if __APPLE__
-#if USE_CLOCK_GET_TIME
-#include <mach/mach.h>    /* MACH_PORT_NULL KERN_SUCCESS host_name_port_t mach_host_self() mach_task_self() mach_port_deallocate() */
-#include <mach/clock.h>   /* SYSTEM_CLOCK clock_serv_t host_get_block_service() clock_get_time() */
-#endif
-#include <mach/mach_time.h> /* mach_timebase_info() mach_absolute_time() */
-#endif
-
 #define LUA_COMPAT_5_2 1
 #include <lua.h>
 #include <lualib.h>
@@ -73,12 +59,12 @@
  * preprocessor environment.
  *
  * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
-#if __sun
-#include <sys/feature_tests.h> /* _DTRACE_VERSION */
-#endif
-
 #ifndef __has_feature
 #define __has_feature(...) 0
+#endif
+
+#ifndef __has_extension
+#define __has_extension(...) 0
 #endif
 
 #ifndef __NetBSD_Prereq__
@@ -100,6 +86,32 @@
 #define SUNOS_PREREQ_5_10 (defined __sun && defined _DTRACE_VERSION)
 #define SUNOS_PREREQ_5_11 (defined __sun && defined F_DUPFD_CLOEXEC)
 #define SUNOS_PREREQ(M, m) SUNOS_PREREQ_ ## M ## _ ## m
+
+#if !HAVE_CONFIG_H
+
+#ifndef HAVE__STATIC_ASSERT
+#define HAVE__STATIC_ASSERT (GNUC_PREREQ(4,6) || __has_feature(c_static_assert) || __has_extension(c_static_assert))
+#endif
+
+#ifndef HAVE_MACH_MACH_H
+#define HAVE_MACH_MACH_H (defined __APPLE__)
+#endif
+
+#ifndef HAVE_SYS_FEATURE_TESTS_H
+#define HAVE_SYS_FEATURE_TESTS_H (defined __sun)
+#endif
+
+#ifndef HAVE_SYS_PARAM_H
+#define HAVE_SYS_PARAM_H (defined __OpenBSD__ || defined __NetBSD__ || defined __FreeBSD__ || defined __APPLE__)
+#endif
+
+#ifndef HAVE_MACH_CLOCK_H
+#define HAVE_MACH_CLOCK_H (defined __APPLE__)
+#endif
+
+#ifndef HAVE_MACH_MACH_TIME_H
+#define HAVE_MACH_MACH_TIME_H (defined __APPLE__)
+#endif
 
 #ifndef HAVE_ARC4RANDOM
 #define HAVE_ARC4RANDOM (defined __OpenBSD__ || defined __FreeBSD__ || defined __NetBSD__ || defined __MirBSD__ || defined __APPLE__)
@@ -149,8 +161,12 @@
 #define HAVE_NETINET_IN6_VAR_H (defined _AIX)
 #endif
 
+/*
+ * Only if we lack <ifaddrs.h>. FreeBSD requires <net/if_var.h> and many
+ * other dependencies.
+ */ 
 #ifndef HAVE_NETINET6_IN6_VAR_H
-#define HAVE_NETINET6_IN6_VAR_H (defined __KAME__)
+#define HAVE_NETINET6_IN6_VAR_H (defined __KAME__ && !HAVE_IFADDRS_H)
 #endif
 
 #ifndef HAVE_GETENV_R
@@ -161,14 +177,12 @@
 #define HAVE_SIGTIMEDWAIT (!defined __APPLE__ && !defined __OpenBSD__)
 #endif
 
-#ifndef HAVE_SYS_SYSCTL_H
-/*
- * XXX: This is currently an intermediate hack for the arc4random
- * implementation. Many other systems have <sys/sysctl.h> (e.g. BSDs), and
- * not all Linux systems have <sys/sysctl.h> (e.g. Alpine Linux using
- * MUSL).
- */
-#define HAVE_SYS_SYSCTL_H __linux
+#ifndef HAVE_SYS_SOCKIO_H
+#define HAVE_SYS_SOCKIO_H (defined __sun)
+#endif
+
+#ifndef HAVE_SYS_SYSCTL_H /* missing on musl libc */
+#define HAVE_SYS_SYSCTL_H (defined BSD || GLIBC_PREREQ(0,0))
 #endif
 
 #ifndef HAVE_SYSCTL
@@ -195,13 +209,27 @@
 #define HAVE_SYS_SIGLIST 1
 #endif
 
+#endif /* !HAVE_CONFIG_H */
+
+
 /*
  * N O N - P O R T A B L E  S Y S T E M  I N C L U D E S
  *
  * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
+#if HAVE_SYS_FEATURE_TESTS_H
+#include <sys/feature_tests.h> /* _DTRACE_VERSION */
+#endif
+
+#if HAVE_SYS_PARAM_H
+#include <sys/param.h> /* __NetBSD_Version__ OpenBSD __FreeBSD_version */
+#endif
+
+#if HAVE_SYS_SOCKIO_H
+#include <sys/sockio.h> /* SIOCGIFCONF SIOCGIFFLAGS SIOCGIFNETMASK SIOCGIFDSTADDR SIOCGIFBRDADDR */
+#endif
 
 #if HAVE_SYS_SYSCTL_H
-#include <sys/sysctl.h>   /* CTL_KERN KERN_RANDOM RANDOM_UUID sysctl(2) */
+#include <sys/sysctl.h> /* CTL_KERN KERN_RANDOM RANDOM_UUID sysctl(2) */
 #endif
 
 #if HAVE_IFADDRS_H
@@ -212,13 +240,20 @@
 #include <netinet/in6_var.h> /* SIOCGIFADDR6 SIOCGIFNETMASK6 SIOCGIFDSTADDR6 struct in6_ifreq */
 #endif
 
-/*
- * NOTE: Include only if we lack <ifaddrs.h>. FreeBSD requires
- * <net/if_var.h>, and who knows what other header dependency issues we
- * could run into.
- */ 
-#if HAVE_NETINET6_IN6_VAR_H && !HAVE_IFADDRS_H
+#if HAVE_NETINET6_IN6_VAR_H
 #include <netinet6/in6_var.h> /* SIOCGIFADDR_IN6 SIOCGIFNETMASK_IN6 SIOCGIFDSTADDR_IN6 struct in6_ifreq */
+#endif
+
+#if HAVE_MACH_MACH_H
+#include <mach/mach.h> /* MACH_PORT_NULL KERN_SUCCESS host_name_port_t mach_host_self() mach_task_self() mach_port_deallocate() */
+#endif
+
+#if HAVE_MACH_CLOCK_H
+#include <mach/clock.h> /* SYSTEM_CLOCK clock_serv_t host_get_block_service() clock_get_time() */
+#endif
+
+#if HAVE_MACH_MACH_TIME_H
+#include <mach/mach_time.h> /* mach_timebase_info() mach_absolute_time() */
 #endif
 
 
@@ -358,7 +393,7 @@ static void luaL_setfuncs(lua_State *L, const luaL_Reg *l, int nup) {
 
 #if defined static_assert
 #define u_static_assert(cond, msg) static_assert(cond, msg)
-#elif GNUC_PREREQ(4,6) || (__clang__ && __has_feature(c_static_assert))
+#elif HAVE__STATIC_ASSERT
 #define u_static_assert(cond, msg) _Static_assert(cond, msg)
 #else
 #define u_static_assert(cond, msg) extern char XPASTE(assert_, __LINE__)[sizeof (int[1 - 2*!(cond)])]
