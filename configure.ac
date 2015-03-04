@@ -43,8 +43,18 @@ WA_CHECK_VAR([__libc_enable_secure])
 AC_CHECK_FUNCS([ \
 	arc4random arc4random_addrandom arc4random_stir clock_gettime \
 	dup2 dup3 fdopendir getauxval getenv_r getifaddrs issetugid pipe2 \
-	sigtimedwait sysctl _Static_assert \
+	sigtimedwait sysctl \
 ])
 
+# Check for _Static_assert
+AC_MSG_CHECKING([for _Static_assert])
+AC_LINK_IFELSE([
+	AC_LANG_PROGRAM([],[_Static_assert(1, "");])
+], [
+	AC_MSG_RESULT([yes])
+	AC_DEFINE([HAVE__STATIC_ASSERT], [1], [Define to 1 if have _Static_assert])
+], [
+	AC_MSG_RESULT([no])
+])
 
 AC_OUTPUT
