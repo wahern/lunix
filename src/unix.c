@@ -74,16 +74,16 @@
 #define GNUC_PREREQ(M, m) (defined __GNUC__ && ((__GNUC__ > M) || (__GNUC__ == M && __GNUC_MINOR__ >= m)))
 
 #if defined __GLIBC_PREREQ
-#define GLIBC_PREREQ(M, m) (__GLIBC_PREREQ(M, m) && !__UCLIBC__)
+#define GLIBC_PREREQ(M, m) (defined __GLIBC__ && __GLIBC_PREREQ(M, m) && !__UCLIBC__)
 #else
 #define GLIBC_PREREQ(M, m) 0
 #endif
 
-#define UCLIBC_PREREQ(M, m, p) (__UCLIBC_MAJOR__ > M || (__UCLIBC_MAJOR__ == M && __UCLIBC_MINOR__ > m) || (__UCLIBC_MAJOR__ == M && __UCLIBC_MINOR__ == m && __UCLIBC_SUBLEVEL__ >= p))
+#define UCLIBC_PREREQ(M, m, p) (defined __UCLIBC__ && (__UCLIBC_MAJOR__ > M || (__UCLIBC_MAJOR__ == M && __UCLIBC_MINOR__ > m) || (__UCLIBC_MAJOR__ == M && __UCLIBC_MINOR__ == m && __UCLIBC_SUBLEVEL__ >= p)))
 
 #define NETBSD_PREREQ(M, m) __NetBSD_Prereq__(M, m, 0)
 
-#define FREEBSD_PREREQ(M, m) (__FreeBSD_version >= ((M) * 100000) + ((m) * 1000))
+#define FREEBSD_PREREQ(M, m) (defined __FreeBSD_version && __FreeBSD_version >= ((M) * 100000) + ((m) * 1000))
 
 #define SUNOS_PREREQ_5_10 (defined __sun && defined _DTRACE_VERSION)
 #define SUNOS_PREREQ_5_11 (defined __sun && defined F_DUPFD_CLOEXEC)
@@ -1862,6 +1862,9 @@ static const char *unixL_strsignal(lua_State *L, int signo) {
 	if (signo >= 0 && signo < NSIG && (info = strsignal(signo)))
 		return info;
 #elif HAVE_SYS_SIGLIST
+#if !HAVE_DECL_SYS_SIGLIST
+	extern const char *sys_siglist[];
+#endif
 	if (signo >= 0 && signo < NSIG && (info = sys_siglist[signo]))
 		return info;
 #endif
