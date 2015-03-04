@@ -74,10 +74,12 @@
 #define GNUC_PREREQ(M, m) (defined __GNUC__ && ((__GNUC__ > M) || (__GNUC__ == M && __GNUC_MINOR__ >= m)))
 
 #if defined __GLIBC_PREREQ
-#define GLIBC_PREREQ(M, m) __GLIBC_PREREQ(M, m)
+#define GLIBC_PREREQ(M, m) (__GLIBC_PREREQ(M, m) && !__UCLIBC__)
 #else
 #define GLIBC_PREREQ(M, m) 0
 #endif
+
+#define UCLIBC_PREREQ(M, m, p) (__UCLIBC_MAJOR__ > M || (__UCLIBC_MAJOR__ == M && __UCLIBC_MINOR__ > m) || (__UCLIBC_MAJOR__ == M && __UCLIBC_MINOR__ == m && __UCLIBC_SUBLEVEL__ >= p))
 
 #define NETBSD_PREREQ(M, m) __NetBSD_Prereq__(M, m, 0)
 
@@ -126,11 +128,11 @@
 #endif
 
 #ifndef HAVE_PIPE2
-#define HAVE_PIPE2 (GLIBC_PREREQ(2,9) || FREEBSD_PREREQ(10,0) || NETBSD_PREREQ(6,0))
+#define HAVE_PIPE2 (GLIBC_PREREQ(2,9) || FREEBSD_PREREQ(10,0) || NETBSD_PREREQ(6,0) || UCLIBC_PREREQ(0,9,32))
 #endif
 
 #ifndef HAVE_DUP3
-#define HAVE_DUP3 (GLIBC_PREREQ(2,9) || FREEBSD_PREREQ(10,0) || NETBSD_PREREQ(6,0))
+#define HAVE_DUP3 (GLIBC_PREREQ(2,9) || FREEBSD_PREREQ(10,0) || NETBSD_PREREQ(6,0) || UCLIBC_PREREQ(0,9,34))
 #endif
 
 #ifndef HAVE_FDOPENDIR
@@ -143,6 +145,10 @@
 
 #ifndef HAVE_GETAUXVAL
 #define HAVE_GETAUXVAL GLIBC_PREREQ(2,16)
+#endif
+
+#ifndef HAVE__LIBC_ENABLE_SECURE
+#define HAVE__LIBC_ENABLE_SECURE GLIBC_PREREQ(2,1) /* added to glibc between 2.0.98 and 2.0.99 */
 #endif
 
 #ifndef HAVE_IFADDRS_H
@@ -182,7 +188,7 @@
 #endif
 
 #ifndef HAVE_SYS_SYSCTL_H /* missing on musl libc */
-#define HAVE_SYS_SYSCTL_H (defined BSD || GLIBC_PREREQ(0,0))
+#define HAVE_SYS_SYSCTL_H (defined BSD || GLIBC_PREREQ(0,0) || UCLIBC_PREREQ(0,0,0))
 #endif
 
 #ifndef HAVE_SYSCTL
@@ -4206,7 +4212,7 @@ MAYBEUSED static int unix_issetugid_linux(lua_State *L) {
 	}
 #endif
 
-#if GLIBC_PREREQ(2,1) /* __libc_enable_secure added between 2.0.98 and 2.0.99 */
+#if HAVE__LIBC_ENABLE_SECURE
 	extern int __libc_enable_secure;
 
 	lua_pushboolean(L, __libc_enable_secure);
