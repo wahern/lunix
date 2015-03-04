@@ -40,7 +40,7 @@ WA_CHECK_VAR([__libc_enable_secure])
 # Checks for library functions.
 AC_CHECK_FUNCS([ \
 	arc4random arc4random_addrandom arc4random_stir clock_gettime \
-	dup2 dup3 fopendir getauxval getenv_r getifaddrs issetugid pipe2 \
+	dup2 dup3 fdopendir getauxval getenv_r getifaddrs issetugid pipe2 \
 	sigtimedwait sysctl \
 ])
 

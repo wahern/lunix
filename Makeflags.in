@@ -1,4 +1,16 @@
-CFLAGS=@CFLAGS@
-CPPFLAGS=@CPPFLAGS@ @DEFS@
-LDFLAGS=@LDFLAGS@
-LIBS=@LIBS@
+prefix ?= @prefix@
+exec_prefix ?= @exec_prefix@
+includedir ?= @includedir@
+datadir ?= @datadir@
+datarootdir ?= @datarootdir@
+libdir ?= @libdir@
+bindir ?= @bindir@
+
+MKDIR_P ?= @MKDIR_P@
+INSTALL ?= @INSTALL@
+INSTALL_DATA ?= @INSTALL_DATA@
+
+CFLAGS ?= @CFLAGS@
+CPPFLAGS ?= @CPPFLAGS@ @DEFS@
+LDFLAGS ?= @LDFLAGS@
+LIBS ?= @LIBS@
