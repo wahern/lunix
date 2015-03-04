@@ -93,16 +93,16 @@
 #define HAVE__STATIC_ASSERT (GNUC_PREREQ(4,6) || __has_feature(c_static_assert) || __has_extension(c_static_assert))
 #endif
 
-#ifndef HAVE_MACH_MACH_H
-#define HAVE_MACH_MACH_H (defined __APPLE__)
-#endif
-
 #ifndef HAVE_SYS_FEATURE_TESTS_H
 #define HAVE_SYS_FEATURE_TESTS_H (defined __sun)
 #endif
 
 #ifndef HAVE_SYS_PARAM_H
 #define HAVE_SYS_PARAM_H (defined __OpenBSD__ || defined __NetBSD__ || defined __FreeBSD__ || defined __APPLE__)
+#endif
+
+#ifndef HAVE_MACH_MACH_H
+#define HAVE_MACH_MACH_H (defined __APPLE__)
 #endif
 
 #ifndef HAVE_MACH_CLOCK_H

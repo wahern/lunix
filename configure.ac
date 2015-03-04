@@ -27,7 +27,9 @@ AX_LIB_SOCKET_NSL # -lsocket and -lnsl
 
 # Checks for header files.
 AC_CHECK_HEADERS([ \
-	ifaddrs.h mach/mach.h netinet/in6_var.h sys/sysctl.h \
+	ifaddrs.h mach/mach.h mach/clock.h mach/mach_time.h \
+	netinet/in6_var.h sys/feature_tests.h sys/param.h sys/sockio.h \
+	sys/sysctl.h \
 ])
 AC_CHECK_HEADERS([netinet6/in6_var.h], [], [], [/* silence autoconf */])
 
@@ -41,7 +43,7 @@ WA_CHECK_VAR([__libc_enable_secure])
 AC_CHECK_FUNCS([ \
 	arc4random arc4random_addrandom arc4random_stir clock_gettime \
 	dup2 dup3 fdopendir getauxval getenv_r getifaddrs issetugid pipe2 \
-	sigtimedwait sysctl \
+	sigtimedwait sysctl _Static_assert \
 ])
 
 
