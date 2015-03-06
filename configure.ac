@@ -34,9 +34,9 @@ AC_CHECK_HEADERS([ \
 AC_CHECK_HEADERS([netinet6/in6_var.h], [], [], [/* silence autoconf */])
 
 # Checks for library objects.
-AC_CHECK_DECL([sys_siglist],[],[],[[#include <signal.h>]])
+AC_CHECK_DECLS([sys_siglist], [], [], [[#include <signal.h>]])
 WA_CHECK_VAR([sys_siglist])
-AC_CHECK_DECL([__libc_enable_secure])
+AC_CHECK_DECLS([__libc_enable_secure])
 WA_CHECK_VAR([__libc_enable_secure])
 
 # Checks for library functions.
@@ -45,6 +45,9 @@ AC_CHECK_FUNCS([ \
 	dup2 dup3 fdopendir getauxval getenv_r getifaddrs issetugid pipe2 \
 	sigtimedwait sysctl \
 ])
+
+# Check for strerror_r and variant
+AC_FUNC_STRERROR_R
 
 # Check for _Static_assert
 AC_MSG_CHECKING([for _Static_assert])

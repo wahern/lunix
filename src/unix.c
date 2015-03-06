@@ -215,6 +215,10 @@
 #define HAVE_SYS_SIGLIST 1
 #endif
 
+#ifndef STRERROR_R_CHAR_P
+#define STRERROR_R_CHAR_P ((GLIBC_PREREQ(0,0) || UCLIBC_PREPREQ(0,0,0)) && (_GNU_SOURCE || !(_POSIX_C_SOURCE >= 200112L || _XOPEN_SOURCE >= 600)))
+#endif
+
 #endif /* !HAVE_CONFIG_H */
 
 
@@ -885,13 +889,8 @@ static u_error_t u_sigtimedwait(int *_signo, const sigset_t *set, siginfo_t *_in
 } /* u_sigtimedwait() */
 
 
-/*
- * We define _GNU_SOURCE on Linux because we don't want a strict POSIX
- * environment. But _GNU_SOURCE causes the GNU strerror_r interface to be
- * exposed rather than the POSIX-compliant interface.
- */
 static u_error_t u_strerror_r(int error, char *dst, size_t lim) {
-#if GLIBC_PREREQ(0,0) && defined _GNU_SOURCE
+#if STRERROR_R_CHAR_P
 	char *src;
 
 	if (!(src = strerror_r(error, dst, lim)))
