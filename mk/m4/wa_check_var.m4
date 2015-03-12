@@ -7,7 +7,7 @@ AC_DEFUN([WA_CHECK_VAR_BODY], [AC_LINK_IFELSE([
 
 AC_DEFUN([WA_CHECK_VAR], [
 	AS_VAR_PUSHDEF([ac_Symbol], [ac_cv_var_$1])
-	AC_CACHE_CHECK([whether $1 is defined], [ac_Symbol], [WA_CHECK_VAR_BODY([$1])])
+	AC_CACHE_CHECK([for $1], [ac_Symbol], [WA_CHECK_VAR_BODY([$1])])
 	AS_VAR_IF([ac_Symbol], [yes], [AC_DEFINE(AS_TR_CPP([HAVE_$1]), [1], [Define to 1 if variable $1 is defined (but not necessarily declared).])])
 	AS_VAR_IF([ac_Symbol], [yes], [$2], [$3])
 	AS_VAR_POPDEF([ac_Symbol])

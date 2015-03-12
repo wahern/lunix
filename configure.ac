@@ -1,3 +1,12 @@
+# Redefine AH_TEMPLATE so that feature macros can be overridden from CPPFLAGS
+m4_define([AH_TEMPLATE],
+[AH_VERBATIM([$1],
+	m4_text_wrap([$2 */], [   ], [/* ])[
+@%:@ifndef ]_m4_expand([$1])[
+@%:@undef ]_m4_expand([$1])[
+@%:@endif])])
+
+# Initialize autoconf
 AC_PREREQ([2.69])
 AC_INIT([FULL-PACKAGE-NAME], [VERSION], [BUG-REPORT-ADDRESS])
 AC_CONFIG_AUX_DIR([mk])
