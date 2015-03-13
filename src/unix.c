@@ -5427,7 +5427,9 @@ static const struct unix_const const_eai[] = {
 	UNIX_CONST(EAI_FAMILY), UNIX_CONST(EAI_MEMORY),
 	UNIX_CONST(EAI_NONAME), UNIX_CONST(EAI_SERVICE),
 	UNIX_CONST(EAI_SOCKTYPE), UNIX_CONST(EAI_SYSTEM),
+#if defined EAI_OVERFLOW
 	UNIX_CONST(EAI_OVERFLOW),
+#endif
 }; /* const_eai[] */
 
 static const struct unix_const const_clock[] = {
