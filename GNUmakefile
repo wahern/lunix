@@ -128,12 +128,18 @@ include $(d)/src/GNUmakefile
 #
 # C L E A N  R U L E S
 #
-.PHONY: $(d)/clean~ clean~
+.PHONY: $(d)/clean~ clean~ $(d)/distclean distclean
 
 $(d)/clean~:
 	$(RM) -f $(@D)/*~
 
 clean~: $(d)/clean~
+
+$(d)/distclean:
+	$(RM) -f $(@D)/config.log $(@D)/config.status $(@D)/Makeflags \
+	$(@D)/src/config.h
+
+distclean: $(d)/distclean
 
 
 #

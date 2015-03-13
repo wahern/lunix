@@ -1,5 +1,6 @@
 #!/bin/sh
 
+trap "rm -fr autom4te.cache" EXIT
 aclocal
 autoheader
 #automake --foreign -a -c
