@@ -115,6 +115,42 @@
 #define HAVE_MACH_MACH_TIME_H (defined __APPLE__)
 #endif
 
+#ifndef HAVE_STRUCT_STAT_ST_RDEV
+#define HAVE_STRUCT_STAT_ST_RDEV 1
+#endif
+
+#ifndef HAVE_STRUCT_STAT_ST_BLKSIZE
+#define HAVE_STRUCT_STAT_ST_BLKSIZE 1
+#endif
+
+#ifndef HAVE_STRUCT_STAT_ST_BLOCKS
+#define HAVE_STRUCT_STAT_ST_BLOCKS 1
+#endif
+
+#ifndef HAVE_STRUCT_STAT_ST_ATIM
+#define HAVE_STRUCT_STAT_ST_ATIM (defined st_atime)
+#endif
+
+#ifndef HAVE_STRUCT_STAT_ST_MTIM
+#define HAVE_STRUCT_STAT_ST_MTIM HAVE_STRUCT_STAT_ST_ATIM
+#endif
+
+#ifndef HAVE_STRUCT_STAT_ST_CTIM
+#define HAVE_STRUCT_STAT_ST_CTIM HAVE_STRUCT_STAT_ST_CTIM
+#endif
+
+#ifndef HAVE_STRUCT_STAT_ST_ATIMESPEC
+#define HAVE_STRUCT_STAT_ST_ATIMESPEC (defined __APPLE__ || defined st_atimespec)
+#endif
+
+#ifndef HAVE_STRUCT_STAT_ST_MTIMESPEC
+#define HAVE_STRUCT_STAT_ST_MTIMESPEC HAVE_STRUCT_STAT_ST_ATIMESPEC
+#endif
+
+#ifndef HAVE_STRUCT_STAT_ST_CTIMESPEC
+#define HAVE_STRUCT_STAT_ST_CTIMESPEC HAVE_STRUCT_STAT_ST_ATIMESPEC
+#endif
+
 #ifndef HAVE_ARC4RANDOM
 #define HAVE_ARC4RANDOM (defined __OpenBSD__ || defined __FreeBSD__ || defined __NetBSD__ || defined __MirBSD__ || defined __APPLE__)
 #endif
@@ -675,6 +711,11 @@ static struct timespec *u_f2ts(struct timespec *ts, const double f) {
 		return NULL;
 	}
 } /* u_f2ts() */
+
+
+static double u_ts2f(const struct timespec *ts) {
+	return ts->tv_sec + (ts->tv_nsec / 1000000000.0);
+} /* u_ts2f() */
 
 
 #define ts_timercmp(a, b, cmp) \
@@ -3106,7 +3147,7 @@ static int unix_clock_gettime(lua_State *L) {
 #endif
 
 	if (lua_isnoneornil(L, 2) || !lua_toboolean(L, 2)) {
-		lua_pushnumber(L, (double)ts.tv_sec + ((double)ts.tv_nsec / 1000000000L));
+		lua_pushnumber(L, u_ts2f(&ts));
 
 		return 1;
 	} else {
@@ -4309,6 +4350,19 @@ static int unix_link(lua_State *L) {
 } /* unix_link() */
 
 
+static int st_pushstat(lua_State *, const struct stat *, int);
+
+static int unix_lstat(lua_State *L) {
+	const char *path = luaL_checkstring(L, 1);
+	struct stat st;
+
+	if (0 != lstat(path, &st))
+		return unixL_pusherror(L, errno, "lstat", "0$#");
+
+	return st_pushstat(L, &st, 2);
+} /* unix_lstat() */
+
+
 /*
  * Emulate mkdir except with well-defined SUID, SGID, SVTIX behavior. If you
  * want to set bits restricted by the umask you must manually use chmod.
@@ -5013,6 +5067,175 @@ static int unix_sigtimedwait(lua_State *L) {
 } /* unix_sigtimedwait() */
 
 
+enum st_field {
+	STF_DEV,
+	STF_INO,
+	STF_MODE,
+	STF_NLINK,
+	STF_UID,
+	STF_GID,
+	STF_RDEV,
+	STF_SIZE,
+	STF_ATIME,
+	STF_MTIME,
+	STF_CTIME,
+	STF_BLKSIZE,
+	STF_BLOCKS,
+}; /* enum st_field */
+
+static const char *st_field[] = {
+	"dev", "ino", "mode", "nlink", "uid", "gid", "rdev", "size",
+	"atime", "mtime", "ctime", "blksize", "blocks", NULL
+}; /* st_field[] */
+
+static void st_pushfield(lua_State *L, const struct stat *st, enum st_field type) {
+	switch (type) {
+	case STF_DEV:
+		lua_pushinteger(L, st->st_dev);
+		break;
+	case STF_INO:
+		lua_pushinteger(L, st->st_ino);
+		break;
+	case STF_MODE:
+		lua_pushinteger(L, st->st_mode);
+		break;
+	case STF_NLINK:
+		lua_pushinteger(L, st->st_nlink);
+		break;
+	case STF_UID:
+		lua_pushinteger(L, st->st_uid);
+		break;
+	case STF_GID:
+		lua_pushinteger(L, st->st_gid);
+		break;
+#if HAVE_STRUCT_STAT_ST_RDEV
+	case STF_RDEV:
+		unixL_pushinteger(L, st->st_rdev);
+		break;
+#endif
+	case STF_SIZE:
+		unixL_pushinteger(L, st->st_size);
+		break;
+	case STF_ATIME:
+#if HAVE_STRUCT_STAT_ST_ATIMESPEC
+		lua_pushnumber(L, u_ts2f(&st->st_atimespec));
+#elif HAVE_STRUCT_STAT_ST_ATIM
+		lua_pushnumber(L, u_ts2f(&st->st_atim));
+#else
+		lua_pushnumber(L, st->st_atime);
+#endif
+		break;
+	case STF_MTIME:
+#if HAVE_STRUCT_STAT_ST_MTIMESPEC
+		lua_pushnumber(L, u_ts2f(&st->st_mtimespec));
+#elif HAVE_STRUCT_STAT_ST_MTIM
+		lua_pushnumber(L, u_ts2f(&st->st_mtim));
+#else
+		lua_pushnumber(L, st->st_mtime);
+#endif
+		break;
+	case STF_CTIME:
+#if HAVE_STRUCT_STAT_ST_CTIMESPEC
+		lua_pushnumber(L, u_ts2f(&st->st_ctimespec));
+#elif HAVE_STRUCT_STAT_ST_CTIM
+		lua_pushnumber(L, u_ts2f(&st->st_ctim));
+#else
+		lua_pushnumber(L, st->st_ctime);
+#endif
+		break;
+#if HAVE_STRUCT_STAT_ST_BLKSIZE
+	case STF_BLKSIZE:
+		unixL_pushinteger(L, st->st_blksize);
+		break;
+#endif
+#if HAVE_STRUCT_STAT_ST_BLOCKS
+	case STF_BLOCKS:
+		unixL_pushinteger(L, st->st_blocks);
+		break;
+#endif
+	default:
+		lua_pushnil(L);
+		break;
+	}
+} /* st_pushfield() */
+
+static void st_pushtable(lua_State *L, const struct stat *st) {
+	lua_createtable(L, 0, countof(st_field) - 1);
+
+	st_pushfield(L, st, STF_DEV);
+	lua_setfield(L, -2, "dev");
+
+	st_pushfield(L, st, STF_INO);
+	lua_setfield(L, -2, "ino");
+
+	st_pushfield(L, st, STF_MODE);
+	lua_setfield(L, -2, "mode");
+
+	st_pushfield(L, st, STF_NLINK);
+	lua_setfield(L, -2, "nlink");
+
+	st_pushfield(L, st, STF_UID);
+	lua_setfield(L, -2, "uid");
+
+	st_pushfield(L, st, STF_GID);
+	lua_setfield(L, -2, "gid");
+
+	st_pushfield(L, st, STF_RDEV);
+	lua_setfield(L, -2, "rdev");
+
+	st_pushfield(L, st, STF_SIZE);
+	lua_setfield(L, -2, "size");
+
+	st_pushfield(L, st, STF_ATIME);
+	lua_setfield(L, -2, "atime");
+
+	st_pushfield(L, st, STF_MTIME);
+	lua_setfield(L, -2, "mtime");
+
+	st_pushfield(L, st, STF_CTIME);
+	lua_setfield(L, -2, "ctime");
+
+	st_pushfield(L, st, STF_BLKSIZE);
+	lua_setfield(L, -2, "blksize");
+
+	st_pushfield(L, st, STF_BLOCKS);
+	lua_setfield(L, -2, "blocks");
+} /* st_pushtable() */
+
+static int st_pushstat(lua_State *L, const struct stat *st, int fields) {
+	if (lua_isnoneornil(L, fields)) {
+		st_pushtable(L, st);
+
+		return 1;
+	} else {
+		int top = lua_gettop(L), i;
+
+		for (i = fields; i <= top; i++) {
+			st_pushfield(L, st, luaL_checkoption(L, i, NULL, st_field));
+		}
+
+		return i - fields;
+	}
+} /* st_pushstat() */
+
+static int unix_stat(lua_State *L) {
+	struct stat st;
+	int fd;
+
+	if (-1 != (fd = unixL_optfileno(L, 1, -1))) {
+		if (0 != fstat(fd, &st))
+			return unixL_pusherror(L, errno, "stat", "0$#");
+	} else {
+		const char *path = luaL_checkstring(L, 1);
+
+		if (0 != stat(path, &st))
+			return unixL_pusherror(L, errno, "stat", "0$#");
+	}
+
+	return st_pushstat(L, &st, 2);
+} /* unix_stat() */
+
+
 static int unix_strerror(lua_State *L) {
 	lua_pushstring(L, unixL_strerror(L, luaL_checkint(L, 1)));
 
@@ -5303,6 +5526,7 @@ static const luaL_Reg unix_routines[] = {
 	{ "fcntl",              &unix_fcntl },
 	{ "fileno",             &unix_fileno },
 	{ "flockfile",          &unix_flockfile },
+	{ "fstat",              &unix_stat },
 	{ "ftrylockfile",       &unix_ftrylockfile },
 	{ "funlockfile",        &unix_funlockfile },
 	{ "fork",               &unix_fork },
@@ -5328,6 +5552,7 @@ static const luaL_Reg unix_routines[] = {
 	{ "kill",               &unix_kill },
 	{ "lchown",             &unix_lchown },
 	{ "link",               &unix_link },
+	{ "lstat",              &unix_lstat },
 	{ "mkdir",              &unix_mkdir },
 	{ "mkpath",             &unix_mkpath },
 	{ "opendir",            &unix_opendir },
@@ -5362,6 +5587,7 @@ static const luaL_Reg unix_routines[] = {
 	{ "sigismember",        &unix_sigismember },
 	{ "sigprocmask",        &unix_sigprocmask },
 	{ "sigtimedwait",       &unix_sigtimedwait },
+	{ "stat",               &unix_stat },
 	{ "strerror",           &unix_strerror },
 	{ "strsignal",          &unix_strsignal },
 	{ "symlink",            &unix_symlink },

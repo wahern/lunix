@@ -42,6 +42,11 @@ AC_CHECK_HEADERS([ \
 ])
 AC_CHECK_HEADERS([netinet6/in6_var.h], [], [], [/* silence autoconf */])
 
+# Checks for structure members
+AC_CHECK_MEMBERS([struct stat.st_rdev, struct stat.st_blksize, struct stat.st_blocks])
+AC_CHECK_MEMBERS([struct stat.st_atim, struct stat.st_mtim, struct stat.st_ctim])
+AC_CHECK_MEMBERS([struct stat.st_atimespec, struct stat.st_mtimespec, struct stat.st_ctimespec])
+
 # Checks for library objects.
 AC_CHECK_DECLS([sys_siglist], [], [], [[#include <signal.h>]])
 WA_CHECK_VAR([sys_siglist])
