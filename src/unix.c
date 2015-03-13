@@ -37,7 +37,7 @@
 #include <sys/wait.h>     /* WNOHANG waitpid(2) */
 #include <sys/ioctl.h>    /* SIOCGIFCONF SIOCGIFFLAGS SIOCGIFNETMASK SIOCGIFDSTADDR SIOCGIFBRDADDR SIOCGLIFADDR ioctl(2) */
 #include <net/if.h>       /* IF_NAMESIZE struct ifconf struct ifreq */
-#include <unistd.h>       /* _PC_NAME_MAX chdir(2) chroot(2) close(2) chdir(2) chown(2) chroot(2) dup2(2) execve(2) execl(2) execlp(2) execvp(2) fork(2) fpathconf(3) getegid(2) geteuid(2) getgid(2) gethostname(3) getpid(2) getppid(2) getuid(2) issetugid(2) lchown(2) link(2) pread(2) pwrite(2) rename(2) rmdir(2) setegid(2) seteuid(2) setgid(2) setuid(2) setsid(2) symlink(2) truncate(2) umask(2) unlink(2) */
+#include <unistd.h>       /* _PC_NAME_MAX chdir(2) chroot(2) close(2) chdir(2) chown(2) chroot(2) dup2(2) execve(2) execl(2) execlp(2) execvp(2) fork(2) fpathconf(3) getegid(2) geteuid(2) getgid(2) getgroups(2) gethostname(3) getpid(2) getppid(2) getuid(2) issetugid(2) lchown(2) link(2) pread(2) pwrite(2) rename(2) rmdir(2) setegid(2) seteuid(2) setgid(2) setgroups(2) setuid(2) setsid(2) symlink(2) truncate(2) umask(2) unlink(2) */
 #include <fcntl.h>        /* F_* fcntl(2) open(2) */
 #include <pwd.h>          /* struct passwd getpwnam_r(3) */
 #include <grp.h>          /* struct group getgrnam_r(3) */
@@ -2154,7 +2154,7 @@ static gid_t unixL_optgid(lua_State *L, int index, gid_t def) {
 } /* unixL_optgid() */
 
 
-static uid_t unixL_checkgid(lua_State *L, int index) {
+static gid_t unixL_checkgid(lua_State *L, int index) {
 	luaL_checkany(L, index);
 
 	return unixL_optgid(L, index, -1);
@@ -4794,6 +4794,32 @@ static int unix_setgid(lua_State *L) {
 } /* unix_setgid() */
 
 
+static int unix_setgroups(lua_State *L) {
+	gid_t *group;
+	size_t n, i;
+
+	luaL_checktype(L, 1, LUA_TTABLE);
+	n = lua_rawlen(L, 1);
+
+	if (n > (size_t)-1 / sizeof *group)
+		return unixL_pusherror(L, ENOMEM, "setgroups", "0$#");
+
+	group = lua_newuserdata(L, n * sizeof *group);
+
+	for (i = 0; i < n; i++) {
+		lua_rawgeti(L, 1, i + 1);
+		group[i] = unixL_checkgid(L, -1);
+	}
+
+	if (0 != setgroups(n, group))
+		return unixL_pusherror(L, errno, "setgroups", "0$#");
+
+	lua_pushboolean(L, 1);
+
+	return 1;
+} /* unix_setgroups() */
+
+
 static int unix_setlocale(lua_State *L) {
 	const char *locale;
 
@@ -5324,6 +5350,7 @@ static const luaL_Reg unix_routines[] = {
 	{ "setenv",             &unix_setenv },
 	{ "seteuid",            &unix_seteuid },
 	{ "setgid",             &unix_setgid },
+	{ "setgroups",          &unix_setgroups },
 	{ "setlocale",          &unix_setlocale },
 	{ "setuid",             &unix_setuid },
 	{ "setsid",             &unix_setsid },
