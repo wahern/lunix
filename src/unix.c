@@ -3826,6 +3826,37 @@ static int unix_getgrnam(lua_State *L) {
 } /* unix_getgrnam() */
 
 
+static int unix_getgroups(lua_State *L) {
+	gid_t *group;
+	int n, count, i;
+
+	/* avoid TOCTTOU bug by looping if getgroups fills extra slot */
+	do {
+		lua_settop(L, 0);
+
+		if (-1 == (n = getgroups(0, NULL)))
+			return unixL_pusherror(L, errno, "getgroups", "~$#");
+
+		if (n == INT_MAX || (size_t)n + 1 > (size_t)-1 / sizeof *group)
+			return unixL_pusherror(L, ENOMEM, "getgroups", "~$#");
+
+		group = lua_newuserdata(L, (n + 1) * sizeof *group);
+
+		if (-1 == (count = getgroups(n + 1, group)))
+			return unixL_pusherror(L, errno, "getgroups", "~$#");
+	} while (count > n);
+
+	lua_createtable(L, count, 0);
+
+	for (i = 0; i < count; i++) {
+		lua_pushinteger(L, group[i]);
+		lua_rawseti(L, -2, i + 1);
+	}
+
+	return 1;
+} /* unix_getgroups() */
+
+
 static int unix_gethostname(lua_State *L) {
 	luaL_Buffer B;
 	char *host;
@@ -5258,6 +5289,7 @@ static const luaL_Reg unix_routines[] = {
 	{ "getgid",             &unix_getgid },
 	{ "getgrnam",           &unix_getgrnam },
 	{ "getgrgid",           &unix_getgrnam },
+	{ "getgroups",          &unix_getgroups },
 	{ "gethostname",        &unix_gethostname },
 	{ "getifaddrs",         &unix_getifaddrs },
 	{ "getpid",             &unix_getpid },
