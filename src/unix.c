@@ -5088,6 +5088,18 @@ static const char *st_field[] = {
 	"atime", "mtime", "ctime", "blksize", "blocks", NULL
 }; /* st_field[] */
 
+/* AIX uses struct st_timespec, where tv_nsec is an int instead of a long. */
+#define ST_TIMESPEC_TO_TIMESPEC(st_ts, ts) do { \
+	(ts)->tv_sec = (st_ts)->tv_sec; \
+	(ts)->tv_nsec = (st_ts)->tv_nsec; \
+} while (0)
+
+#define st_pushtimespec(L, st_ts) do { \
+	struct timespec ts; \
+	ST_TIMESPEC_TO_TIMESPEC((st_ts), &ts); \
+	lua_pushnumber(L, u_ts2f(&ts)); \
+} while (0)
+
 static void st_pushfield(lua_State *L, const struct stat *st, enum st_field type) {
 	switch (type) {
 	case STF_DEV:
@@ -5120,7 +5132,7 @@ static void st_pushfield(lua_State *L, const struct stat *st, enum st_field type
 #if HAVE_STRUCT_STAT_ST_ATIMESPEC
 		lua_pushnumber(L, u_ts2f(&st->st_atimespec));
 #elif HAVE_STRUCT_STAT_ST_ATIM
-		lua_pushnumber(L, u_ts2f(&st->st_atim));
+		st_pushtimespec(L, &st->st_atim);
 #else
 		lua_pushnumber(L, st->st_atime);
 #endif
@@ -5129,7 +5141,7 @@ static void st_pushfield(lua_State *L, const struct stat *st, enum st_field type
 #if HAVE_STRUCT_STAT_ST_MTIMESPEC
 		lua_pushnumber(L, u_ts2f(&st->st_mtimespec));
 #elif HAVE_STRUCT_STAT_ST_MTIM
-		lua_pushnumber(L, u_ts2f(&st->st_mtim));
+		st_pushtimespec(L, &st->st_mtim);
 #else
 		lua_pushnumber(L, st->st_mtime);
 #endif
@@ -5138,7 +5150,7 @@ static void st_pushfield(lua_State *L, const struct stat *st, enum st_field type
 #if HAVE_STRUCT_STAT_ST_CTIMESPEC
 		lua_pushnumber(L, u_ts2f(&st->st_ctimespec));
 #elif HAVE_STRUCT_STAT_ST_CTIM
-		lua_pushnumber(L, u_ts2f(&st->st_ctim));
+		st_pushtimespec(L, &st->st_ctim);
 #else
 		lua_pushnumber(L, st->st_ctime);
 #endif
