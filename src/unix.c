@@ -136,11 +136,11 @@
 #endif
 
 #ifndef HAVE_STRUCT_STAT_ST_CTIM
-#define HAVE_STRUCT_STAT_ST_CTIM HAVE_STRUCT_STAT_ST_CTIM
+#define HAVE_STRUCT_STAT_ST_CTIM HAVE_STRUCT_STAT_ST_ATIM
 #endif
 
 #ifndef HAVE_STRUCT_STAT_ST_ATIMESPEC
-#define HAVE_STRUCT_STAT_ST_ATIMESPEC (defined __APPLE__ || defined st_atimespec)
+#define HAVE_STRUCT_STAT_ST_ATIMESPEC (defined __APPLE__ || defined st_atimespec || defined st_atimensec)
 #endif
 
 #ifndef HAVE_STRUCT_STAT_ST_MTIMESPEC
