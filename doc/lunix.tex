@@ -116,7 +116,7 @@ morestring=[b]"
 
 \chapter{About}
 
-\lunix is a bindings library module to common Unix system APIs. The module is regularly tested with Linux/glibc, OS X, FreeBSD, NetBSD, OpenBSD, Solaris, and AIX. The best way to describe it is in contradistinction to \luaposix, the most popular bindings module for Unix APIs in Lua.
+\lunix is a bindings library module to common Unix system APIs. The module is regularly tested with Linux/glibc, Linux/musl, OS X, FreeBSD, NetBSD, OpenBSD, Solaris, and AIX. The best way to describe it is in contradistinction to \luaposix, the most popular bindings module for Unix APIs in Lua.
 
 \paragraph{Thread-safety}
 
@@ -136,7 +136,7 @@ Unlike \luaposix, the library prefers dealing with \const{FILE} handles rather t
 
 \lunix targets modern POSIX-conformant and POSIX-aspiring systems. But unlike \texttt{luaposix} it branches out to implement common GNU and BSD extensions. All interfaces are available on all supported platforms, regardless of whether the platform provides a native interface.
 
-I try to regularly compile and test the module against recent versions of OS X, Linux/glibc, FreeBSD, NetBSD, OpenBSD, Solaris, and AIX.
+I try to regularly compile and test the module against recent versions of OS X, Linux/glibc, Linux/musl, FreeBSD, NetBSD, OpenBSD, Solaris, and AIX.
 
 \section{Libraries}
 
@@ -156,7 +156,7 @@ Note that building and installation and can accomplished in a single step by sim
 
 \section{Building}
 
-There is no separate \texttt{./configure} step. System introspection occurs during compile-time. However, the ``\texttt{configure}'' make target can be used to cache the build environment so one needn't continually use a long command-line invocation.
+There is no separate \texttt{./configure} step required.\footnote{Optional autoconf configuration is currently being tested. Run \texttt{./bootstrap} to build the \texttt{./configure} script} System introspection and feature detection occurs during compile-time. The ``\texttt{configure}'' make target can be used to cache the build environment so one needn't continually use a long command-line invocation.
 
 All the common GNU-style compiler variables are supported, including \texttt{CC}, \texttt{CPPFLAGS}, \texttt{CFLAGS}, \texttt{LDFLAGS}, and \texttt{SOFLAGS}. Note that you can specify the path to Lua 5.1, Lua 5.2, and Lua 5.3 include headers at the same time in CPPFLAGS; the build system will work things out to ensure the correct headers are loaded when compiling each version of the module.
 
@@ -249,8 +249,7 @@ Identical to the \_\_pairs metamethod, to be used to create an iterator directly
 
 \subsubsection[\fn{arc4random}]{\fn{arc4random()}}
 
-Returns a cryptographically strong uniformly random 32-bit integer as a Lua number. On Linux the
-\const{RANDOM\_UUID} \fn{sysctl} feature is used to seed the generator. This avoids fiddling with file descriptors, and also works in a chroot jail. On other platforms without a native \fn{arc4random} interface, such as Solaris, the implementation must resort to /dev/urandom for seeding.
+Returns a cryptographically strong uniformly random 32-bit integer as a Lua number. On Linux the \const{RANDOM\_UUID} \fn{sysctl} feature is used to seed the generator if available.\footnote{Some Linux distributions, such as Red Hat, disable \syscall{sysctl}.} This avoids fiddling with file descriptors, and also works in a chroot jail. On other platforms without a native \fn{arc4random} interface, such as Solaris, the implementation must resort to /dev/urandom for seeding.
 
 Note that unlike the original implementation on OpenBSD, \fn{arc4random} on OS X and FreeBSD (prior to 10.0) seeds itself from /dev/urandom. This could cause problems in chroot jails.
 
@@ -402,7 +401,7 @@ Returns the effective process GID as a Lua number.
 
 Returns the value of the environment variable $name$ as a string, or \nil if it does not exist.
 
-\emph{Not thread-safe on any system other than Solaris\footnote{See https://blogs.oracle.com/pgdh/entry/caring\_for\_the\_environment\_making} and NetBSD\footnote{NetBSD provides \syscall{getenv\_r(3)}}. On Linux \fn{getenv} is thread-tolerant as pointers returned from \syscall{getenv} will remain valid throughout the lifetime of the process, but Linux will write over existing values on update so concurrent use with \fn{setenv} could lead to inconsistent views.}
+\emph{Not thread-safe on any system other than Solaris\footnote{See https://blogs.oracle.com/pgdh/entry/caring\_for\_the\_environment\_making} and NetBSD\footnote{NetBSD provides \syscall{getenv\_r(3)}}. Linux/glibc \fn{getenv} is thread-tolerant as pointers returned from \syscall{getenv} will remain valid throughout the lifetime of the process, but Linux/glibc will write over existing values on update so concurrent use with \fn{setenv} could lead to inconsistent views.}
 
 \subsubsection[\fn{geteuid}]{\fn{geteuid()}}
 
@@ -653,7 +652,7 @@ Sets the environment variable $name$ to $value$. If the variable already exists 
 
 Returns \true on success, otherwise \false, an error string, and an integer system error.
 
-\emph{This function is thread-safe on Solaris, NetBSD, and Linux. But see note at \fn{getenv}. FreeBSD and OpenBSD are confirmed to be not thread-safe. The status of AIX and OS X is unknown.}
+\emph{This function is thread-safe on Solaris and NetBSD. For Linux/glibc see note at \fn{getenv}. FreeBSD, OpenBSD, and Linux/musl are confirmed to be not thread-safe. The status of AIX and OS X is unknown. In general \fn{setenv} should be avoided in multi-threaded environments.}
 
 \subsubsection[\fn{setgid}]{\fn{setgid($gid$)}}
 
@@ -857,7 +856,7 @@ Deletes the environment variable $name$ from the environment table.
 
 Returns \true on success, otherwise \false, an error string, and an integer system error.
 
-\emph{This function is thread-safe on Solaris, NetBSD, and Linux. But see note at \fn{getenv}. Also see note at \fn{setenv}.}
+\emph{This function is thread-safe on Solaris, NetBSD, and Linux/glibc. But see note at \fn{getenv}. Also see note at \fn{setenv}. In general \fn{unsetenv} should be avoided in multi-threaded environments.}
 
 \end{Module}
 
