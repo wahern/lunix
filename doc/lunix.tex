@@ -332,6 +332,10 @@ Locks the FILE handle $fh$, blocking the current thread if already locked. Retur
 
 This function only works on FILE handles and not DIR handlers or integer descriptors.
 
+\subsubsection[\fn{fstat}]{\fn{fstat($path$|$file$|$dir$|$fd$[, $field$ \ldots])}}
+
+See \fn{stat}.
+
 \subsubsection[\fn{ftrylockfile}]{\fn{ftrylockfile($fh$)}}
 
 Attempts to lock the FILE handle $fh$. Returns \true on success or \false if $fh$ was locked by another thread.
@@ -343,6 +347,48 @@ Unlocks the FILE handle $fh$. Returns \true.
 \subsubsection[\fn{fork}]{\fn{fork()}}
 
 Forks a new process. On success returns the PID of the new process in the parent and the integer 0 in the child. Otherwise returns \false, an error string, and an integer system error.
+
+\subsubsection[\fn{gai\_strerror}]{\fn{gai\_strerror($error$)}}
+
+Returns an error string corresponding to the specified \texttt{EAI} integer $error$.
+
+\subsubsection[\fn{getaddrinfo}]{\fn{getaddrinfo($host$, [$port$], [$hints$][, $field$ \ldots])}}
+
+Returns an iterator over the addresses resolved for $host$ and $port$. If a resolution error occurred, returns \nil, an error string, an \texttt{EAI} error integer, and a system error integer (if \texttt{EAI} error is \texttt{EAI\_SYSTEM}).
+
+$host$ should be a string host name. $port$ is an optional port number which defaults to 0.
+
+$hints$ is an optional table controlling the manner and scope of resolution. For example, if a family is not specified the resolver will return a unique result for each address-family combination supported by the system. The following fields are supported:
+
+\begin{description}
+\item[.flags] \hfill \\
+Bitwise or of one of more of \texttt{AI\_PASSIVE}, \texttt{AI\_CANONNAME}, \texttt{AI\_NUMERICHOST}, \texttt{AI\_NUMERICSERV}, \texttt{AI\_ADDRCONFIG}, \texttt{AI\_V4MAPPED} (if supported), and \texttt{AI\_ALL} (if supported).
+\item[.family] \hfill \\
+AF\_UNSPEC, AF\_INET, or AF\_INET6.
+\item[.socktype] \hfill \\
+SOCK\_DGRAM, SOCK\_STREAM, or SOCK\_SEQPACKET (if supported).
+\item[.protocol] \hfill \\
+IPPROTO\_IP, IPPROTO\_IPV6, IPPROTO\_TCP, IPPROTO\_UDP, IPPROTO\_ICMP, or IPPROTO\_RAW (if supported).
+\end{description}
+
+If no fields are specified, the iterator returns a table with the following fields:
+
+\begin{description}
+\item[.family] \hfill \\
+See description of family for hints table.
+\item[.socktype] \hfill \\
+See description of socktype for hints table.
+\item[.protocol] \hfill \\
+See description of protocol for hints table. 
+\item[.addr] \hfill \\
+IP address as human-readable string.
+\item[.canonical] \hfill \\
+Canonical hostname of IP address (if AI\_CANONNAME flag was specified in hints table).
+\item[.port] \hfill \\
+Integer port.
+\end{description}
+
+If fields are specified, the iterator returns a list of fields in the order specified.
 
 \subsubsection[\fn{getegid}]{\fn{getegid()}}
 
@@ -357,6 +403,10 @@ Returns the value of the environment variable $name$ as a string, or \nil if it 
 \subsubsection[\fn{geteuid}]{\fn{geteuid()}}
 
 Returns the effective process UID as a Lua number.
+
+\subsubsection[\fn{getgroups}]{\fn{getgroups()}}
+
+Queries supplement group list. On success returns an array of supplement GIDs. Otherwise returns \nil, an error string, and an integer system error.
 
 \subsubsection[\fn{getmode}]{\fn{getmode($mode$[, $omode$])}}
 
@@ -475,6 +525,10 @@ Sends signal $signo$ to process or process group $pid$. Returns \true on success
 Creates a new directory entry at $path2$ as a hard link to $path1$.
 
 Returns \true on success, otherwise \false, an error string, and an integer system error. 
+
+\subsubsection[\fn{lstat}]{\fn{lstat($path$[, $field$ \ldots])}}
+
+Identical to \fn{stat}, except only accepts string paths and uses the \syscall{lstat} system call.
 
 \subsubsection[\fn{mkdir}]{\fn{mkdir($path$[, $mode$])}}
 
@@ -603,6 +657,12 @@ Set the real process GID to $gid$. $gid$ must be an integer or symbolic group na
 
 Returns \true on success, otherwise \false, an error string, and an integer system error.
 
+\subsubsection[\fn{setgroups}]{\fn{setgroups\{ \ldots \}}}
+
+Sets the supplement group list. Takes an array of GIDs. On success returns \true. Otherwise returns \false, an error string, and an integer system error.
+
+As an extension, group names may be specified instead of integer GIDs. However, an unresolvable group name currently causes an error to be thrown rather than returned. Until this is fixed, use \fn{getgrnam} to explicitly resolve names to GIDs.
+
 \subsubsection[\fn{setlocale}]{\fn{setlocale($category$ [, $locale$])}}
 
 Set or query the program locale. $category$ is an integer constant which specifies the category of localization, and should be one of \texttt{LC\_ALL}, \texttt{LC\_COLLATE}, \texttt{LC\_CTYPE}, \texttt{LC\_MONETARY}, \texttt{LC\_NUMERIC}, or \texttt{LC\_TIME}.
@@ -622,6 +682,28 @@ Returns the new process group ID on success, otherwise \nil, an error string, an
 Set the real process UID to $uid$. $uid$ must be an integer or symbolic user name.
 
 Returns \true on success, otherwise \false, an error string, and an integer system error.
+
+\subsubsection[\fn{sigaction}]{\fn{sigaction($signo$, [$action$], [$oaction$])}}
+
+Sets or queries the signal disposition for the signal $signo$.
+
+If specified, $action$ is a table used to update the signal disposition.
+
+\begin{description}
+\item[.handler] \hfill \\
+Currently handler may only be \texttt{SIG\_DFL}, \texttt{SIG\_ERR}, or \texttt{SIG\_IGN}.
+Lua functions are not currently supported, but may in the future. In the meantime, applications can use \fn{sigtimedwait} to atomically dequeue signals in a thread-safe manner.
+\item[.mask] \hfill \\
+A sigset\_t userdata object, or the string ``*'' (see \fn{sigfillset}).
+\item[.flags] \hfill \\
+Bitwise or of one or more of SA\_NOCLDSTOP, SA\_ONSTACK, SA\_RESETHAND, SA\_RESTART, SA\_SIGINFO, SA\_NOCLDWAIT, and SA\_NODEFER.
+\end{description}
+
+Returns \true on success if $oaction$ is \nil or \false.
+
+Returns a table on success if $oaction$ is \true. The table describes the signal disposition at the time \syscall{sigaction} was initially called.
+
+Otherwise returns \nil, an error string, and an integer system error.
 
 \subsubsection[\fn{sigfillset}]{\fn{sigfillset([$set$])}}
 
@@ -660,6 +742,53 @@ Atomically clears any pending signal specified in $set$ from the pending set of 
 On success returns an integer signal number cleared from the pending set and an array representing the members of the siginfo\_t structure (without the ``si\_'' prefix).\footnote{Currently only the .si\_signo member is copied from siginfo\_t.} On error returns \nil, an error string, and an integer system error. If $timeout$ is specified and no signal was cleared before the timeout, the system error will be \texttt{ETIMEDOUT}.
 
 \emph{OS X and OpenBSD lack a native \syscall{sigtimedwait} implementation. On OS X \lunix uses \syscall{sigpending} and \syscall{sigwait} to emulate the behavior. However, in a multi--threaded application if another thread clears a signal between \syscall{sigpending} and \syscall{sigwait} then \syscall{sigwait} could block indefinitely. There's no way to solve this race condition.\footnote{One possible solution is to explicitly \syscall{raise} the signal before calling \syscall{sigpending}, but this solutions relies on untested assumptions about signal handling on these platforms.} On OpenBSD \syscall{sigwait} is only available through libpthread, but on OpenBSD libpthread must be loaded at process load--time and cannot be brought in as a \syscall{dlopen} run--time dependency. Therefore an alternative emulation is used which clears the pending signal by installing a noop signal handler. This is not thread-safe if another thread is also installing a signal handler simultaneously. Threaded applications on these platforms should be mindful of these limitations. The \cqueues project supports thread-safe signal listening with \syscall{kqueue} on both OpenBSD and Mac OS X.}
+
+\subsubsection[\fn{stat}]{\fn{stat($path$|$file$|$dir$|$fd$[, $field$ $\ldots$])}}
+
+Stats the specified file. Caller may specify a path string, a Lua FILE handle, a DIR handle (see \fn{opendir}), or an integer descriptor.
+
+If no field arguments are specified, on success returns a table with the following fields
+
+\begin{description}
+\item[.dev] \hfill \\
+Device identifier as integer of device containing file.
+\item[.ino] \hfill \\
+Inode identifier as integer.
+\item[.mode] \hfill \\
+Mode---type, permissions, etc---as integer.
+\item[.nlink] \hfill \\
+Link count as integer.
+\item[.uid] \hfill \\
+Owner UID as integer.
+\item[.gid] \hfill \\
+Owner GID as integer.
+\item[.rdev] \hfill \\
+Device identifer as integer if character or block special file.
+\item[.size] \hfill \\
+File size as integer.
+\item[.atime] \hfill \\
+Last data access timestamp as floating-point number with sub-second fractional component\footnote{All platforms currently support timestamps with sub-second precision. However, the underlying filesystem may not record a timestamp with sub-second precision.}.
+\item[.mtime] \hfill \\
+Last data modification timestamp as floating-point number with sub-second fractional component.
+\item[.ctime] \hfill \\
+Last file status change timestamp as floating-point number with sub-second fractional component.
+\item[.blksize] \hfill \\
+File-system-specified preferred I/O block size as integer.
+\item[.blocks] \hfill \\
+Number of blocks allocated for this object as integer.
+\end{description}
+
+If field arguments are given, on success each field specified (as named above) is returned as part of the return value list. Note that the return value may be \nil if the value was unavailable.
+
+On error returns \nil, an error string, and an integer system error.
+
+\subsubsection[\fn{strerror}]{\fn{strerror($error$)}}
+
+Returns an error string corresponding to the specified system $error$ integer.
+
+\subsubsection[\fn{strsignal}]{\fn{strsignal($signo$)}}
+
+Returns a string describing the specified signal number.
 
 \subsubsection[\fn{symlink}]{\fn{symlink($path1$, $path2$)}}
 
