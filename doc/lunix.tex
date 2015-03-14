@@ -128,7 +128,7 @@ Unlike \luaposix, the library does not restrict itself to POSIX, and emulates an
 
 \paragraph{Leak-safety}
 
-Unlike \luaposix, the library prefers dealing with \const{FILE} handles rather than raw integer descriptors. This helps to mitigate and prevent leaks or double-close bugs---a common source of problems in, e.g., asynchronous applications. Routines like \fn{chdir} or \fn{opendir} transparently accept string paths, FILE handles, DIR handles, or even a raw integer descriptors.
+Unlike \luaposix, the library prefers dealing with \const{FILE} handles rather than raw integer descriptors. This helps to mitigate and prevent leaks or double-close bugs---a common source of problems in, e.g., asynchronous applications. Routines like \fn{chdir}, \fn{stat}, and \fn{opendir} transparently accept string paths, FILE handles, DIR handles, and raw integer descriptors.
 
 \chapter{Dependencies}
 
@@ -325,6 +325,10 @@ Exits the process immediately without first flushing and closing open streams, o
 \subsubsection[\fn{exit}]{\fn{exit([$status$])}}
 
 Like \fn{\_exit}, but first flushes and closes open streams, and calls \syscall{atexit} handlers.
+
+\subsubsection[\fn{fileno}]{\fn{fileno([$file$|$dir$|$fd$])}}
+
+Resolves the specified FILE handle or DIR handle to an integer file descriptor. An integer descriptor is returned as-is.
 
 \subsubsection[\fn{flockfile}]{\fn{flockfile($fh$)}}
 
