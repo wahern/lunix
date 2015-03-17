@@ -40,7 +40,7 @@ local function tryfail(how)
 		local name, why, error = unix.readdir(dir, "name")
 
 		if name then
-			how(dir)
+			how(dir, name)
 		elseif error then
 			return error
 		end
@@ -64,14 +64,34 @@ end -- dofail
 local goterror = dofail{
 	{
 		text = "testing readdir_r error by changing file permissions during read",
-		func = function (dir)
-	  		check(unix.chmod(dir, "0000"), "unable to chmod")
+		func = function (dir, name)
+			if name then
+				check(unix.chmod(dir, "0000"), "unable to chmod")
+			end
 		end
 	},
 	{
-		text = "testing readdir_r error by duping over descriptor",
-		func = function (dir)
-			check(unix.dup2(check(io.open"/dev/null"), dir), "unable to dup2")
+		text = "testing readdir_r error by changing file permissions before read",
+		func = function (dir, name)
+			if not name then
+				check(unix.chmod(dir, "0000"), "unable to chmod")
+			end
+		end
+	},
+	{
+		text = "testing readdir_r error by duping over descriptor during read",
+		func = function (dir, name)
+			if name then
+				check(unix.dup2(check(io.tmpfile()), dir), "unable to dup2")
+			end
+		end
+	},
+	{
+		text = "testing readdir_r error by duping over descriptor before read",
+		func = function (dir, name)
+			if not name then
+				check(unix.dup2(check(io.tmpfile()), dir), "unable to dup2")
+			end
 		end
 	},
 }
