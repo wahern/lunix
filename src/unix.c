@@ -1594,6 +1594,71 @@ static int u_readdir_r(DIR *dp, struct dirent *ent, struct dirent **res) {
 } /* u_readdir_r() */
 
 
+#ifndef GETGRGID_R_AIX
+#define GETGRGID_R_AIX _AIX
+#endif
+
+static int u_getgrgid_r(gid_t gid, struct group *grp, char *buf, size_t bufsiz, struct group **res) {
+#if GETGRGID_R_AIX
+	if (bufsiz == 0)
+		return ERANGE;
+
+	errno = 0;
+	return getgrgid_r(gid, grp, buf, bufsiz, res)? errno : 0;
+#else
+	return getgrgid_r(gid, grp, buf, bufsiz, res);
+#endif
+} /* u_getgrgid_r() */
+
+#ifndef GETGRNAM_R_AIX
+#define GETGRNAM_R_AIX _AIX
+#endif
+
+static int u_getgrnam_r(const char *nam, struct group *grp, char *buf, size_t bufsiz, struct group **res) {
+#if GETGRNAM_R_AIX
+	if (bufsiz == 0)
+		return ERANGE;
+
+	errno = 0;
+	return getgrnam_r(nam, grp, buf, bufsiz, res)? errno : 0;
+#else
+	return getgrnam_r(nam, grp, buf, bufsiz, res);
+#endif
+} /* u_getgrnam_r() */
+
+#ifndef GETPWUID_R_AIX
+#define GETPWUID_R_AIX _AIX
+#endif
+
+static int u_getpwuid_r(uid_t uid, struct passwd *pwd, char *buf, size_t bufsiz, struct passwd **res) {
+#if GETPWUID_R_AIX
+	if (bufsiz == 0)
+		return ERANGE;
+
+	errno = 0;
+	return getpwuid_r(uid, pwd, buf, bufsiz, res)? errno : 0;
+#else
+	return getpwuid_r(uid, pwd, buf, bufsiz, res);
+#endif
+} /* u_getpwuid_r() */
+
+#ifndef GETPWNAM_R_AIX
+#define GETPWNAM_R_AIX _AIX
+#endif
+
+static int u_getpwnam_r(const char *nam, struct passwd *pwd, char *buf, size_t bufsiz, struct passwd **res) {
+#if GETPWNAM_R_AIX
+	if (bufsiz == 0)
+		return ERANGE;
+
+	errno = 0;
+	return getpwnam_r(nam, pwd, buf, bufsiz, res)? errno : 0;
+#else
+	return getpwnam_r(nam, pwd, buf, bufsiz, res);
+#endif
+} /* u_getpwnam_r() */
+
+
 #if !HAVE_ARC4RANDOM
 
 #define UNIXL_RANDOM_INITIALIZER { .fd = -1, }
@@ -2094,7 +2159,7 @@ static int unixL_getpwnam(lua_State *L, const char *user, struct passwd **ent) {
 
 	*ent = NULL;
 
-	while ((error = getpwnam_r(user, &U->pw.ent, U->pw.buf, U->pw.bufsiz, ent))) {
+	while ((error = u_getpwnam_r(user, &U->pw.ent, U->pw.buf, U->pw.bufsiz, ent))) {
 		if (error != ERANGE)
 			return error;
 
@@ -2114,7 +2179,7 @@ static int unixL_getpwuid(lua_State *L, uid_t uid, struct passwd **ent) {
 
 	*ent = NULL;
 
-	while ((error = getpwuid_r(uid, &U->pw.ent, U->pw.buf, U->pw.bufsiz, ent))) {
+	while ((error = u_getpwuid_r(uid, &U->pw.ent, U->pw.buf, U->pw.bufsiz, ent))) {
 		if (error != ERANGE)
 			return error;
 
@@ -2134,7 +2199,7 @@ static int unixL_getgrnam(lua_State *L, const char *group, struct group **ent) {
 
 	*ent = NULL;
 
-	while ((error = getgrnam_r(group, &U->gr.ent, U->gr.buf, U->gr.bufsiz, ent))) {
+	while ((error = u_getgrnam_r(group, &U->gr.ent, U->gr.buf, U->gr.bufsiz, ent))) {
 		if (error != ERANGE)
 			return error;
 
@@ -2154,7 +2219,7 @@ static int unixL_getgrgid(lua_State *L, gid_t gid, struct group **ent) {
 
 	*ent = NULL;
 
-	while ((error = getgrgid_r(gid, &U->gr.ent, U->gr.buf, U->gr.bufsiz, ent))) {
+	while ((error = u_getgrgid_r(gid, &U->gr.ent, U->gr.buf, U->gr.bufsiz, ent))) {
 		if (error != ERANGE)
 			return error;
 
