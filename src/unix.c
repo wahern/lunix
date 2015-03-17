@@ -1604,7 +1604,7 @@ static int u_getgrgid_r(gid_t gid, struct group *grp, char *buf, size_t bufsiz, 
 		return ERANGE;
 
 	errno = 0;
-	return getgrgid_r(gid, grp, buf, bufsiz, res)? errno : 0;
+	return getgrgid_r(gid, grp, buf, bufsiz, res)? ((errno != ESRCH)? errno : 0) : 0;
 #else
 	return getgrgid_r(gid, grp, buf, bufsiz, res);
 #endif
@@ -1620,7 +1620,7 @@ static int u_getgrnam_r(const char *nam, struct group *grp, char *buf, size_t bu
 		return ERANGE;
 
 	errno = 0;
-	return getgrnam_r(nam, grp, buf, bufsiz, res)? errno : 0;
+	return getgrnam_r(nam, grp, buf, bufsiz, res)? ((errno != ESRCH)? errno : 0) : 0;
 #else
 	return getgrnam_r(nam, grp, buf, bufsiz, res);
 #endif
@@ -1636,7 +1636,7 @@ static int u_getpwuid_r(uid_t uid, struct passwd *pwd, char *buf, size_t bufsiz,
 		return ERANGE;
 
 	errno = 0;
-	return getpwuid_r(uid, pwd, buf, bufsiz, res)? errno : 0;
+	return getpwuid_r(uid, pwd, buf, bufsiz, res)? ((errno != ESRCH)? errno : 0) : 0;
 #else
 	return getpwuid_r(uid, pwd, buf, bufsiz, res);
 #endif
@@ -1652,7 +1652,7 @@ static int u_getpwnam_r(const char *nam, struct passwd *pwd, char *buf, size_t b
 		return ERANGE;
 
 	errno = 0;
-	return getpwnam_r(nam, pwd, buf, bufsiz, res)? errno : 0;
+	return getpwnam_r(nam, pwd, buf, bufsiz, res)? ((errno != ESRCH)? errno : 0) : 0;
 #else
 	return getpwnam_r(nam, pwd, buf, bufsiz, res);
 #endif
