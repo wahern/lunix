@@ -62,8 +62,8 @@ local base32 = {
 	"Y", "Z", "2", "3", "4", "5", "6", "7",
 }
 
-function regress.tmpnonce()
-	return string.gsub(unix.arc4random_buf(16), ".", function (s)
+function regress.tmpnonce(n)
+	return string.gsub(unix.arc4random_buf(n or 16), ".", function (s)
 		return base32[math.fmod(string.byte(s), #base32) + 1]
 	end)
 end -- regress.tmpnonce
