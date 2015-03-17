@@ -1544,7 +1544,54 @@ error:
 	return error;
 } /* u_getifaddrs() */
 
+#endif /* if !HAVE_GETIFADDRS */
+
+
+#ifndef READDIR_R_AIX
+#define READDIR_R_AIX _AIX
 #endif
+
+static int u_readdir_r(DIR *dp, struct dirent *ent, struct dirent **res) {
+#if READDIR_R_AIX
+	/*
+	 * AIX uses global errno to return error codes. On error it returns
+	 * 9, which [probably not coincidentally] is EBADF. But that's
+	 * misleading, as the real error code is in errno. For example, if
+	 * you revoke read permissions errno will be set to EACCESS but the
+	 * return code is still 9. If you dup2 the descriptor to a
+	 * non-directory, it sets errno to EBADF as expected.
+	 *
+	 * On end-of-directory it fails with 9 but sets errno to 0. Some
+	 * people check whether *res is NULL, but in my tests *res is always
+	 * NULL on failure. If you only check for failure and *res == NULL,
+	 * you'll treat real errors as simply an end-of-directory condition.
+	 * The AIX 7.1 manual page is misleading in this regard.
+	 *
+	 * Saner implementations return an error code directly on failure.
+	 * On end-of-directory they return 0 (success) and set *res to NULL.
+	 */
+	struct dirent tmp;
+	int error;
+
+	/*
+	 * The following tries to be conservative. AIX isn't to be trusted.
+	 */
+	*res = &tmp;
+	errno = 0;
+
+	if ((error = readdir_r(dp, ent, res))) {
+		if (errno == 0 && *res == NULL) {
+			error = 0;
+		} else if (errno) {
+			error = errno;
+		}
+	}
+
+	return error;
+#else
+	return readdir_r(dp, ent, res);
+#endif
+} /* u_readdir_r() */
 
 
 #if !HAVE_ARC4RANDOM
@@ -2019,28 +2066,7 @@ static u_error_t unixL_readdir(lua_State *L, DIR *dp, struct dirent **ent) {
 		U->dir.dp = dp;
 	}
 
-#if _AIX
-	/*
-	 * AIX sets *ent to NULL and returns EBADF on end-of-directory.
-	 * Otherwise on error it doesn't set *ent.
-	 *
-	 * Saner implementations set *ent to NULL return 0 on
-	 * end-of-directory.
-	 */
-	struct dirent tmp;
-	int error;
-
-	*ent = &tmp;
-
-	if ((error = readdir_r(dp, U->dir.ent, ent))) {
-		if (error == EBADF && *ent == NULL)
-			error = 0;
-	}
-
-	return error;
-#else
-	return readdir_r(dp, U->dir.ent, ent);
-#endif
+	return u_readdir_r(dp, U->dir.ent, ent);
 } /* unixL_readdir() */
 
 
@@ -2267,7 +2293,7 @@ static mode_t unixL_getumask(lua_State *L) {
 
 
 /*
- * Rough attempt to match POSIX chmod(2) semantics.
+ * Rough attempt to match POSIX chmod(1) utility semantics.
  */
 static mode_t unixL_optmode(lua_State *L, int index, mode_t def, mode_t omode) {
 	const char *fmt;
@@ -2417,6 +2443,13 @@ apply:
 
 	return mode;
 } /* unixL_optmode() */
+
+
+static mode_t unixL_checkmode(lua_State *L, int index, mode_t omode) {
+	luaL_argcheck(L, !lua_isnoneornil(L, index), index, "mode not specified");
+
+	return unixL_optmode(L, index, 0, omode);
+} /* unixL_checkmode() */
 
 
 static FILE *unixL_checkfile(lua_State *L, int index) {
@@ -2948,7 +2981,7 @@ static int unix_arc4random_buf(lua_State *L) {
 
 	while (n < count) {
 		size_t m = MIN((size_t)(count - n), sizeof tmp.c);
-		size_t i = howmany(m, sizeof tmp.r);
+		size_t i = howmany(m, sizeof tmp.r[0]);
 
 		while (i-- > 0) {
 			tmp.r[i] = unixL_random(L);
@@ -3029,6 +3062,51 @@ static int unix_chdir(lua_State *L) {
 
 	return 1;
 } /* unix_chdir() */
+
+
+static int unix_chmod(lua_State *L) {
+	mode_t omode = 0777, mode;
+	_Bool octal;
+	struct stat st;
+	int fd;
+
+	luaL_checkany(L, 2);
+	lua_pushvalue(L, 2);
+	octal = lua_isnumber(L, -1); /* octal notation or literal number */
+	lua_pop(L, 1);
+
+	if (-1 != (fd = unixL_optfileno(L, 1, -1))) {
+		if (!octal) {
+			if (0 != fstat(fd, &st))
+				return unixL_pusherror(L, errno, "chmod", "0$#");
+
+			omode = st.st_mode;
+		}
+
+		mode = unixL_checkmode(L, 2, omode);
+
+		if (0 != fchmod(fd, mode))
+			return unixL_pusherror(L, errno, "chmod", "0$#");
+	} else {
+		const char *path = luaL_checkstring(L, 1);
+
+		if (!octal) {
+			if (0 != stat(path, &st))
+				return unixL_pusherror(L, errno, "chmod", "0$#");
+
+			omode = st.st_mode;
+		}
+
+		mode = unixL_checkmode(L, 2, omode);
+
+		if (0 != chmod(path, mode))
+			return unixL_pusherror(L, errno, "chmod", "0$#");
+	}
+
+	lua_pushboolean(L, 1);
+
+	return 1;
+} /* unix_chmod() */
 
 
 static int unix_chown(lua_State *L) {
@@ -5524,6 +5602,7 @@ static const luaL_Reg unix_routines[] = {
 	{ "arc4random_stir",    &unix_arc4random_stir },
 	{ "arc4random_uniform", &unix_arc4random_uniform },
 	{ "chdir",              &unix_chdir },
+	{ "chmod",              &unix_chmod },
 	{ "chown",              &unix_chown },
 	{ "chroot",             &unix_chroot },
 	{ "clock_gettime",      &unix_clock_gettime },
@@ -5535,6 +5614,8 @@ static const luaL_Reg unix_routines[] = {
 	{ "execvp",             &unix_execvp },
 	{ "_exit",              &unix__exit },
 	{ "exit",               &unix_exit },
+	{ "fchmod",             &unix_chmod },
+	{ "fchown",             &unix_chown },
 	{ "fcntl",              &unix_fcntl },
 	{ "fileno",             &unix_fileno },
 	{ "flockfile",          &unix_flockfile },
