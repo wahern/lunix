@@ -12,7 +12,7 @@ local nofile = 256
 
 for i=1,nofile do
 	local path = string.format("%s/%02x-%s", tmpdir, i - 1, tmpnonce())
-	check(io.open(path, "w+"))
+	check(io.open(path, "w+")):close()
 end
 
 info("created %d files in %s", nofile, tmpdir)
