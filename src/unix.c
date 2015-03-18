@@ -1598,6 +1598,10 @@ static int u_readdir_r(DIR *dp, struct dirent *ent, struct dirent **res) {
 #define GETGRGID_R_AIX _AIX
 #endif
 
+#ifndef GETGRGID_R_ERRNO
+#define GETGRGID_R_ERRNO __NetBSD__
+#endif
+
 static int u_getgrgid_r(gid_t gid, struct group *grp, char *buf, size_t bufsiz, struct group **res) {
 #if GETGRGID_R_AIX
 	if (bufsiz == 0)
@@ -1605,13 +1609,19 @@ static int u_getgrgid_r(gid_t gid, struct group *grp, char *buf, size_t bufsiz, 
 
 	errno = 0;
 	return getgrgid_r(gid, grp, buf, bufsiz, res)? ((errno != ESRCH)? errno : 0) : 0;
+#elif GETGRGID_R_ERRNO
+	return errno = 0, getgrgid_r(gid, grp, buf, bufsiz, res), errno;
 #else
 	return getgrgid_r(gid, grp, buf, bufsiz, res);
 #endif
 } /* u_getgrgid_r() */
 
 #ifndef GETGRNAM_R_AIX
-#define GETGRNAM_R_AIX _AIX
+#define GETGRNAM_R_AIX GETGRGID_R_AIX
+#endif
+
+#ifndef GETGRNAM_R_ERRNO
+#define GETGRNAM_R_ERRNO GETGRGID_R_ERRNO
 #endif
 
 static int u_getgrnam_r(const char *nam, struct group *grp, char *buf, size_t bufsiz, struct group **res) {
@@ -1621,13 +1631,19 @@ static int u_getgrnam_r(const char *nam, struct group *grp, char *buf, size_t bu
 
 	errno = 0;
 	return getgrnam_r(nam, grp, buf, bufsiz, res)? ((errno != ESRCH)? errno : 0) : 0;
+#elif GETGRNAM_R_ERRNO
+	return errno = 0, getgrnam_r(nam, grp, buf, bufsiz, res), errno;
 #else
 	return getgrnam_r(nam, grp, buf, bufsiz, res);
 #endif
 } /* u_getgrnam_r() */
 
 #ifndef GETPWUID_R_AIX
-#define GETPWUID_R_AIX _AIX
+#define GETPWUID_R_AIX GETGRGID_R_AIX
+#endif
+
+#ifndef GETPWUID_R_ERRNO
+#define GETPWUID_R_ERRNO GETGRGID_R_ERRNO
 #endif
 
 static int u_getpwuid_r(uid_t uid, struct passwd *pwd, char *buf, size_t bufsiz, struct passwd **res) {
@@ -1637,13 +1653,19 @@ static int u_getpwuid_r(uid_t uid, struct passwd *pwd, char *buf, size_t bufsiz,
 
 	errno = 0;
 	return getpwuid_r(uid, pwd, buf, bufsiz, res)? ((errno != ESRCH)? errno : 0) : 0;
+#elif GETPWUID_R_ERRNO
+	return errno = 0, getpwuid_r(uid, pwd, buf, bufsiz, res), errno;
 #else
 	return getpwuid_r(uid, pwd, buf, bufsiz, res);
 #endif
 } /* u_getpwuid_r() */
 
 #ifndef GETPWNAM_R_AIX
-#define GETPWNAM_R_AIX _AIX
+#define GETPWNAM_R_AIX GETGRGID_R_AIX
+#endif
+
+#ifndef GETPWUID_R_ERRNO
+#define GETPWNAM_R_ERRNO GETGRGID_R_ERRNO
 #endif
 
 static int u_getpwnam_r(const char *nam, struct passwd *pwd, char *buf, size_t bufsiz, struct passwd **res) {
@@ -1653,6 +1675,8 @@ static int u_getpwnam_r(const char *nam, struct passwd *pwd, char *buf, size_t b
 
 	errno = 0;
 	return getpwnam_r(nam, pwd, buf, bufsiz, res)? ((errno != ESRCH)? errno : 0) : 0;
+#elif GETPWNAM_R_ERRNO
+	return errno = 0, getpwnam_r(nam, pwd, buf, bufsiz, res), errno;
 #else
 	return getpwnam_r(nam, pwd, buf, bufsiz, res);
 #endif
