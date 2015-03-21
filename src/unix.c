@@ -24,7 +24,7 @@
 #include <ctype.h>        /* isspace(3) */
 #include <time.h>         /* struct tm struct timespec gmtime_r(3) clock_gettime(3) tzset(3) */
 #include <errno.h>        /* ENOMEM ERANGE errno */
-#include <assert.h>       /* static_assert */
+#include <assert.h>       /* assert(3) static_assert */
 #include <math.h>         /* NAN isnormal(3) signbit(3) */
 #include <locale.h>       /* LC_* setlocale(3) */
 
@@ -416,6 +416,10 @@ static void luaL_setfuncs(lua_State *L, const luaL_Reg *l, int nup) {
 
 #ifndef countof
 #define countof(a) (sizeof (a) / sizeof *(a))
+#endif
+
+#ifndef endof
+#define endof(a) (&(a)[countof(a)])
 #endif
 
 #ifndef MIN
@@ -934,6 +938,21 @@ static u_error_t u_sigtimedwait(int *_signo, const sigset_t *set, siginfo_t *_in
 } /* u_sigtimedwait() */
 
 
+static size_t u_strlcpy(char *dst, const char *src, size_t lim) {
+	size_t len, n;
+
+	len = strlen(src);
+
+	if (lim > 0) {
+		n = MIN(lim - 1, len);
+		memcpy(dst, src, n);
+		dst[n] = '\0';
+	}
+
+	return len;
+} /* u_strlcpy() */
+
+
 static u_error_t u_strerror_r(int error, char *dst, size_t lim) {
 #if STRERROR_R_CHAR_P
 	char *src;
@@ -980,6 +999,9 @@ static u_error_t u_strerror_r(int error, char *dst, size_t lim) {
 #endif
 
 #define U_SYSFLAGS ((1LL << 32) - 1)
+#define U_FIXFLAGS (U_CLOEXEC|O_NONBLOCK)
+#define U_FDFLAGS  (U_CLOEXEC)  /* file descriptor flags */
+#define U_FLFLAGS  (~U_FDFLAGS) /* file status flags */
 
 #define u_flags_t long long
 
@@ -1053,11 +1075,26 @@ static u_error_t u_getflags(int fd, u_flags_t *flags) {
 } /* u_getflags() */
 
 
+static u_error_t u_getaccmode(int fd, u_flags_t *oflags, u_flags_t flags) {
+	u_flags_t _flags;
+
+	if (O_ACCMODE & (*oflags = flags))
+		return 0;
+
+	if (-1 == (_flags = fcntl(fd, F_GETFL)))
+		return errno;
+
+	*oflags |= _flags & (O_ACCMODE|O_APPEND);
+
+	return 0;
+} /* u_getaccmode() */
+
+
 static u_error_t u_fixflags(int fd, u_flags_t flags) {
 	u_flags_t _flags = 0;
 	int error;
 
-	if ((flags & U_CLOEXEC) || (flags & O_NONBLOCK)) {
+	if (flags & U_FIXFLAGS) {
 		if ((error = u_getflags(fd, &_flags)))
 			return error;
 
@@ -1082,6 +1119,20 @@ static u_error_t u_open(int *fd, const char *path, u_flags_t flags, mode_t mode)
 	if (-1 == (*fd = open(path, (U_SYSFLAGS & flags), mode)))
 		goto syerr;
 
+	/*
+	 * NB: O_NONBLOCK on open is only relevant for named FIFOs. It means
+	 * don't block waiting for a reader or writer on the other end. It
+	 * doesn't mean put the descriptor into non-blocking mode for any
+	 * I/O operations.
+	 */
+	flags &= ~O_NONBLOCK;
+
+	/*
+	 * These should already be set, but if this assumption is proven
+	 * wrong in the future, keep this case separate from O_NONBLOCK.
+	 */
+	flags &= ~U_SYSFLAGS;
+
 	if ((error = u_fixflags(*fd, flags)))
 		goto error;
 
@@ -1096,19 +1147,16 @@ error:
 
 
 static u_error_t u_pipe(int *fd, u_flags_t flags) {
+	int ok, i, error;
+
 #if HAVE_PIPE2
-	if (0 != pipe2(fd, flags)) {
-		fd[0] = -1;
-		fd[1] = -1;
-
-		return errno;
-	}
-
-	return 0;
+	ok = (0 == pipe2(fd, flags));
+	flags &= ~(U_CLOEXEC|O_NONBLOCK);
 #else
-	int i, error;
+	ok = (0 == pipe(fd));
+#endif
 
-	if (0 != pipe(fd)) {
+	if (!ok) {
 		fd[0] = -1;
 		fd[1] = -1;
 
@@ -1125,33 +1173,79 @@ static u_error_t u_pipe(int *fd, u_flags_t flags) {
 	}
 
 	return 0;
-#endif
 } /* u_pipe() */
 
 
-static u_error_t u_dup3(int fd, int fd2, u_flags_t flags) {
-#if HAVE_DUP3
-	if (-1 == dup3(fd, fd2, flags))
-		return errno;
-
-	return 0;
-#else
-	int close2 = (0 != fstat(fd2, &(struct stat){ 0 }));
+static u_error_t u_dup2(int fd, int fd2, u_flags_t flags) {
 	int error;
 
-	if (-1 == dup2(fd, fd2))
+	/*
+	 * NB: Set the file status flags first because we won't be able
+	 * roll-back state after dup'ing the descriptor.
+	 *
+	 * Why? On error we would want to close the new descriptor to avoid
+	 * a descriptor leak. But we wouldn't want to close the descriptor
+	 * if it was already open. (That would be unsafe for countless
+	 * reasons.) But there's no thread-safe way to know whether the
+	 * descriptor number was open or not at the time of the dup--that's
+	 * a classic TOCTTOU problem.
+	 *
+	 * Because the new descriptor will share the same file status flags,
+	 * the most robust thing to do is to try to set them first. Then
+	 * we'll set the file descriptor flags last and ignore any errors.
+	 * It would be odd if any implementation had a failure mode setting
+	 * descriptor flags, anyhow. (By contrast, status flags could easily
+	 * fail--O_NONBLOCK might be rejected for certain file types.)
+	 */
+	if ((error = u_fixflags(fd, U_FLFLAGS & flags)))
+		return error;
+
+	flags &= ~U_FLFLAGS;
+
+#if HAVE_DUP3
+	if (-1 == dup3(fd, fd2, U_SYSFLAGS & flags))
 		return errno;
 
-	if ((error = u_fixflags(fd2, flags))) {
-		if (close2)
-			u_close(&fd2);
+	flags &= ~U_CLOEXEC; /* dup3 might not handle any other flags */
+#else
+	if (-1 == dup2(fd, fd2))
+		return errno;
+#endif
 
-		return error;
-	}
+	(void)u_fixflags(fd2, flags);
 
 	return 0;
+} /* u_dup2() */
+
+
+/*
+ * NB: There aren't any systems with dup3(2) but not F_DUPFD_CLOEXEC, so we
+ * don't bother trying to duplicate F_DUPFD_CLOEXEC using dup3(2).
+ */
+static u_error_t u_dup(int *fd, int ofd, u_flags_t flags) {
+	int cmd, error;
+
+#if defined F_DUPFD_CLOEXEC
+	cmd = (flags & U_CLOEXEC)? F_DUPFD_CLOEXEC : F_DUPFD;
+	flags &= ~U_CLOEXEC;
+#else
+	cmd = F_DUPFD;
 #endif
-} /* u_dup3() */
+
+	if (-1 == (*fd = fcntl(ofd, cmd, 0)))
+		goto syerr;
+
+	if ((error = u_fixflags(*fd, flags)))
+		goto error;
+
+	return 0;
+syerr:
+	error = errno;
+error:
+	u_close(fd);
+
+	return error;
+} /* u_dup() */
 
 
 MAYBEUSED static u_error_t u_socket(int *fd, int family, int type, int proto, u_flags_t flags) {
@@ -1160,11 +1254,17 @@ MAYBEUSED static u_error_t u_socket(int *fd, int family, int type, int proto, u_
 #if defined SOCK_CLOEXEC
 	if (flags & U_CLOEXEC)
 		type |= SOCK_CLOEXEC;
+
+	if (type & SOCK_CLOEXEC) /* may have been set by caller */
+		flags &= ~U_CLOEXEC;
 #endif
 
 #if defined SOCK_NONBLOCK
 	if (flags & O_NONBLOCK)
 		type |= SOCK_NONBLOCK;
+
+	if (type & SOCK_NONBLOCK)
+		flags &= ~O_NONBLOCK;
 #endif
 
 	if (-1 == (*fd = socket(family, type, proto)))
@@ -1180,22 +1280,30 @@ MAYBEUSED static u_error_t u_socket(int *fd, int family, int type, int proto, u_
 } /* u_socket() */
 
 
-static u_error_t u_fdopendir(DIR **dp, int fd) {
+static u_error_t u_fdopendir(DIR **dp, int *fd) {
 #if HAVE_FDOPENDIR
 	int error;
 
-	if ((error = u_setflag(fd, U_CLOEXEC, 1)))
+	*dp = NULL;
+
+	if ((error = u_setflag(*fd, U_CLOEXEC, 1)))
 		return error;
 
-	if (!(*dp = fdopendir(fd)))
+	if (!(*dp = fdopendir(*fd)))
 		return errno;
+
+	*fd = -1;
 
 	return 0;
 #else
+	static const char *const local[] = { ".", "/tmp", "/dev" };
+	const char *const *path;
 	struct stat st;
 	int fd2, error;
 
-	if (0 != fstat(fd, &st))
+	*dp = NULL;
+
+	if (0 != fstat(*fd, &st))
 		goto syerr;
 
 	if (!S_ISDIR(st.st_mode)) {
@@ -1204,19 +1312,24 @@ static u_error_t u_fdopendir(DIR **dp, int fd) {
 		goto error;
 	}
 
-	if (!(*dp = opendir(".")))
+	for (path = local; path < endof(local); path++) {
+		if ((*dp = opendir(*path)))
+			break;
+	}
+
+	if (!*dp)
 		goto syerr;
 
 	if (-1 == (fd2 = dirfd(*dp)))
 		goto syerr;
 
-	if ((error = u_dup3(fd, fd2, U_CLOEXEC)))
+	if ((error = u_dup2(*fd, fd2, U_CLOEXEC)))
 		goto error;
 
 	if (-1 == lseek(fd2, 0, SEEK_SET))
 		goto syerr;
 
-	u_close(&fd);
+	u_close(fd);
 
 	return 0;
 syerr:
@@ -1230,6 +1343,64 @@ error:
 	return error;
 #endif
 } /* u_fdopendir() */
+
+
+/* convert fcntl flags to fopen/fdopen mode string */
+#define U_MODESTRLEN 8
+
+#define u_strmode_(flags, dst, lim, ...) u_strmode((flags), (dst), (lim))
+#define u_strmode(...) u_strmode_(__VA_ARGS__, &(char[U_MODESTRLEN]){ 0 }, U_MODESTRLEN)
+
+static const char *(u_strmode)(u_flags_t flags, void *dst, size_t lim) {
+	char mode[U_MODESTRLEN], *p = mode;
+
+	if (flags & O_APPEND) {
+		*p++ = 'a';
+
+		if (O_WRONLY != (flags & O_WRONLY))
+			*p++ = '+';
+	} else if (O_RDONLY == (flags & O_RDONLY)) {
+		*p++ = 'r';
+	} else if (O_WRONLY == (flags & O_WRONLY)) {
+		*p++ = 'w';
+	} else if (O_RDWR == (flags & O_RDWR)) {
+		*p++ = 'r';
+		*p++ = '+';
+	}
+
+	if (flags & O_EXCL)
+		*p++ = 'x';
+
+	*p = '\0';
+
+	assert(lim >= sizeof mode);
+	u_strlcpy(dst, mode, lim);
+
+	return dst;
+} /* u_strmode() */
+
+
+static int u_fdopen(FILE **fp, int *fd, const char *mode, u_flags_t flags) {
+	char mbuf[U_MODESTRLEN];
+	int error;
+
+	if (!mode) {
+		if ((error = u_getaccmode(*fd, &flags, flags)))
+			return error;
+
+		mode = u_strmode(flags, mbuf, sizeof mbuf);
+	}
+
+	if ((error = u_fixflags(*fd, flags)))
+		return error;
+
+	if (!(*fp = fdopen(*fd, mode)))
+		return error;
+
+	*fd = -1;
+
+	return 0;
+} /* u_fdopen() */
 
 
 #if HAVE_GETIFADDRS
@@ -1869,6 +2040,12 @@ static int unixL_newmetatable(lua_State *L, const char *name, const luaL_Reg *me
 
 
 typedef struct unixL_State {
+	struct {
+		_Bool jit;
+		int openf; /* LuaJIT io.open reference */
+		int opene; /* PUC Lua 5.1 file handle environment */
+	} lua;
+
 	int error; /* errno value from last failed syscall */
 
 	char text[MIN(NL_TEXTMAX, 256)]; /* NL_TEXTMAX == INT_MAX for glibc */
@@ -1921,6 +2098,7 @@ typedef struct unixL_State {
 } unixL_State;
 
 static const unixL_State unixL_initializer = {
+	.lua = { 0, LUA_NOREF, LUA_NOREF },
 	.ts = { { -1, -1 } },
 #if !HAVE_ARC4RANDOM
 	.random = UNIXL_RANDOM_INITIALIZER,
@@ -1930,9 +2108,71 @@ static const unixL_State unixL_initializer = {
 #endif
 };
 
+#define UNIXL_MAGIC_INITIALIZER { 0, { 0 } }
 
-static int unixL_init(unixL_State *U) {
+typedef struct unixL_Magic {
+	int state;
+	unsigned char magic[4];
+} unixL_Magic;
+
+static int unixL_magicf(lua_State *L, const void *src, size_t len, void *ud) {
+	unixL_Magic *M = ud;
+	const unsigned char *p, *pe;
+
+	(void)L;
+	p = src;
+	pe = p + len;
+
+	while (p < pe) {
+		switch (M->state) {
+		case 0: case 1: case 2: case 3:
+			M->magic[M->state++] = *p++;
+			break;
+		default:
+			return 0;
+		}
+	}
+
+	return 0;
+} /* unixL_magicf() */
+
+static int unixL_closef(lua_State *);
+
+static int unixL_init(lua_State *L, unixL_State *U) {
+	unixL_Magic M = UNIXL_MAGIC_INITIALIZER;
 	int error;
+
+	luaL_loadstring(L, "return 42");
+#if LUA_VERSION_NUM >= 503
+	lua_dump(L, &unixL_magicf, &M, 1);
+#else
+	lua_dump(L, &unixL_magicf, &M);
+#endif
+	lua_pop(L, 1);
+
+	/* LuaJIT magic begins \033LJ; PUC Lua 5.1 magic is \033Lua. */
+	if (M.magic[0] == 0x1b && M.magic[1] == 0x4c && M.magic[2] == 0x4a)
+		U->lua.jit = 1;
+
+	if (U->lua.jit) {
+		lua_getglobal(L, "io");
+
+		if (!lua_isnil(L, -1)) {
+			lua_getfield(L, -1, "open");
+			U->lua.openf = luaL_ref(L, LUA_REGISTRYINDEX);
+		}
+
+		lua_pop(L, 1);
+	}
+
+#if LUA_VERSION_NUM == 501
+	if (!U->lua.jit) {
+		lua_createtable(L, 0, 1);
+		lua_pushcfunction(L, &unixL_closef);
+		lua_setfield(L, -2, "__close");
+		U->lua.opene = luaL_ref(L, LUA_REGISTRYINDEX);
+	}
+#endif
 
 	if ((error = u_pipe(U->ts.fd, O_NONBLOCK|U_CLOEXEC)))
 		return error;
@@ -2654,6 +2894,84 @@ static int unixL_checkfileno(lua_State *L, int index) {
 	return fd;
 } /* unixL_checkfileno() */
 
+
+static int unixL_closef(lua_State *L) {
+	luaL_Stream *fh = lua_touserdata(L, 1);
+
+	if (fh && fh->f) {
+		fclose(fh->f);
+		fh->f = NULL;
+#if LUA_VERSION_NUM >= 502
+		fh->closef = NULL;
+#endif
+	}
+
+	return 0;
+} /* unixL_closef() */
+
+static struct luaL_Stream *unixL_prepfile(lua_State *L) {
+	unixL_State *U = unixL_getstate(L);
+	luaL_Stream *fh;
+
+	if (U->lua.jit) {
+		static const char *const local[] = { ".", "/dev/null" };
+		const char *const *path, *const *ppath = NULL;
+
+		if (U->lua.openf == LUA_NOREF || U->lua.openf == LUA_REFNIL)
+			luaL_error(L, "unable to create new file handle: LuaJIT io.open function not available");
+
+		for (path = &local[0]; path < endof(local); ppath = path++) {
+			lua_rawgeti(L, LUA_REGISTRYINDEX, U->lua.openf);
+			lua_pushstring(L, *path);
+			lua_pushstring(L, "r");
+			lua_call(L, 2, 2);
+
+			if (!lua_isnil(L, -2))
+				break;
+
+			lua_pop(L, 2);
+		}
+
+		if (lua_isnil(L, -2))
+			luaL_error(L, "unable to create a new file handle: %s: %s", *ppath, luaL_checkstring(L, -1));
+
+		lua_pop(L, 1);
+
+		fh = luaL_checkudata(L, -1, LUA_FILEHANDLE);
+
+		if (fh->f) {
+			fclose(fh->f);
+			fh->f = NULL;
+		}
+	} else {
+		fh = lua_newuserdata(L, sizeof *fh);
+		memset(fh, 0, sizeof *fh);
+		luaL_getmetatable(L, LUA_FILEHANDLE);
+		lua_setmetatable(L, -2);
+
+#if LUA_VERSION_NUM == 501
+		lua_rawgeti(L, LUA_REGISTRYINDEX, U->lua.opene);
+		lua_setfenv(L, -2);
+#elif LUA_VERSION_NUM >= 502
+		fh->closef = &unixL_closef;
+#endif
+	}
+
+	return fh;
+} /* unixL_prepfile() */
+
+
+static struct luaL_Stream *unixL_prepfdopen(lua_State *L, int index, const char **mode, u_flags_t *flags) {
+	if (lua_isnoneornil(L, index) || lua_isnumber(L, index)) {
+		*flags = luaL_optinteger(L, index, 0);
+		*mode = NULL;
+	} else {
+		*mode = luaL_checkstring(L, index);
+		*flags = 0;
+	}
+
+	return unixL_prepfile(L);
+} /* unixL_prepfdopen() */
 
 static size_t unixL_checksize(lua_State *L, int index) {
 	if (sizeof (lua_Integer) >= sizeof (size_t)) {
@@ -3390,12 +3708,28 @@ static int unix_closedir(lua_State *L) {
 } /* unix_closedir() */
 
 
+static int unix_dup(lua_State *L) {
+	int ofd = unixL_checkfileno(L, 1);
+	u_flags_t flags = luaL_optinteger(L, 2, 0);
+	int nfd, error;
+
+	if ((error = u_dup(&nfd, ofd, flags)))
+		return unixL_pusherror(L, error, "dup", "~$#");
+
+	lua_pushinteger(L, nfd);
+
+	return 1;
+} /* unix_dup() */
+
+
 static int unix_dup2(lua_State *L) {
 	int ofd = unixL_checkfileno(L, 1);
 	int nfd = unixL_checkfileno(L, 2);
+	u_flags_t flags = luaL_optinteger(L, 3, 0);
+	int error;
 
-	if (-1 == dup2(ofd, nfd))
-		return unixL_pusherror(L, errno, "dup2", "~$#");
+	if ((error = u_dup2(ofd, nfd, flags)))
+		return unixL_pusherror(L, error, "dup2", "~$#");
 
 	lua_pushinteger(L, nfd);
 
@@ -3629,9 +3963,20 @@ static int unix_fcntl(lua_State *L) {
 	int fd = unixL_checkfileno(L, 1);
 	int cmd = luaL_checkint(L, 2);
 	u_flags_t flags;
-	int pid, error;
+	int dupfd, pid, error;
 
 	switch (cmd) {
+#if defined F_DUPFD_CLOEXEC
+	case F_DUPFD_CLOEXEC:
+		/* FALL THROUGH */
+#endif
+	case F_DUPFD:
+		if (-1 == (dupfd = fcntl(fd, cmd, unixL_checkfileno(L, 3))))
+			goto syerr;
+
+		unixL_pushinteger(L, dupfd);
+
+		return 1;
 	case F_GETFD:
 		if ((flags = fcntl(fd, cmd)) < 0)
 			goto syerr;
@@ -3703,6 +4048,70 @@ error:
 } /* unix_fcntl() */
 
 
+static int unix_fdopen(lua_State *L) {
+	u_flags_t flags;
+	const char *mode;
+	int fd, error;
+	luaL_Stream *fh;
+
+	lua_settop(L, 2);
+	luaL_argcheck(L, lua_type(L, 1) != LUA_TUSERDATA, 1, "cannot steal descriptor from existing handle");
+	fd = unixL_checkfileno(L, 1);
+
+	fh = unixL_prepfdopen(L, 2, &mode, &flags);
+
+	if ((error = u_fdopen(&fh->f, &fd, mode, flags)))
+		return unixL_pusherror(L, error, "fdopen", "~$#");
+
+	return 1;
+} /* unix_fdopen() */
+
+
+#if HAVE_FDOPENDIR
+static int unix_fdopendir(lua_State *L) {
+	DIR **dp;
+	int fd, error;
+
+	lua_settop(L, 1);
+	luaL_argcheck(L, lua_type(L, 1) != LUA_TUSERDATA, 1, "cannot steal descriptor from existing handle");
+	fd = unixL_checkfileno(L, 1);
+
+	dp = lua_newuserdata(L, sizeof *dp);
+	*dp = NULL;
+	luaL_setmetatable(L, "DIR*");
+
+	if ((error = u_fdopendir(dp, &fd)))
+		return unixL_pusherror(L, error, "fdopendir", "~$#");
+
+	return 1;
+} /* unix_fdopendir() */
+#endif /* HAVE_FDOPENDIR */
+
+
+static int unix_fdup(lua_State *L) {
+	int fd = -1, ofd, error;
+	u_flags_t flags;
+	const char *mode;
+	luaL_Stream *fh;
+
+	lua_settop(L, 2);
+	ofd = unixL_checkfileno(L, 1);
+	fh = unixL_prepfdopen(L, 2, &mode, &flags);
+
+	if ((error = u_dup(&fd, ofd, flags)))
+		goto error;
+
+	if ((error = u_fdopen(&fh->f, &fd, mode, flags)))
+		goto error;
+
+	return 1;
+error:
+	u_close(&fd);
+
+	return unixL_pusherror(L, error, "fopen", "~$#");
+} /* unix_fdup() */
+
+
 static int unix_fileno(lua_State *L) {
 	int fd = unixL_checkfileno(L, 1);
 
@@ -3735,6 +4144,59 @@ static int unix_funlockfile(lua_State *L) {
 
 	return 1;
 } /* unix_funlockfile() */
+
+
+static int unix_fopen(lua_State *L) {
+	int fd = -1, ofd, error;
+	luaL_Stream *fh;
+
+	lua_settop(L, 3);
+
+	if (-1 != (ofd = unixL_optfileno(L, 1, -1))) {
+		u_flags_t flags;
+		const char *mode;
+
+		fh = unixL_prepfdopen(L, 2, &mode, &flags);
+
+		if ((error = u_dup(&fd, ofd, flags)))
+			goto error;
+
+		if ((error = u_fdopen(&fh->f, &fd, mode, flags)))
+			goto error;
+	} else {
+		const char *path = luaL_checkstring(L, 1);
+
+		if (lua_isnumber(L, 2)) {
+			u_flags_t flags = luaL_checkinteger(L, 2);
+			int mode = (flags & O_CREAT)? unixL_optmode(L, 3, 0666, 0666) : 0;
+
+			fh = unixL_prepfile(L);
+
+			if ((error = u_open(&fd, path, flags, mode)))
+				goto error;
+
+			if (!(fh->f = fdopen(fd, u_strmode(flags))))
+				goto syerr;
+
+			fd = -1;
+		} else {
+			const char *mode = luaL_checkstring(L, 2);
+
+			fh = unixL_prepfile(L);
+
+			if (!(fh->f = fopen(path, mode)))
+				goto syerr;
+		}
+	}
+
+	return 1;
+syerr:
+	error = errno;
+error:
+	u_close(&fd);
+
+	return unixL_pusherror(L, error, "fopen", "~$#");
+} /* unix_fopen() */
 
 
 static int unix_fork(lua_State *L) {
@@ -4678,6 +5140,20 @@ static int unix_mkpath(lua_State *L) {
 } /* unix_mkpath() */
 
 
+static int unix_open(lua_State *L) {
+	const char *path = luaL_checkstring(L, 1);
+	u_flags_t flags = luaL_checkinteger(L, 2);
+	int mode = (flags & O_CREAT)? unixL_optmode(L, 3, 0666, 0666) : 0;
+	int fd, error;
+
+	if ((error = u_open(&fd, path, flags, mode)))
+		return unixL_pusherror(L, error, "open", "~$#");
+
+	lua_pushinteger(L, fd);
+
+	return 1;
+} /* unix_open() */
+
 
 static DIR *dir_checkself(lua_State *L, int index) {
 	DIR **dp = luaL_checkudata(L, index, "DIR*");
@@ -4687,7 +5163,6 @@ static DIR *dir_checkself(lua_State *L, int index) {
 	return *dp;
 } /* dir_checkself() */
 
-
 enum dir_field {
 	DF_NAME,
 	DF_INO,
@@ -4695,7 +5170,6 @@ enum dir_field {
 }; /* enum dir_field */
 
 static const char *dir_field[] = { "name", "ino", "type", NULL };
-
 
 static void dir_pushfield(lua_State *L, struct dirent *ent, enum dir_field type) {
 	switch (type) {
@@ -4718,7 +5192,6 @@ static void dir_pushfield(lua_State *L, struct dirent *ent, enum dir_field type)
 	} /* switch() */
 } /* dir_pushfield() */
 
-
 static void dir_pushtable(lua_State *L, struct dirent *ent) {
 	lua_createtable(L, 0, 3);
 
@@ -4731,7 +5204,6 @@ static void dir_pushtable(lua_State *L, struct dirent *ent) {
 	dir_pushfield(L, ent, DF_TYPE);
 	lua_setfield(L, -2, "type");
 } /* dir_pushtable() */
-
 
 static int dir_read(lua_State *L) {
 	DIR *dp = dir_checkself(L, 1);
@@ -4758,7 +5230,6 @@ static int dir_read(lua_State *L) {
 		return n;
 	}
 } /* dir_read() */
-
 
 static int dir_nextent(lua_State *L) {
 	DIR *dp = dir_checkself(L, lua_upvalueindex(2));
@@ -4787,7 +5258,6 @@ static int dir_nextent(lua_State *L) {
 	}
 } /* dir_nextent() */
 
-
 static int dir_files(lua_State *L) {
 	int i, top = lua_gettop(L), nup = top + 2;
 
@@ -4806,7 +5276,6 @@ static int dir_files(lua_State *L) {
 	return 1;
 } /* dir_files() */
 
-
 static int dir_rewind(lua_State *L) {
 	DIR *dp = dir_checkself(L, 1);
 
@@ -4816,7 +5285,6 @@ static int dir_rewind(lua_State *L) {
 
 	return 1;
 } /* dir_rewind() */
-
 
 static int dir_close(lua_State *L) {
 	DIR **dp = luaL_checkudata(L, 1, "DIR*");
@@ -4830,7 +5298,6 @@ static int dir_close(lua_State *L) {
 	return 1;
 } /* dir_close() */
 
-
 static const luaL_Reg dir_methods[] = {
 	{ "read",   &dir_read },
 	{ "files",  &dir_files },
@@ -4839,12 +5306,10 @@ static const luaL_Reg dir_methods[] = {
 	{ NULL,     NULL }
 }; /* dir_methods[] */
 
-
 static const luaL_Reg dir_metamethods[] = {
 	{ "__gc", &dir_close },
 	{ NULL,   NULL }
 }; /* dir_metamethods[] */
-
 
 static int unix_opendir(lua_State *L) {
 	DIR **dp;
@@ -4857,21 +5322,13 @@ static int unix_opendir(lua_State *L) {
 	luaL_setmetatable(L, "DIR*");
 
 	if (-1 != (fd = unixL_optfileno(L, 1, -1))) {
-		/*
-		 * There's no simple way to just duplicate the descriptor
-		 * and atomically set O_CLOEXEC. The dup3() extension
-		 * requires a valid target descriptor.
-		 */
-		 if ((error = u_open(&fd2, ".", O_RDONLY|U_CLOEXEC, 0)))
-		 	goto error;
-
-		if ((error = u_dup3(fd, fd2, U_CLOEXEC)))
+		if ((error = u_dup(&fd2, fd, U_CLOEXEC)))
 			goto error;
 
 		if (-1 == lseek(fd2, 0, SEEK_SET))
 			goto syerr;
 
-		if ((error = u_fdopendir(dp, fd2)))
+		if ((error = u_fdopendir(dp, &fd2)))
 			goto error;
 	} else {
 		const char *path = luaL_checkstring(L, 1);
@@ -5753,6 +6210,7 @@ static const luaL_Reg unix_routines[] = {
 	{ "chroot",             &unix_chroot },
 	{ "clock_gettime",      &unix_clock_gettime },
 	{ "closedir",           &unix_closedir },
+	{ "dup",                &unix_dup },
 	{ "dup2",               &unix_dup2 },
 	{ "execve",             &unix_execve },
 	{ "execl",              &unix_execl },
@@ -5763,6 +6221,11 @@ static const luaL_Reg unix_routines[] = {
 	{ "fchmod",             &unix_chmod },
 	{ "fchown",             &unix_chown },
 	{ "fcntl",              &unix_fcntl },
+	{ "fdopen",             &unix_fdopen },
+#if HAVE_FDOPENDIR
+	{ "fdopendir",          &unix_fdopendir },
+#endif
+	{ "fdup",               &unix_fdup },
 	{ "fileno",             &unix_fileno },
 	{ "flockfile",          &unix_flockfile },
 	{ "fstat",              &unix_stat },
@@ -5794,6 +6257,7 @@ static const luaL_Reg unix_routines[] = {
 	{ "lstat",              &unix_lstat },
 	{ "mkdir",              &unix_mkdir },
 	{ "mkpath",             &unix_mkpath },
+	{ "open",               &unix_open },
 	{ "opendir",            &unix_opendir },
 	{ "pread",              &unix_pread },
 	{ "pwrite",             &unix_pwrite },
@@ -6218,13 +6682,20 @@ static const struct {
 }; /* unix_sighandler[] */
 
 static const struct unix_const const_fcntl[] = {
+	UNIX_CONST(F_DUPFD),
+#if defined F_DUPFD_CLOEXEC
+	UNIX_CONST(F_DUPFD_CLOEXEC),
+#endif
+	UNIX_CONST(F_GETFD), UNIX_CONST(F_SETFD),
+	UNIX_CONST(F_GETFL), UNIX_CONST(F_SETFL),
 	UNIX_CONST(F_GETLK), UNIX_CONST(F_SETLK), UNIX_CONST(F_SETLKW),
-	UNIX_CONST(F_RDLCK), UNIX_CONST(F_WRLCK), UNIX_CONST(F_UNLCK),
-	UNIX_CONST(SEEK_SET), UNIX_CONST(SEEK_CUR), UNIX_CONST(SEEK_END),
-	UNIX_CONST(F_GETFD), UNIX_CONST(F_GETFL), UNIX_CONST(F_GETOWN),
-	UNIX_CONST(F_SETFD), UNIX_CONST(F_SETFL), UNIX_CONST(F_SETOWN),
+	UNIX_CONST(F_GETOWN), UNIX_CONST(F_SETOWN),
 
 	UNIX_CONST(FD_CLOEXEC),
+
+	UNIX_CONST(F_RDLCK), UNIX_CONST(F_WRLCK), UNIX_CONST(F_UNLCK),
+
+	UNIX_CONST(SEEK_SET), UNIX_CONST(SEEK_CUR), UNIX_CONST(SEEK_END),
 
 	{ "O_CLOEXEC", U_CLOEXEC }, /* not natively supported on NetBSD 5.1 */
 	UNIX_CONST(O_CREAT),
@@ -6298,7 +6769,7 @@ int luaopen_unix(lua_State *L) {
 
 	lua_setmetatable(L, -2);
 
-	if ((error = unixL_init(U)))
+	if ((error = unixL_init(L, U)))
 		return luaL_error(L, "%s", unixL_strerror3(L, U, error));
 
 	/*
