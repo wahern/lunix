@@ -3509,6 +3509,20 @@ static int unix_arc4random_uniform(lua_State *L) {
 } /* unix_arc4random_uniform() */
 
 
+static int unix_bitand(lua_State *L) {
+	unixL_pushinteger(L, luaL_checkinteger(L, 1) & luaL_checkinteger(L, 2));
+
+	return 1;
+} /* unix_bitand() */
+
+
+static int unix_bitor(lua_State *L) {
+	unixL_pushinteger(L, luaL_checkinteger(L, 1) | luaL_checkinteger(L, 2));
+
+	return 1;
+} /* unix_bitor() */
+
+
 static int unix_chdir(lua_State *L) {
 	int fd;
 
@@ -3699,6 +3713,13 @@ static int unix_clock_gettime(lua_State *L) {
 		return 2;
 	}
 } /* unix_clock_gettime() */
+
+
+static int unix_compl(lua_State *L) {
+	unixL_pushinteger(L, ~luaL_checkinteger(L, 1));
+
+	return 1;
+} /* unix_compl() */
 
 
 static int dir_close(lua_State *);
@@ -5070,6 +5091,19 @@ static int unix_mkdir(lua_State *L) {
 } /* unix_mkdir() */
 
 
+static int unix_mkfifo(lua_State *L) {
+	const char *path = luaL_checkstring(L, 1);
+	mode_t mode = unixL_optmode(L, 2, 0666, 0666);
+
+	if (0 != mkfifo(path, mode))
+		return unixL_pusherror(L, errno, "mkfifo", "0$#");
+
+	lua_pushboolean(L, 1);
+
+	return 1;
+} /* unix_mkfifo() */
+
+
 /*
  * Patterned after the mkpath routine from BSD mkdir implementations for
  * POSIX mkdir(1). The basic idea is to mimic a recursive mkdir(2) call.
@@ -6192,6 +6226,13 @@ static int unix_write(lua_State *L) {
 } /* unix_write() */
 
 
+static int unix_xor(lua_State *L) {
+	unixL_pushinteger(L, luaL_checkinteger(L, 1) ^ luaL_checkinteger(L, 2));
+
+	return 1;
+} /* unix_xor() */
+
+
 static int unix__gc(lua_State *L) {
 	unixL_destroy(lua_touserdata(L, 1));
 
@@ -6204,12 +6245,15 @@ static const luaL_Reg unix_routines[] = {
 	{ "arc4random_buf",     &unix_arc4random_buf },
 	{ "arc4random_stir",    &unix_arc4random_stir },
 	{ "arc4random_uniform", &unix_arc4random_uniform },
+	{ "bitand",             &unix_bitand },
+	{ "bitor",              &unix_bitor },
 	{ "chdir",              &unix_chdir },
 	{ "chmod",              &unix_chmod },
 	{ "chown",              &unix_chown },
 	{ "chroot",             &unix_chroot },
 	{ "clock_gettime",      &unix_clock_gettime },
 	{ "closedir",           &unix_closedir },
+	{ "compl",              &unix_compl },
 	{ "dup",                &unix_dup },
 	{ "dup2",               &unix_dup2 },
 	{ "execve",             &unix_execve },
@@ -6231,6 +6275,7 @@ static const luaL_Reg unix_routines[] = {
 	{ "fstat",              &unix_stat },
 	{ "ftrylockfile",       &unix_ftrylockfile },
 	{ "funlockfile",        &unix_funlockfile },
+	{ "fopen",              &unix_fopen },
 	{ "fork",               &unix_fork },
 	{ "gai_strerror",       &unix_gai_strerror },
 	{ "getaddrinfo",        &unix_getaddrinfo },
@@ -6256,6 +6301,7 @@ static const luaL_Reg unix_routines[] = {
 	{ "link",               &unix_link },
 	{ "lstat",              &unix_lstat },
 	{ "mkdir",              &unix_mkdir },
+	{ "mkfifo",             &unix_mkfifo },
 	{ "mkpath",             &unix_mkpath },
 	{ "open",               &unix_open },
 	{ "opendir",            &unix_opendir },
@@ -6304,6 +6350,7 @@ static const luaL_Reg unix_routines[] = {
 	{ "wait",               &unix_wait },
 	{ "waitpid",            &unix_waitpid },
 	{ "write",              &unix_write },
+	{ "xor",                &unix_xor },
 	{ NULL,                 NULL }
 }; /* unix_routines[] */
 
