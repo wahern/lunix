@@ -1207,6 +1207,11 @@ static u_error_t u_dup2(int fd, int fd2, u_flags_t flags) {
 		return errno;
 
 	flags &= ~U_CLOEXEC; /* dup3 might not handle any other flags */
+#elif defined F_DUP2FD && defined F_DUP2FD_CLOEXEC
+	if (-1 == fcntl(fd, (flags & U_CLOEXEC)? F_DUP2FD_CLOEXEC : F_DUP2FD, fd2))
+		return errno;
+
+	flags &= ~U_CLOEXEC;
 #else
 	if (-1 == dup2(fd, fd2))
 		return errno;
@@ -3991,6 +3996,14 @@ static int unix_fcntl(lua_State *L) {
 	case F_DUPFD_CLOEXEC:
 		/* FALL THROUGH */
 #endif
+#if defined F_DUP2FD_CLOEXEC
+	case F_DUP2FD_CLOEXEC:
+		/* FALL THROUGH */
+#endif
+#if defined F_DUP2FD
+	case F_DUP2FD:
+		/* FALL THROUGH */
+#endif
 	case F_DUPFD:
 		if (-1 == (dupfd = fcntl(fd, cmd, unixL_checkfileno(L, 3))))
 			goto syerr;
@@ -4053,6 +4066,27 @@ static int unix_fcntl(lua_State *L) {
 	case F_SETLK:
 	case F_SETLKW:
 		return fcntl_flock(L, fd, cmd, 3);
+#if defined F_CLOSEM
+	case F_CLOSEM:
+		if (-1 == fcntl(fd, cmd))
+			goto syerr;
+
+		lua_pushboolean(L, 1);
+
+		return 1;
+#endif
+#if defined F_MAXFD
+	case F_MAXFD: {
+		int maxfd;
+
+		if (-1 == (maxfd = fcntl(fd, cmd)))
+			goto syerr;
+
+		lua_pushinteger(L, maxfd);
+
+		return 1;
+	}
+#endif
 	default:
 		/*
 		 * NOTE: We don't allow unsupported operations because we
@@ -6733,11 +6767,22 @@ static const struct unix_const const_fcntl[] = {
 #if defined F_DUPFD_CLOEXEC
 	UNIX_CONST(F_DUPFD_CLOEXEC),
 #endif
+#if defined F_DUP2FD
+	UNIX_CONST(F_DUP2FD),
+#endif
+#if defined F_DUP2FD_CLOEXEC
+	UNIX_CONST(F_DUP2FD_CLOEXEC),
+#endif
 	UNIX_CONST(F_GETFD), UNIX_CONST(F_SETFD),
 	UNIX_CONST(F_GETFL), UNIX_CONST(F_SETFL),
 	UNIX_CONST(F_GETLK), UNIX_CONST(F_SETLK), UNIX_CONST(F_SETLKW),
 	UNIX_CONST(F_GETOWN), UNIX_CONST(F_SETOWN),
-
+#if defined F_CLOSEM
+	UNIX_CONST(F_CLOSEM),
+#endif
+#if defined F_MAXFD
+	UNIX_CONST(F_MAXFD),
+#endif
 	UNIX_CONST(FD_CLOEXEC),
 
 	UNIX_CONST(F_RDLCK), UNIX_CONST(F_WRLCK), UNIX_CONST(F_UNLCK),
@@ -6756,6 +6801,9 @@ static const struct unix_const const_fcntl[] = {
 
 	UNIX_CONST(O_APPEND),
 	UNIX_CONST(O_NONBLOCK),
+#if defined O_NDELAY
+	UNIX_CONST(O_NDELAY),
+#endif
 #if defined O_SYNC
 	UNIX_CONST(O_SYNC),
 #endif
