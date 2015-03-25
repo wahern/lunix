@@ -7110,7 +7110,7 @@ static const struct unix_const const_fcntl[] = {
 	UNIX_CONST(O_NOFOLLOW),
 	UNIX_CONST(O_TRUNC),
 #if defined O_TMPFILE
-	UNIX_CONST(O_TMPFILE)
+	UNIX_CONST(O_TMPFILE),
 #endif
 
 	UNIX_CONST(O_APPEND),
