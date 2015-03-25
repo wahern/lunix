@@ -13,7 +13,8 @@ local fh = check(io.tmpfile())
 check(fh:write(dt, "\n"))
 check(fh:flush())
 
-local fh2 = check(unix.fopen(fh, unix.O_CLOEXEC))
+-- fopen of existing file descriptors not supported universally
+local fh2 = check(unix.fdup(fh, unix.O_CLOEXEC))
 local ln = check(fh2:seek"set") and check(fh2:read())
 
 check(dt == ln, "could not read back line (%s ~= %s)", dt, tostring(ln))
