@@ -3303,7 +3303,9 @@ static void unixL_checkflags(lua_State *L, int index, const char **mode, u_flags
 		*flags = u_toflags(*mode);
 	}
 
-	*perm = (*flags & O_CREAT)? unixL_optmode(L, index + 1, 0666, 0666) : 0;
+	if (perm) {
+		*perm = (*flags & O_CREAT)? unixL_optmode(L, index + 1, 0666, 0666) : 0;
+	}
 } /* unixL_checkflags() */
 
 
@@ -4435,14 +4437,13 @@ error:
 static int unix_fdopen(lua_State *L) {
 	u_flags_t flags;
 	const char *mode;
-	mode_t perm;
 	int fd, error;
 	luaL_Stream *fh;
 
 	lua_settop(L, 2);
 	luaL_argcheck(L, lua_type(L, 1) != LUA_TUSERDATA, 1, "cannot steal descriptor from existing handle");
 	fd = unixL_checkfileno(L, 1);
-	unixL_checkflags(L, 2, &mode, &flags, &perm);
+	unixL_checkflags(L, 2, &mode, &flags, NULL);
 
 	fh = unixL_prepfile(L);
 
@@ -4478,12 +4479,11 @@ static int unix_fdup(lua_State *L) {
 	int fd = -1, ofd, error;
 	u_flags_t flags;
 	const char *mode;
-	mode_t perm;
 	luaL_Stream *fh;
 
 	lua_settop(L, 2);
 	ofd = unixL_checkfileno(L, 1);
-	unixL_checkflags(L, 2, &mode, &flags, &perm);
+	unixL_checkflags(L, 2, &mode, &flags, NULL);
 
 	fh = unixL_prepfile(L);
 
@@ -4578,6 +4578,35 @@ error:
 
 	return unixL_pusherror(L, error, "fopen", "~$#");
 } /* unix_fopen() */
+
+
+static int unix_fpipe(lua_State *L) {
+	int fd[2] = { -1, -1 }, error;
+	luaL_Stream *fh[2] = { NULL, NULL };
+	u_flags_t flags;
+	const char *mode;
+
+	lua_settop(L, 1);
+	unixL_checkflags(L, 1, &mode, &flags, NULL);
+
+	fh[0] = unixL_prepfile(L);
+	fh[1] = unixL_prepfile(L);
+
+	if ((error = u_pipe(fd, flags)))
+		goto error;
+
+	if ((error = u_fdopen(&fh[0]->f, &fd[0], mode, flags)))
+		goto error;
+	if ((error = u_fdopen(&fh[1]->f, &fd[1], mode, flags)))
+		goto error;
+
+	return 2;
+error:
+	u_close(&fd[0]);
+	u_close(&fd[1]);
+
+	return unixL_pusherror(L, error, "pipe", "~$#");
+} /* unix_fpipe() */
 
 
 static int unix_fork(lua_State *L) {
@@ -5563,6 +5592,29 @@ error:
 
 	return unixL_pusherror(L, error, "open", "~$#");
 } /* unix_open() */
+
+
+static int unix_pipe(lua_State *L) {
+	int fd[2] = { -1, -1 }, error;
+	u_flags_t flags;
+	const char *mode;
+
+	lua_settop(L, 1);
+	unixL_checkflags(L, 1, &mode, &flags, NULL);
+
+	if ((error = u_pipe(fd, flags)))
+		goto error;
+
+	lua_pushinteger(L, fd[0]);
+	lua_pushinteger(L, fd[1]);
+
+	return 2;
+error:
+	u_close(&fd[0]);
+	u_close(&fd[1]);
+
+	return unixL_pusherror(L, error, "pipe", "~$#");
+} /* unix_pipe() */
 
 
 static DIR *dir_checkself(lua_State *L, int index) {
@@ -6652,6 +6704,7 @@ static const luaL_Reg unix_routines[] = {
 	{ "ftrylockfile",       &unix_ftrylockfile },
 	{ "funlockfile",        &unix_funlockfile },
 	{ "fopen",              &unix_fopen },
+	{ "fpipe",              &unix_fpipe },
 	{ "fork",               &unix_fork },
 	{ "gai_strerror",       &unix_gai_strerror },
 	{ "getaddrinfo",        &unix_getaddrinfo },
@@ -6681,6 +6734,7 @@ static const luaL_Reg unix_routines[] = {
 	{ "mkpath",             &unix_mkpath },
 	{ "open",               &unix_open },
 	{ "opendir",            &unix_opendir },
+	{ "pipe",               &unix_pipe },
 	{ "pread",              &unix_pread },
 	{ "pwrite",             &unix_pwrite },
 	{ "raise",              &unix_raise },
