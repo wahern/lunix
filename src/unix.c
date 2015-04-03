@@ -2509,11 +2509,28 @@ static int unixL_pusherror(lua_State *L, int error, const char *fun NOTUSED, con
  * Whereas descriptors opened via BSD /dev/fd usually share status flags and
  * file position cursors.
  */
+#define FD_PRIpid "1$ld"
+#define FD_PRIfd  "2$d"
+#define FD_PRIdev "3$lld"
+#define FD_PRIino "4$lld"
+#define FD_PRInul "5$c"
+
 static u_error_t fd_reopen(int *fd, int ofd, const char *fspath, u_flags_t flags) {
 	char path[sizeof ((unixL_State *)0)->fd.path];
+	const char *dev, *ino, *nul;
+	struct stat st = { 0 };
 	int n, error;
 
-	if ((error = u_snprintf(path, sizeof path, fspath, (long)getpid(), ofd)))
+	dev = strstr(fspath, "%"FD_PRIdev);
+	ino = strstr(fspath, "%"FD_PRIino);
+	nul = strstr(fspath, "%"FD_PRInul);
+
+	if ((dev && (!nul || dev < nul)) || (ino && (!nul || ino < nul))) {
+		if (0 != fstat(ofd, &st))
+			return errno;
+	}
+
+	if ((error = u_snprintf(path, sizeof path, fspath, (long)getpid(), ofd, (long long)st.st_dev, (long long)st.st_ino, '\0')))
 		return error;
 
 	if ((error = u_getaccmode(ofd, &flags, flags)))
@@ -2537,8 +2554,19 @@ static u_error_t fd_isdiff(int *diff, int fd1, int fd2, int flag) {
 
 	*diff = 0;
 
+	/*
+	 * Check first before trying to set. OS X is inconsistent when
+	 * setting O_APPEND. It worked on fd2 (the tmpfd) but not fd1.
+	 * Instead we open one of the files with O_APPEND.
+	 */
 	if (-1 == (flags1 = fcntl(fd1, F_GETFL)))
 		return errno;
+	if (-1 == (flags2 = fcntl(fd2, F_GETFL)))
+		return errno;
+
+	if ((*diff = (flags1 & flag) ^ (flags2 & flag)))
+		return 0;
+
 	if (0 != fcntl(fd1, F_SETFL, flags1 | flag))
 		return errno;
 
@@ -2552,10 +2580,10 @@ static u_error_t fd_isdiff(int *diff, int fd1, int fd2, int flag) {
 	return 0;
 } /* fd_isdiff() */
 
-static u_error_t fd_mktemp(lua_State *L, int *fd, u_flags_t flags, mode_t mode) {
+static u_error_t fd_mktemp(lua_State *L, int *fd, char *tmpnam, size_t tmpsiz, u_flags_t flags, mode_t mode) {
 	static const unsigned char base32[32] = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
 	static const char *tmpdir[] = { P_tmpdir, NULL, "/tmp", "/var/tmp" };
-	char tmpext[17], tmpnam[256];
+	char tmpext[17];
 	size_t i, j;
 	int error = 0;
 
@@ -2571,18 +2599,11 @@ static u_error_t fd_mktemp(lua_State *L, int *fd, u_flags_t flags, mode_t mode) 
 				goto next;
 		}
 
-#if defined O_TMPFILE
-		if (!(error = u_open(fd, tmpdir[i], flags|O_CREAT|O_EXCL|O_TMPFILE, mode)))
-			return 0;
-#endif
-
-		if ((error = u_snprintf(tmpnam, sizeof tmpnam, "%s/luaunix.%s", tmpdir[i], tmpext)))
+		if ((error = u_snprintf(tmpnam, tmpsiz, "%s/luaunix.%s", tmpdir[i], tmpext)))
 			continue;
 
 		if ((error = u_open(fd, tmpnam, flags|O_CREAT|O_EXCL, mode)))
 			continue;
-
-		(void)unlink(tmpnam);
 
 		return 0;
 next:
@@ -2592,13 +2613,22 @@ next:
 	return (error)? error : ENOENT;
 } /* fd_mktemp() */
 
+static void fd_rmtemp(int *fd, const char *tmpnam) {
+	if (*fd != -1) {
+		(void)unlink(tmpnam);
+		u_close(fd);
+	}
+} /* fd_rmtemp() */
+
 static u_error_t fd_init(lua_State *L, unixL_State *U) {
 	static const char *const paths[] = {
-		"/proc/%1$ld/fd/%2$d",
-		"/dev/fd/%2$d",
+		"/proc/%"FD_PRIpid"/fd/%"FD_PRIfd"%"FD_PRInul"%"FD_PRIdev"%"FD_PRIino,
+		"/dev/fd/%"FD_PRIfd"%"FD_PRInul"%"FD_PRIpid"%"FD_PRIdev"%"FD_PRIino,
+		"/.vol/%"FD_PRIdev"/%"FD_PRIino"%"FD_PRInul"%"FD_PRIfd"%"FD_PRIpid
 	};
 	const char *const *path;
 	int pipefd[2] = { -1, -1 }, tmpfd = -1, fd = -1, diff, error;
+	char tmpnam[256];
 
 	if (*U->fd.path)
 		return 0;
@@ -2629,9 +2659,10 @@ static u_error_t fd_init(lua_State *L, unixL_State *U) {
 
 	/*
 	 * Solaris /proc/PID/fd/FD only supports regular files and
-	 * directories.
+	 * directories. Likewise for OS X /.vol/DEVICE/INODE, except
+	 * that the file must still be linked.
 	 */
-	if ((error = fd_mktemp(L, &tmpfd, O_WRONLY|U_CLOEXEC, 0600)))
+	if ((error = fd_mktemp(L, &tmpfd, tmpnam, sizeof tmpnam, O_WRONLY|O_APPEND|U_CLOEXEC, 0600)))
 		goto error;
 
 	for (path = paths; path < endof(paths); u_close(&fd), path++) {
@@ -2656,7 +2687,7 @@ syerr:
 error:
 	u_close(&pipefd[0]);
 	u_close(&pipefd[1]);
-	u_close(&tmpfd);
+	fd_rmtemp(&tmpfd, tmpnam);
 	u_close(&fd);
 
 	return U->fd.error = error;
