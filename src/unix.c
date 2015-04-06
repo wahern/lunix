@@ -17,13 +17,13 @@
 #include <limits.h>       /* INT_MAX NL_TEXTMAX */
 #include <stdarg.h>       /* va_list va_start va_arg va_end */
 #include <stdint.h>       /* SIZE_MAX */
-#include <stdlib.h>       /* arc4random(3) _exit(2) exit(3) getenv(3) getenv_r(3) calloc(3) free(3) realloc(3) setenv(3) strtoul(3) unsetenv(3) */
+#include <stdlib.h>       /* arc4random(3) calloc(3) _exit(2) exit(3) free(3) getenv(3) getenv_r(3) getexecname(3) getprogname(3) realloc(3) setenv(3) strtoul(3) unsetenv(3) */
 #include <stdio.h>        /* fileno(3) flockfile(3) ftrylockfile(3) funlockfile(3) snprintf(3) */
 #include <string.h>       /* memset(3) strcmp(3) strerror_r(3) strsignal(3) strspn(3) strcspn(3) */
 #include <signal.h>       /* NSIG struct sigaction sigset_t sigaction(3) sigfillset(3) sigemptyset(3) sigprocmask(2) */
 #include <ctype.h>        /* isspace(3) */
 #include <time.h>         /* struct tm struct timespec gmtime_r(3) clock_gettime(3) tzset(3) */
-#include <errno.h>        /* ENOMEM ERANGE errno */
+#include <errno.h>        /* E* errno program_invocation_short_name */
 #include <assert.h>       /* assert(3) static_assert */
 #include <math.h>         /* NAN isnormal(3) signbit(3) */
 #include <locale.h>       /* LC_* setlocale(3) */
@@ -91,18 +91,6 @@
 
 #if !HAVE_CONFIG_H
 
-#ifndef HAVE__STATIC_ASSERT
-#define HAVE__STATIC_ASSERT (GNUC_PREREQ(4,6) || __has_feature(c_static_assert) || __has_extension(c_static_assert))
-#endif
-
-#ifndef HAVE_SYS_FEATURE_TESTS_H
-#define HAVE_SYS_FEATURE_TESTS_H (defined __sun)
-#endif
-
-#ifndef HAVE_SYS_PARAM_H
-#define HAVE_SYS_PARAM_H (defined __OpenBSD__ || defined __NetBSD__ || defined __FreeBSD__ || defined __APPLE__)
-#endif
-
 #ifndef HAVE_MACH_MACH_H
 #define HAVE_MACH_MACH_H (defined __APPLE__)
 #endif
@@ -113,6 +101,30 @@
 
 #ifndef HAVE_MACH_MACH_TIME_H
 #define HAVE_MACH_MACH_TIME_H (defined __APPLE__)
+#endif
+
+#ifndef HAVE_SYS_FEATURE_TESTS_H
+#define HAVE_SYS_FEATURE_TESTS_H (defined __sun)
+#endif
+
+#ifndef HAVE_SYS_PARAM_H
+#define HAVE_SYS_PARAM_H (defined __OpenBSD__ || defined __NetBSD__ || defined __FreeBSD__ || defined __APPLE__)
+#endif
+
+#ifndef HAVE_SYS_PROCFS_H
+#define HAVE_SYS_PROCFS_H (defined _AIX)
+#endif
+
+#ifndef HAVE_STRUCT_PSINFO
+#define HAVE_STRUCT_PSINFO (defined _AIX)
+#endif
+
+#ifndef HAVE_STRUCT_PSINFO_PR_FNAME
+#define HAVE_STRUCT_PSINFO_PR_FNAME (HAVE_STRUCT_PSINFO)
+#endif
+
+#ifndef HAVE_STRUCT_PSINFO_PR_NLWP
+#define HAVE_STRUCT_PSINFO_PR_NLWP (HAVE_STRUCT_PSINFO)
 #endif
 
 #ifndef HAVE_STRUCT_STAT_ST_RDEV
@@ -151,6 +163,10 @@
 #define HAVE_STRUCT_STAT_ST_CTIMESPEC HAVE_STRUCT_STAT_ST_ATIMESPEC
 #endif
 
+#ifndef HAVE__STATIC_ASSERT
+#define HAVE__STATIC_ASSERT (GNUC_PREREQ(4,6) || __has_feature(c_static_assert) || __has_extension(c_static_assert))
+#endif
+
 #ifndef HAVE_ARC4RANDOM
 #define HAVE_ARC4RANDOM (defined __OpenBSD__ || defined __FreeBSD__ || defined __NetBSD__ || defined __MirBSD__ || defined __APPLE__)
 #endif
@@ -161,6 +177,14 @@
 
 #ifndef HAVE_ARC4RANDOM_ADDRANDOM
 #define HAVE_ARC4RANDOM_ADDRANDOM HAVE_ARC4RANDOM_STIR
+#endif
+
+#ifndef HAVE_GETEXECNAME
+#define HAVE_GETEXECNAME (defined __sun)
+#endif
+
+#ifndef HAVE_GETPROGNAME
+#define HAVE_GETPROGNAME (defined __OpenBSD__ || defined __FreeBSD__ || defined __NetBSD__ || defined __MirBSD__ || defined __APPLE__)
 #endif
 
 #ifndef HAVE_PIPE2
@@ -213,6 +237,10 @@
 
 #ifndef HAVE_GETENV_R
 #define HAVE_GETENV_R NETBSD_PREREQ(5,0)
+#endif
+
+#ifndef HAVE_PROGRAM_INVOCATION_SHORT_NAME
+#define HAVE_PROGRAM_INVOCATION_SHORT_NAME (defined __linux)
 #endif
 
 #ifndef HAVE_SIGTIMEDWAIT
@@ -272,6 +300,10 @@
 
 #if HAVE_SYS_PARAM_H
 #include <sys/param.h> /* __NetBSD_Version__ OpenBSD __FreeBSD_version */
+#endif
+
+#if HAVE_SYS_PROCFS_H
+#include <sys/procfs.h> /* struct psinfo */
 #endif
 
 #if HAVE_SYS_SOCKIO_H
@@ -2895,6 +2927,54 @@ static gid_t unixL_checkgid(lua_State *L, int index) {
 	return unixL_optgid(L, index, -1);
 } /* unixL_checkgid() */
 
+
+#if HAVE_STRUCT_PSINFO
+MAYBEUSED static int pr_psinfo(struct psinfo *pr) {
+	char path[64];
+	int fd = -1, error;
+	ssize_t n;
+
+	if ((error = u_snprintf(path, sizeof path, "/proc/%ld/psinfo", (long)getpid())))
+		goto error;
+
+	if ((error = u_open(&fd, path, O_RDONLY|U_CLOEXEC, 0)))
+		goto error;
+
+	if (-1 == (n = read(fd, pr, sizeof *pr))) {
+		error = errno;
+		goto error;
+	} else if ((size_t)n != sizeof *pr) {
+		error = EIO;
+		goto error;
+	}
+
+	u_close(&fd);
+
+	return 0;
+error:
+	u_close(&fd);
+
+	return error;
+} /* pr_psinfo() */
+#endif
+
+static int ts_nthreads_psinfo(void) {
+#if HAVE_STRUCT_PSINFO_PR_NLWP
+	struct psinfo pr;
+	int error;
+
+	if ((error = pr_psinfo(&pr)))
+		return -1;
+
+	if (pr.pr_nlwp > INT_MAX)
+		return -1;
+
+	return pr.pr_nlwp;
+#else
+	return -1;
+#endif
+} /* ts_nthreads_psinfo() */
+
 static int ts_nthreads_pstatus(void) {
 #if SIZEOF_STRUCT_PSTATUS_PR_NLWP > 0 && OFFSETOF_STRUCT_PSTATUS_PR_NLWP >= 0
 	char data[OFFSETOF_STRUCT_PSTATUS_PR_NLWP + SIZEOF_STRUCT_PSTATUS_PR_NLWP];
@@ -2922,6 +3002,12 @@ oops:
 	u_close(&fd);
 
 	return -1;
+#elif defined __linux
+	/*
+	 * TODO: Add support for Linux /proc/self/status or /proc/self/stat
+	 * (Only one of them properly supports newlines in path name.)
+	 */
+	return -1;
 #else
 	return -1;
 #endif
@@ -2930,6 +3016,8 @@ oops:
 MAYBEUSED static int ts_nthreads(void) {
 	int n;
 
+	if ((n = ts_nthreads_psinfo()) > 0)
+		return n;
 	if ((n = ts_nthreads_pstatus()) > 0)
 		return n;
 
@@ -5216,6 +5304,45 @@ static int unix_getppid(lua_State *L) {
 } /* unix_getppid() */
 
 
+static int unix_getprogname(lua_State *L) {
+	const char *name = NULL;
+
+#if HAVE_GETPROGNAME
+	name = getprogname();
+#elif HAVE_GETEXECNAME
+	const char *path;
+
+	if (!(path = getexecname()))
+		goto notsup;
+
+	if ((name = strrchr(path, '/'))) {
+		name++;
+	} else {
+		name = path;
+	}
+#elif HAVE_PROGRAM_INVOCATION_SHORT_NAME
+	name = program_invocation_short_name;
+#elif HAVE_STRUCT_PSINFO_PR_FNAME
+	struct psinfo pr;
+	int error;
+
+	if ((error = pr_psinfo(&pr)))
+		return unixL_pusherror(L, error, "getprogname", "~$#");
+
+	name = pr.pr_fname;
+#endif
+
+	if (!name || !*name)
+		goto notsup;
+
+	lua_pushstring(L, name);
+
+	return 1;
+notsup:
+	return unixL_pusherror(L, ENOTSUP, "getprogname", "~$#");
+} /* unix_getprogname() */
+
+
 static int unix_getpwnam(lua_State *L) {
 	struct passwd *ent;
 	int error;
@@ -6720,6 +6847,7 @@ static const luaL_Reg unix_routines[] = {
 	{ "getifaddrs",         &unix_getifaddrs },
 	{ "getpid",             &unix_getpid },
 	{ "getppid",            &unix_getppid },
+	{ "getprogname",        &unix_getprogname },
 	{ "getpwnam",           &unix_getpwnam },
 	{ "getpwuid",           &unix_getpwnam },
 	{ "gettimeofday",       &unix_gettimeofday },

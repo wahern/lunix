@@ -52,12 +52,14 @@ AC_CHECK_DECLS([sys_siglist], [], [], [[#include <signal.h>]])
 WA_CHECK_VAR([sys_siglist])
 AC_CHECK_DECLS([__libc_enable_secure])
 WA_CHECK_VAR([__libc_enable_secure])
+AC_CHECK_DECLS([program_invocation_short_name])
+WA_CHECK_VAR([program_invocation_short_name])
 
 # Checks for library functions.
 AC_CHECK_FUNCS([ \
 	arc4random arc4random_addrandom arc4random_stir clock_gettime \
-	dup2 dup3 fdopendir getauxval getenv_r getifaddrs issetugid pipe2 \
-	sigtimedwait sysctl \
+	dup2 dup3 fdopendir getauxval getenv_r getexecname getifaddrs \
+	getprogname issetugid pipe2 sigtimedwait sysctl \
 ])
 
 # Check for strerror_r and variant
@@ -74,36 +76,53 @@ AC_LINK_IFELSE([
 	AC_MSG_RESULT([no])
 ])
 
-# Check for size and offset of pr_nlwp. If compiling in 32-bit mode with
-# Large File Support, we can't include <sys/procfs.h> directly. So compute
-# the information we need in order to read pr_nlwp from /proc/$$/status.
+# Both Solaris and AIX have <sys/procfs.h>.
+#
+# Check for size and offset of pr_nlwp on Solaris. If compiling in 32-bit
+# mode with Large File Support, we can't include <sys/procfs.h> directly. So
+# compute the information we need in order to read pr_nlwp from
+# /proc/$$/status.
 AC_CHECK_HEADERS([sys/procfs.h], [
 	AC_CHECK_MEMBERS([struct pstatus.pr_nlwp], [
 		WA_CHECK_SIZEOF_MEMBERS([struct pstatus.pr_nlwp], [
 			#if HAVE_SYS_PROCFS_H
+			#if defined __sun
 			#undef _FILE_OFFSET_BITS
 			#define _STRUCTURED_PROC 1
+			#endif
 			#include <sys/procfs.h>
 			#endif
 		])
 
 		WA_CHECK_OFFSETOF_MEMBERS([struct pstatus.pr_nlwp], [
 			#if HAVE_SYS_PROCFS_H
+			#if defined __sun
 			#undef _FILE_OFFSET_BITS
 			#define _STRUCTURED_PROC 1
+			#endif
 			#include <sys/procfs.h>
 			#endif
 		])
 	], [], [
 		#if HAVE_SYS_PROCFS_H
+		#if defined __sun
 		#undef _FILE_OFFSET_BITS
 		#define _STRUCTURED_PROC 1
+		#endif
+		#include <sys/procfs.h>
+		#endif
+	])
+
+	AC_CHECK_MEMBERS([struct psinfo.pr_fname, struct psinfo.pr_nlwp], [], [], [
+		#if HAVE_SYS_PROCFS_H
 		#include <sys/procfs.h>
 		#endif
 	])
 ], [], [
+	#if defined __sun
 	#undef _FILE_OFFSET_BITS
 	#define _STRUCTURED_PROC 1
+	#endif
 ])
 
 AC_OUTPUT
