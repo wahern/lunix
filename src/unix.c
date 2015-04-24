@@ -327,7 +327,7 @@
 #include <sys/param.h> /* __NetBSD_Version__ OpenBSD __FreeBSD_version */
 #endif
 
-#if HAVE_SYS_PROCFS_H
+#if HAVE_SYS_PROCFS_H && !defined __sun
 #include <sys/procfs.h> /* struct psinfo */
 #endif
 
@@ -608,7 +608,7 @@ static void luaL_setfuncs(lua_State *L, const luaL_Reg *l, int nup) {
 #elif HAVE__STATIC_ASSERT
 #define u_static_assert(cond, msg) _Static_assert(cond, msg)
 #else
-#define u_static_assert(cond, msg) extern char XPASTE(assert_, __LINE__)[u_inline_assert(cond)])]
+#define u_static_assert(cond, msg) extern char XPASTE(assert_, __LINE__)[u_inline_assert(cond)]
 #endif
 
 /* like static_assert but used as an expression instead of declaration */
@@ -2633,16 +2633,36 @@ static _Bool unixL_digitstointeger(unsigned digits, unixL_Integer *p) {
 		return 1;
 } /* unixL_digitstointeger() */
 
+#define UNIXL_FINDHUGE(T) do { \
+	T n = 2, p = 0; \
+	while (n > p && !isinf(n)) { \
+		p = n; \
+		n *= 2.0; \
+	} \
+	return isinf(n)? p : n; \
+} while (0)
+
+static float unixL_floathuge(void) {
+	if (!isinf(HUGE_VALF))
+		return HUGE_VALF;
+	UNIXL_FINDHUGE(float);
+} /* unixL_floathuge() */
+
+static double unixL_doublehuge(void) {
+	if (!isinf(HUGE_VAL))
+		return HUGE_VAL;
+	UNIXL_FINDHUGE(double);
+} /* unixL_doublehuge() */
+
+static long double unixL_ldoublehuge(void) {
+	if (!isinf(HUGE_VALL))
+		return HUGE_VALL;
+	UNIXL_FINDHUGE(long double);
+} /* unixL_ldoublehuge() */
+
 static lua_Number unixL_numberhuge(void) {
 	if (U_ISTFLOAT(lua_Number)) {
-		lua_Number n = 2, p = 0;
-
-		while (n > p) { /* saturate n */
-			p = n;
-			n *= 2.0;
-		}
-
-		return n;
+		UNIXL_FINDHUGE(lua_Number);
 	} else {
 		/* cannot static_assert that lua_Number is two's complement */
 		return -((lua_Number)ldexp(-1.0, sizeof (lua_Number) * 8 - 1) + 1);
@@ -2653,12 +2673,14 @@ static unsigned unixL_numberdigits(void) {
 	if (U_ISTFLOAT(lua_Number)) {
 		lua_Number huge = unixL_numberhuge();
 
-		if (huge == HUGE_VALF) {
+		if (huge == unixL_floathuge()) {
 			return FLT_MANT_DIG;
-		} else if (huge == HUGE_VAL) {
+		} else if (huge == unixL_doublehuge()) {
 			return DBL_MANT_DIG;
-		} else {
+		} else if (huge == unixL_ldoublehuge()) {
 			return LDBL_MANT_DIG;
+		} else {
+			return 0;
 		}
 	} else {
 		return 0;
@@ -2674,7 +2696,7 @@ static _Bool unixL_integertonumber(unixL_Integer i, lua_Number *p) {
 
 			if ((i > m || i < -m) && !unixL_ispower2(i))
 				return 0;
-		}
+		} /* else mantissa fits entire range */
 	} else {
 		lua_Number m = unixL_numberhuge();
 
@@ -2694,7 +2716,7 @@ static _Bool unixL_unsignedtonumber(unixL_Unsigned i, lua_Number *p) {
 		if (unixL_digitstointeger(unixL_numberdigits(), &m)) {
 			if (i > (unixL_Unsigned)m && !unixL_ispower2(i))
 				return 0;
-		}
+		} /* else mantissa fits entire range */
 	} else {
 		lua_Number m = unixL_numberhuge();
 
