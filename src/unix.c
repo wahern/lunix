@@ -14,9 +14,9 @@
  * Non-portable headers are included after the feature detection section.
  *
  * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
-#include <limits.h>       /* INT_MAX NL_TEXTMAX */
+#include <limits.h>       /* INT_MAX INT_MIN NL_TEXTMAX */
 #include <stdarg.h>       /* va_list va_start va_arg va_end */
-#include <stdint.h>       /* SIZE_MAX */
+#include <stdint.h>       /* SIZE_MAX intmax_t uintmax_t */
 #include <stdlib.h>       /* arc4random(3) calloc(3) _exit(2) exit(3) free(3) getenv(3) getenv_r(3) getexecname(3) getprogname(3) realloc(3) setenv(3) strtoul(3) unsetenv(3) */
 #include <stdio.h>        /* fileno(3) flockfile(3) ftrylockfile(3) funlockfile(3) snprintf(3) */
 #include <string.h>       /* memset(3) strcmp(3) strerror_r(3) strsignal(3) strspn(3) strcspn(3) */
@@ -2556,8 +2556,17 @@ static const char *unixL_strerror(lua_State *L, int error) {
 } /* unixL_strerror() */
 
 
+#if HAVE_INTMAX_T
+#define unixL_Integer intmax_t
+#else
 #define unixL_Integer long long
+#endif
+
+#if HAVE_UINTMAX_T
+#define unixL_Unsigned uintmax_t
+#else
 #define unixL_Unsigned unsigned long long
+#endif
 
 static void unixL_pushinteger(lua_State *L, unixL_Integer i) {
 	if (i >= U_TMIN(lua_Integer) && i <= U_TMAX(lua_Integer)) {
