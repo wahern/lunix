@@ -72,16 +72,8 @@ AC_CHECK_FUNCS([ \
 # Check for strerror_r and variant
 AC_FUNC_STRERROR_R
 
-# Check for _Static_assert
-AC_MSG_CHECKING([for _Static_assert])
-AC_LINK_IFELSE([
-	AC_LANG_PROGRAM([],[_Static_assert(1, "");])
-], [
-	AC_MSG_RESULT([yes])
-	AC_DEFINE([HAVE__STATIC_ASSERT], [1], [Define to 1 if have _Static_assert])
-], [
-	AC_MSG_RESULT([no])
-])
+# Check for static_assert and _Static_assert
+WA_CHECK_STATIC_ASSERT
 
 # Check for statement expression construct ({})
 AC_MSG_CHECKING([for statement expression support])

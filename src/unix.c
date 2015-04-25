@@ -272,6 +272,10 @@
 #define HAVE_SIGTIMEDWAIT (!defined __APPLE__ && !defined __OpenBSD__)
 #endif
 
+#ifndef HAVE_STATIC_ASSERT
+#define HAVE_STATIC_ASSERT (defined static_assert)
+#endif
+
 #ifndef HAVE_SYS_SOCKIO_H
 #define HAVE_SYS_SOCKIO_H (defined __sun)
 #endif
@@ -603,7 +607,7 @@ static void luaL_setfuncs(lua_State *L, const luaL_Reg *l, int nup) {
 #define STRINGIFY(x) STRINGIFY_(x)
 #endif
 
-#if defined static_assert
+#if HAVE_STATIC_ASSERT
 #define u_static_assert(cond, msg) static_assert(cond, msg)
 #elif HAVE__STATIC_ASSERT
 #define u_static_assert(cond, msg) _Static_assert(cond, msg)
