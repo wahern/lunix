@@ -5933,6 +5933,21 @@ static int unix_link(lua_State *L) {
 } /* unix_link() */
 
 
+static int unix_lseek(lua_State *L) {
+	int fd = unixL_checkfileno(L, 1);
+	off_t offset = unixL_checkoff(L, 2);
+	int whence = unixL_checkint(L, 3);
+	off_t pos;
+
+	if (-1 == (pos = lseek(fd, offset, whence)))
+		return unixL_pusherror(L, errno, "lseek", "0$#");
+
+	unixL_pushoff(L, pos);
+
+	return 1;
+} /* unix_lseek() */
+
+
 static int st_pushstat(lua_State *, const struct stat *, int);
 
 static int unix_lstat(lua_State *L) {
@@ -7251,6 +7266,7 @@ static const luaL_Reg unix_routines[] = {
 	{ "kill",               &unix_kill },
 	{ "lchown",             &unix_lchown },
 	{ "link",               &unix_link },
+	{ "lseek",              &unix_lseek },
 	{ "lstat",              &unix_lstat },
 	{ "mkdir",              &unix_mkdir },
 	{ "mkfifo",             &unix_mkfifo },
