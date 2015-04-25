@@ -29,9 +29,11 @@ AC_SYS_LARGEFILE
 
 # Checks for libraries.
 AC_SEARCH_LIBS([isnormal], [m])
+AC_SEARCH_LIBS([ldexp], [m])
 AC_SEARCH_LIBS([clock_gettime], [rt])
 AC_SEARCH_LIBS([sigtimedwait], [rt])
 AC_SEARCH_LIBS([posix_fadvise], [rt])
+AC_SEARCH_LIBS([posix_fallocate], [rt])
 AC_SEARCH_LIBS([dlopen], [dl])
 AX_LIB_SOCKET_NSL # -lsocket and -lnsl
 

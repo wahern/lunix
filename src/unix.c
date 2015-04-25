@@ -434,6 +434,12 @@ static void luaL_setfuncs(lua_State *L, const luaL_Reg *l, int nup) {
 
 #endif /* LUA_VERSION_NUM < 502 */
 
+#if LUA_VERSION_NUM < 503
+
+#define lua_isinteger(L, index) 0
+
+#endif /* LUA_VERSION_NUM < 503 */
+
 
 /*
  * C O M P I L E R  A N N O T A T I O N S  &  C O N S T R U C T S
@@ -2604,25 +2610,112 @@ static void unixL_pushunsigned(lua_State *L, unixL_Unsigned i) {
 	}
 } /* unixL_pushunsigned() */
 
+/* from Lua 5.3's lua_numbertointeger */
+static _Bool unixL_numbertointeger(lua_Number n, unixL_Integer *p) {
+	if (n < (lua_Number)U_TMIN(unixL_Integer))
+		return 0;
+	if (n >= -(lua_Number)U_TMIN(unixL_Integer))
+		return 0;
+
+	*p = n;
+
+	return 1;
+} /* unixL_numbertointeger() */
+
+static _Bool unixL_numbertounsigned(lua_Number n, unixL_Unsigned *p) {
+	if (n < 0)
+		return 0;
+	if (n >= ldexp(1.0, sizeof *p * 8))
+		return 0;
+
+	*p = n;
+
+	return 1;
+} /* unixL_numbertounsigned() */
+
 static unixL_Integer unixL_checkinteger(lua_State *L, int index, unixL_Integer min, unixL_Integer max) {
-	/* TODO: Check overflow. */
-	unixL_Integer i = luaL_checkinteger(L, index);
+	if (lua_isinteger(L, index)) {
+		lua_Integer i = lua_tointeger(L, index);
 
-	if (i < min || i > max)
-		luaL_argerror(L, index, "value out of range");
+		if (i < min || i > max)
+			goto erange;
 
-	return i;
+		return i;
+	} else {
+		unixL_Integer i;
+
+		if (!unixL_numbertointeger(luaL_checknumber(L, index), &i))
+			goto erange;
+
+		if (i < min || i > max)
+			goto erange;
+
+		return i;
+	}
+erange:
+	luaL_argerror(L, index, "value out of range");
+
+	return 0;
 } /* unixL_checkinteger() */
 
-static unixL_Integer unixL_checkunsigned(lua_State *L, int index, unixL_Unsigned min, unixL_Unsigned max) {
-	/* TODO: Check overflow. */
-	unixL_Unsigned i = luaL_checkinteger(L, index);
+static unixL_Unsigned unixL_checkunsigned(lua_State *L, int index, unixL_Unsigned min, unixL_Unsigned max) {
+	if (lua_isinteger(L, index)) {
+		lua_Integer i = lua_tointeger(L, index);
 
-	if (i < min || i > max)
-		luaL_argerror(L, index, "value out of range");
+		U_WARN_PUSH;
+		U_WARN_NO_SIGN_COMPARE;
 
-	return i;
+		if (i < 0 || i > U_TMAX(unixL_Unsigned))
+			goto erange;
+
+		U_WARN_POP;
+
+		if ((unixL_Unsigned)i < min || (unixL_Unsigned)i > max)
+			goto erange;
+
+		return i;
+	} else {
+		unixL_Unsigned i;
+
+		if (!unixL_numbertounsigned(luaL_checknumber(L, index), &i))
+			goto erange;
+
+		if (i < min || i > max)
+			goto erange;
+
+		return i;
+	}
+erange:
+	luaL_argerror(L, index, "value out of range");
+
+	return 0;
 } /* unixL_checkunsigned() */
+
+static int unixL_checkint(lua_State *L, int index) {
+	return unixL_checkinteger(L, index, INT_MIN, INT_MAX);
+} /* unixL_checkint() */
+
+static size_t unixL_checksize(lua_State *L, int index) {
+	return unixL_checkunsigned(L, index, 0, MIN(U_TMAX(unixL_Unsigned), SIZE_MAX));
+} /* unixL_checksize() */
+
+static void unixL_pushsize(lua_State *L, size_t size) {
+	if (size > U_TMAX(unixL_Unsigned))
+		luaL_error(L, "size_t value not representable as unixL_Unsigned");
+
+	unixL_pushunsigned(L, size);
+} /* unixL_pushsize() */
+
+static off_t unixL_checkoff(lua_State *L, int index) {
+	return unixL_checkinteger(L, index, MAX(U_TMIN(unixL_Integer), U_TMIN(off_t)), MIN(U_TMAX(unixL_Integer), U_TMAX(off_t)));
+} /* unixL_checkoff() */
+
+static void unixL_pushoff(lua_State *L, off_t off) {
+	if (off < U_TMIN(unixL_Integer) || off > U_TMAX(unixL_Integer))
+		luaL_error(L, "off_t value not representable as unixL_Integer");
+
+	unixL_pushunsigned(L, off);
+} /* unixL_pushoff() */
 
 
 static int unixL_pusherror(lua_State *L, int error, const char *fun NOTUSED, const char *fmt) {
@@ -3520,32 +3613,6 @@ static void unixL_checkflags(lua_State *L, int index, const char **mode, u_flags
 		*perm = (*flags & O_CREAT)? unixL_optmode(L, index + 1, 0666, 0666) : 0;
 	}
 } /* unixL_checkflags() */
-
-
-static size_t unixL_checksize(lua_State *L, int index) {
-	if (sizeof (lua_Integer) >= sizeof (size_t)) {
-		lua_Integer size = luaL_checkinteger(L, 1);
-
-		luaL_argcheck(L, size >= 0, index, "unable to convert value to size_t");
-
-		/* TODO: check that our lua_Integer value fits size_t */
-
-		return size;
-	} else {
-		lua_Number size = luaL_checknumber(L, index);
-
-		luaL_argcheck(L, size == 0.0 || (isnormal(size) && !signbit(size)), index, "unable to convert value to size_t");
-
-		/* TODO: check that our lua_Number value fits size_t */
-
-		return size;
-	}
-} /* unixL_checksize() */
-
-
-static void unixL_pushsize(lua_State *L, size_t size) {
-	unixL_pushunsigned(L, size);
-} /* unixL_pushsize() */
 
 
 static int unixL_optfint(lua_State *L, int index, const char *name, int def) {
@@ -5872,9 +5939,9 @@ error:
 #if HAVE_POSIX_FADVISE
 static int unix_posix_fadvise(lua_State *L) {
 	int fd = unixL_checkfileno(L, 1);
-	off_t offset = unixL_checkinteger(L, 2, U_TMIN(off_t), U_TMAX(off_t));
-	off_t len = unixL_checkinteger(L, 3, U_TMIN(off_t), U_TMAX(off_t));
-	int advice = unixL_checkinteger(L, 4, INT_MIN, INT_MAX);
+	off_t offset = unixL_checkoff(L, 2);
+	off_t len = unixL_checkoff(L, 3);
+	int advice = unixL_checkint(L, 4);
 	int error;
 
 	if ((error = posix_fadvise(fd, offset, len, advice)))
@@ -5890,8 +5957,8 @@ static int unix_posix_fadvise(lua_State *L) {
 #if HAVE_POSIX_FALLOCATE
 static int unix_posix_fallocate(lua_State *L) {
 	int fd = unixL_checkfileno(L, 1);
-	off_t offset = unixL_checkinteger(L, 2, U_TMIN(off_t), U_TMAX(off_t));
-	off_t len = unixL_checkinteger(L, 3, U_TMIN(off_t), U_TMAX(off_t));
+	off_t offset = unixL_checkoff(L, 2);
+	off_t len = unixL_checkoff(L, 3);
 	int error;
 
 	if ((error = posix_fallocate(fd, offset, len)))
