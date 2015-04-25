@@ -123,6 +123,14 @@
 #define HAVE_SYS_PROCFS_H (defined _AIX)
 #endif
 
+#ifndef HAVE_INTMAX_T
+#define HAVE_INTMAX_T (defined INTMAX_T)
+#endif
+
+#ifndef HAVE_UINTMAX_T
+#define HAVE_UINTMAX_T (defined UINTMAX_T)
+#endif
+
 #ifndef HAVE_STRUCT_PSINFO
 #define HAVE_STRUCT_PSINFO (defined _AIX)
 #endif
@@ -245,6 +253,14 @@
 
 #ifndef HAVE_GETENV_R
 #define HAVE_GETENV_R NETBSD_PREREQ(5,0)
+#endif
+
+#ifndef HAVE_POSIX_FADVISE
+#define HAVE_POSIX_FADVISE GLIBC_PREREQ(2,2)
+#endif
+
+#ifndef HAVE_POSIX_FALLOCATE
+#define HAVE_POSIX_FALLOCATE GLIBC_PREREQ(2,2)
 #endif
 
 #ifndef HAVE_PROGRAM_INVOCATION_SHORT_NAME
