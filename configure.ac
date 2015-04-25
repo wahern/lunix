@@ -60,7 +60,7 @@ WA_CHECK_VAR([program_invocation_short_name])
 AC_CHECK_FUNCS([ \
 	arc4random arc4random_addrandom arc4random_stir clock_gettime \
 	dup2 dup3 fdopendir getauxval getenv_r getexecname getifaddrs \
-	getprogname issetugid pipe2 posix_fadvise posix_ftruncate \
+	getprogname issetugid pipe2 posix_fadvise posix_fallocate \
 	sigtimedwait sysctl \
 ])
 

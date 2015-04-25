@@ -5862,20 +5862,20 @@ static int unix_posix_fadvise(lua_State *L) {
 #endif
 
 
-#if HAVE_POSIX_FTRUNCATE
-static int unix_posix_ftruncate(lua_State *L) {
+#if HAVE_POSIX_FALLOCATE
+static int unix_posix_fallocate(lua_State *L) {
 	int fd = unixL_checkfileno(L, 1);
 	off_t offset = unixL_checkinteger(L, 2, U_TMIN(off_t), U_TMAX(off_t));
 	off_t len = unixL_checkinteger(L, 3, U_TMIN(off_t), U_TMAX(off_t));
 	int error;
 
-	if ((error = posix_ftruncate(fd, offset, len)))
-		return unixL_pusherror(L, error, "posix_ftruncate", "0$#");
+	if ((error = posix_fallocate(fd, offset, len)))
+		return unixL_pusherror(L, error, "posix_fallocate", "0$#");
 
 	lua_pushboolean(L, 1);
 
 	return 1;
-} /* unix_posix_ftruncate() */
+} /* unix_posix_fallocate() */
 #endif
 
 
@@ -7001,8 +7001,8 @@ static const luaL_Reg unix_routines[] = {
 #if HAVE_POSIX_FADVISE
 	{ "posix_fadvise",      &unix_posix_fadvise },
 #endif
-#if HAVE_POSIX_FTRUNCATE
-	{ "posix_ftruncate",    &unix_posix_ftruncate },
+#if HAVE_POSIX_FALLOCATE
+	{ "posix_fallocate",    &unix_posix_fallocate },
 #endif
 	{ "pread",              &unix_pread },
 	{ "pwrite",             &unix_pwrite },
