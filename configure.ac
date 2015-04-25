@@ -76,26 +76,10 @@ AC_FUNC_STRERROR_R
 WA_CHECK_STATIC_ASSERT
 
 # Check for statement expression construct ({})
-AC_MSG_CHECKING([for statement expression support])
-AC_LINK_IFELSE([
-	AC_LANG_PROGRAM([],[({ 0; });])
-], [
-	AC_MSG_RESULT([yes])
-	AC_DEFINE([HAVE_C_STATEMENT_EXPRESSION], [1], [Define to 1 if compiler supports statement expressions])
-], [
-	AC_MSG_RESULT([no])
-])
+WA_C_STATEMENT_EXPRESSION
 
 # Check for __extension__ annotation
-AC_MSG_CHECKING([for __extension__ annotation support])
-AC_LINK_IFELSE([
-	AC_LANG_PROGRAM([],[__extension__ 0;])
-], [
-	AC_MSG_RESULT([yes])
-	AC_DEFINE([HAVE_C___EXTENSION__], [1], [Define to 1 if compiler supports statement expressions])
-], [
-	AC_MSG_RESULT([no])
-])
+WA_C___EXTENSION__
 
 # Both Solaris and AIX have <sys/procfs.h>.
 #
