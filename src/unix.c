@@ -2801,7 +2801,10 @@ static void unixL_pushunsigned(lua_State *L, unixL_Unsigned i) {
 	}
 } /* unixL_pushunsigned() */
 
-static unixL_Integer unixL_checkinteger(lua_State *L, int index, unixL_Integer min, unixL_Integer max) {
+#define unixL_checkinteger_(L, index, min, max, ...) unixL_checkinteger((L), (index), (min), (max))
+#define unixL_checkinteger(...) unixL_checkinteger_(__VA_ARGS__, U_TMIN(unixL_Integer), U_TMAX(unixL_Integer), 0)
+
+static unixL_Integer (unixL_checkinteger)(lua_State *L, int index, unixL_Integer min, unixL_Integer max) {
 	if (lua_isinteger(L, index)) {
 		lua_Integer i = lua_tointeger(L, index);
 
@@ -2826,7 +2829,10 @@ erange:
 	return 0;
 } /* unixL_checkinteger() */
 
-static unixL_Unsigned unixL_checkunsigned(lua_State *L, int index, unixL_Unsigned min, unixL_Unsigned max) {
+#define unixL_checkunsigned_(L, index, min, max, ...) unixL_checkunsigned((L), (index), (min), (max))
+#define unixL_checkunsigned(...) unixL_checkunsigned_(__VA_ARGS__, U_TMIN(unixL_Unsigned), U_TMAX(unixL_Unsigned), 0)
+
+static unixL_Unsigned (unixL_checkunsigned)(lua_State *L, int index, unixL_Unsigned min, unixL_Unsigned max) {
 	if (lua_isinteger(L, index)) {
 		lua_Integer i = lua_tointeger(L, index);
 
@@ -2858,6 +2864,20 @@ erange:
 
 	return 0;
 } /* unixL_checkunsigned() */
+
+static unixL_Integer unixL_optinteger(lua_State *L, int index, unixL_Integer def, unixL_Integer min, unixL_Integer max) {
+	if (lua_isnoneornil(L, index))
+		return def;
+
+	return unixL_checkinteger(L, index, min, max);
+} /* unixL_optinteger() */
+
+static unixL_Unsigned unixL_optunsigned(lua_State *L, int index, unixL_Unsigned def, unixL_Unsigned min, unixL_Unsigned max) {
+	if (lua_isnoneornil(L, index))
+		return def;
+
+	return unixL_checkunsigned(L, index, min, max);
+} /* unixL_optunsigned() */
 
 static int unixL_checkint(lua_State *L, int index) {
 	return unixL_checkinteger(L, index, INT_MIN, INT_MAX);
@@ -3770,7 +3790,7 @@ static void unixL_checkflags(lua_State *L, int index, const char **mode, u_flags
 	index = lua_absindex(L, index);
 
 	if (lua_isnoneornil(L, index) || lua_isnumber(L, index)) {
-		*flags = luaL_optinteger(L, index, 0);
+		*flags = unixL_optinteger(L, index, 0, 0, U_TMAX(u_flags_t));
 		*mode = NULL;
 	} else {
 		*mode = luaL_checkstring(L, index);
@@ -4294,14 +4314,14 @@ static int unix_arc4random_uniform(lua_State *L) {
 
 
 static int unix_bitand(lua_State *L) {
-	unixL_pushinteger(L, luaL_checkinteger(L, 1) & luaL_checkinteger(L, 2));
+	unixL_pushinteger(L, unixL_checkinteger(L, 1) & unixL_checkinteger(L, 2));
 
 	return 1;
 } /* unix_bitand() */
 
 
 static int unix_bitor(lua_State *L) {
-	unixL_pushinteger(L, luaL_checkinteger(L, 1) | luaL_checkinteger(L, 2));
+	unixL_pushinteger(L, unixL_checkinteger(L, 1) | unixL_checkinteger(L, 2));
 
 	return 1;
 } /* unix_bitor() */
@@ -4500,7 +4520,7 @@ static int unix_clock_gettime(lua_State *L) {
 
 
 static int unix_compl(lua_State *L) {
-	unixL_pushinteger(L, ~luaL_checkinteger(L, 1));
+	unixL_pushinteger(L, ~unixL_checkinteger(L, 1));
 
 	return 1;
 } /* unix_compl() */
@@ -7192,7 +7212,7 @@ static int unix_write(lua_State *L) {
 
 
 static int unix_xor(lua_State *L) {
-	unixL_pushinteger(L, luaL_checkinteger(L, 1) ^ luaL_checkinteger(L, 2));
+	unixL_pushinteger(L, unixL_checkinteger(L, 1) ^ unixL_checkinteger(L, 2));
 
 	return 1;
 } /* unix_xor() */
