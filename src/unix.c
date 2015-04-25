@@ -2591,9 +2591,14 @@ static const char *unixL_strerror(lua_State *L, int error) {
 #endif
 
 static void unixL_pushinteger(lua_State *L, unixL_Integer i) {
+#if LUA_VERSION_NUM >= 503
 	if (i >= U_TMIN(lua_Integer) && i <= U_TMAX(lua_Integer)) {
 		lua_pushinteger(L, i);
-	} else if (i == (unixL_Integer)(lua_Number)i) {
+
+		return;
+	}
+#endif
+	if (i == (unixL_Integer)(lua_Number)i) {
 		lua_pushnumber(L, i);
 	} else {
 		luaL_error(L, "signed integer value not representable as lua_Integer or lua_Number");
@@ -2601,9 +2606,14 @@ static void unixL_pushinteger(lua_State *L, unixL_Integer i) {
 } /* unixL_pushinteger() */
 
 static void unixL_pushunsigned(lua_State *L, unixL_Unsigned i) {
+#if LUA_VERSION_NUM >= 503
 	if (i <= U_TMAX(lua_Integer)) {
 		lua_pushinteger(L, i);
-	} else if (i == (unixL_Unsigned)(lua_Number)i) {
+
+		return;
+	}
+#endif
+	if (i == (unixL_Unsigned)(lua_Number)i) {
 		lua_pushnumber(L, i);
 	} else {
 		luaL_error(L, "unsigned integer value not representable as lua_Integer or lua_Number");
