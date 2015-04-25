@@ -91,6 +91,14 @@
 
 #if !HAVE_CONFIG_H
 
+#ifndef HAVE_C___EXTENSION__
+#define HAVE_C___EXTENSION__ GNUC_PREREQ(1, 0)
+#endif
+
+#ifndef HAVE_C_STATEMENT_EXPRESSION
+#define HAVE_C_STATEMENT_EXPRESSION GNUC_PREREQ(1, 0)
+#endif
+
 #ifndef HAVE_MACH_MACH_H
 #define HAVE_MACH_MACH_H (defined __APPLE__)
 #endif
@@ -412,7 +420,7 @@ static void luaL_setfuncs(lua_State *L, const luaL_Reg *l, int nup) {
 
 
 /*
- * C O M P I L E R  A N N O T A T I O N S
+ * C O M P I L E R  A N N O T A T I O N S  &  C O N S T R U C T S
  *
  * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
 
@@ -426,15 +434,87 @@ static void luaL_setfuncs(lua_State *L, const luaL_Reg *l, int nup) {
 
 #define MAYBEUSED NOTUSED
 
+#if HAVE_C___EXTENSION__
+#define u___extension__ __extension__
+#else
+#define u___extension__
+#endif
+
 #if __clang__
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wmissing-braces"
 #pragma clang diagnostic ignored "-Wmissing-field-initializers"
-#elif (__GNUC__ == 4 && __GNUC_MINOR__ >= 6) || __GNUC__ > 4
+#elif GNUC_PREREQ(4, 6)
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wmissing-braces"
 #pragma GCC diagnostic ignored "-Wmissing-field-initializers"
 #endif
+
+#if defined __clang__
+#define U_WARN_PUSH _Pragma("clang diagnostic push")
+#define U_WARN_NO_SIGN_COMPARE _Pragma("clang diagnostic ignored \"-Wsign-compare\"")
+#define U_WARN_POP _Pragma("clang diagnostic pop")
+#elif GNUC_PREREQ(4, 6)
+#define U_WARN_PUSH _Pragma("GCC diagnostic push")
+#define U_WARN_NO_SIGN_COMPARE _Pragma("GCC diagnostic ignored \"-Wsign-compare\"")
+#define U_WARN_POP _Pragma("GCC diagnostic pop")
+#else
+#define U_WARN_PUSH
+#define U_WARN_NO_SIGN_COMPARE
+#define U_WARN_POP
+#endif
+
+
+/*
+ * I N T E G E R  R A N G E  D E T E C T I O N
+ *
+ * Assumes two's-complement and no padding bits.
+ *
+ * Some ideas copied from Jens Gustedt's (Jens.Gustedt@inria.fr) P99
+ * library. See http://p99.gforge.inria.fr/p99-html/index.html.
+ *
+ * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
+
+/*
+ * Promote v to type of E without evaluating E.
+ *
+ * Use as-if E has already undergone the usual arithemtic conversions and
+ * has at least the rank of int, as all expressions will when operands of an
+ * arithemtic operator. NB: An expression such as (unsigned char)0 will be
+ * promoted in our conditional expression to int, and so U_ISESIGNED will
+ * evaluate to true.
+ */
+#define U_PROMOTE_(v, E) (1? (v) : (E))
+
+/* Silence GCC's -Wsign-compare diagnostic */
+#if HAVE_C_STATEMENT_EXPRESSION
+#define U_PROMOTE(v, E) u___extension__ ({ \
+	U_WARN_PUSH \
+	U_WARN_NO_SIGN_COMPARE \
+	U_PROMOTE_((v), (E)); \
+	U_WARN_POP \
+})
+#else
+#define U_PROMOTE(v, E) U_PROMOTE_((v), (E))
+#endif
+
+#define U_Sx_MAX(_1) (((((_1) << (sizeof (_1) * 8 - 2)) - 1) << 1) + 1)
+#define U_Ux_MAX(_1) (((((_1) << (sizeof (_1) * 8 - 1)) - 1) << 1) + 1)
+#define U_SE_MAX(E) U_Sx_MAX(U_PROMOTE(1, (E))) /* maximum value of type of signed expression */
+#define U_SE_MIN(E) (-U_SE_MAX((E)) - 1)        /* minimum value "" */
+#define U_UE_MAX(E) U_Ux_MAX(U_PROMOTE(1, (E))) /* maximum value of type of unsigned expression */
+#define U_ST_MAX(T) U_Sx_MAX((T)1)              /* maximum value of signed type */
+#define U_ST_MIN(T) (-U_ST_MAX(T) - 1)          /* minimum value "" */
+#define U_UT_MAX(T) U_Ux_MAX((T)1)              /* maximum value of unsigned type */
+
+#define U_ISESIGNED(E) (U_PROMOTE(-1, (E)) < U_PROMOTE(1, (E)))
+#define U_ISTSIGNED(T) ((T)-1 < (T)1)
+
+#define U_EMAX(E) (U_ISESIGNED(E)? U_SE_MAX(E) : U_UE_MAX(E))
+#define U_EMIN(E) (U_ISESIGNED(E)? U_SE_MIN(E) : U_PROMOTE(0, E))
+
+#define U_TMAX(T) (U_ISTSIGNED(T)? U_ST_MAX(T) : U_UT_MAX(T))
+#define U_TMIN(T) (U_ISTSIGNED(T)? U_ST_MIN(T) : (T)0)
 
 
 /*
@@ -485,13 +565,11 @@ static void luaL_setfuncs(lua_State *L, const luaL_Reg *l, int nup) {
 #define u_static_assert(cond, msg) extern char XPASTE(assert_, __LINE__)[sizeof (int[1 - 2*!(cond)])]
 #endif
 
-
 #if defined __GNUC__ && (defined _AIX || (defined __NetBSD__ && !NETBSD_PREREQ(6,0)))
 #define U_NAN __builtin_nan("") /* avoid type punning warning */
 #else
 #define U_NAN NAN
 #endif
-
 
 static size_t u_power2(size_t i) {
 #if defined SIZE_MAX
@@ -2478,26 +2556,48 @@ static const char *unixL_strerror(lua_State *L, int error) {
 } /* unixL_strerror() */
 
 
-/* assumes two's-complement, no padding bits, and sizeof lua_Integer <= sizeof (long long) */
-#define unixL_IntegerMax ((1ULL << (sizeof (lua_Integer) * 8 - 1)) - 1)
-#define unixL_IntegerMin (-unixL_IntegerMax - 1)
+#define unixL_Integer long long
+#define unixL_Unsigned unsigned long long
 
-static void unixL_pushinteger(lua_State *L, long long i) {
-	if (sizeof (lua_Integer) >= sizeof (i))
+static void unixL_pushinteger(lua_State *L, unixL_Integer i) {
+	if (i >= U_TMIN(lua_Integer) && i <= U_TMAX(lua_Integer)) {
 		lua_pushinteger(L, i);
-	else
+	} else if (i == (unixL_Integer)(lua_Number)i) {
 		lua_pushnumber(L, i);
+	} else {
+		luaL_error(L, "signed integer value not representable as lua_Integer or lua_Number");
+	}
 } /* unixL_pushinteger() */
 
-
-static void unixL_pushunsigned(lua_State *L, unsigned long long i) {
-	if (i <= unixL_IntegerMax)
+static void unixL_pushunsigned(lua_State *L, unixL_Unsigned i) {
+	if (i <= U_TMAX(lua_Integer)) {
 		lua_pushinteger(L, i);
-	else if (i == (unsigned long long)(lua_Number)i)
+	} else if (i == (unixL_Unsigned)(lua_Number)i) {
 		lua_pushnumber(L, i);
-	else
-		luaL_error(L, "unsigned integer value not representable as lua_Number");
+	} else {
+		luaL_error(L, "unsigned integer value not representable as lua_Integer or lua_Number");
+	}
 } /* unixL_pushunsigned() */
+
+static unixL_Integer unixL_checkinteger(lua_State *L, int index, unixL_Integer min, unixL_Integer max) {
+	/* TODO: Check overflow. */
+	unixL_Integer i = luaL_checkinteger(L, index);
+
+	if (i < min || i > max)
+		luaL_argerror(L, index, "value out of range");
+
+	return i;
+} /* unixL_checkinteger() */
+
+static unixL_Integer unixL_checkunsigned(lua_State *L, int index, unixL_Unsigned min, unixL_Unsigned max) {
+	/* TODO: Check overflow. */
+	unixL_Unsigned i = luaL_checkinteger(L, index);
+
+	if (i < min || i > max)
+		luaL_argerror(L, index, "value out of range");
+
+	return i;
+} /* unixL_checkunsigned() */
 
 
 static int unixL_pusherror(lua_State *L, int error, const char *fun NOTUSED, const char *fmt) {
@@ -5744,6 +5844,41 @@ error:
 } /* unix_pipe() */
 
 
+#if HAVE_POSIX_FADVISE
+static int unix_posix_fadvise(lua_State *L) {
+	int fd = unixL_checkfileno(L, 1);
+	off_t offset = unixL_checkinteger(L, 2, U_TMIN(off_t), U_TMAX(off_t));
+	off_t len = unixL_checkinteger(L, 3, U_TMIN(off_t), U_TMAX(off_t));
+	int advice = unixL_checkinteger(L, 4, INT_MIN, INT_MAX);
+	int error;
+
+	if ((error = posix_fadvise(fd, offset, len, advice)))
+		return unixL_pusherror(L, error, "posix_fadvise", "0$#");
+
+	lua_pushboolean(L, 1);
+
+	return 1;
+} /* unix_posix_fadvise() */
+#endif
+
+
+#if HAVE_POSIX_FTRUNCATE
+static int unix_posix_ftruncate(lua_State *L) {
+	int fd = unixL_checkfileno(L, 1);
+	off_t offset = unixL_checkinteger(L, 2, U_TMIN(off_t), U_TMAX(off_t));
+	off_t len = unixL_checkinteger(L, 3, U_TMIN(off_t), U_TMAX(off_t));
+	int error;
+
+	if ((error = posix_ftruncate(fd, offset, len)))
+		return unixL_pusherror(L, error, "posix_ftruncate", "0$#");
+
+	lua_pushboolean(L, 1);
+
+	return 1;
+} /* unix_posix_ftruncate() */
+#endif
+
+
 static DIR *dir_checkself(lua_State *L, int index) {
 	DIR **dp = luaL_checkudata(L, index, "DIR*");
 
@@ -6863,6 +6998,12 @@ static const luaL_Reg unix_routines[] = {
 	{ "open",               &unix_open },
 	{ "opendir",            &unix_opendir },
 	{ "pipe",               &unix_pipe },
+#if HAVE_POSIX_FADVISE
+	{ "posix_fadvise",      &unix_posix_fadvise },
+#endif
+#if HAVE_POSIX_FTRUNCATE
+	{ "posix_ftruncate",    &unix_posix_ftruncate },
+#endif
 	{ "pread",              &unix_pread },
 	{ "pwrite",             &unix_pwrite },
 	{ "raise",              &unix_raise },
@@ -7347,6 +7488,25 @@ static const struct unix_const const_fcntl[] = {
 #endif
 #if defined O_SEARCH
 	UNIX_CONST(O_SEARCH),
+#endif
+
+#if defined POSIX_FADV_DONTNEED
+	UNIX_CONST(POSIX_FADV_DONTNEED),
+#endif
+#if defined POSIX_FADV_NOREUSE
+	UNIX_CONST(POSIX_FADV_NOREUSE),
+#endif
+#if defined POSIX_FADV_NORMAL
+	UNIX_CONST(POSIX_FADV_NORMAL),
+#endif
+#if defined POSIX_FADV_RANDOM
+	UNIX_CONST(POSIX_FADV_RANDOM),
+#endif
+#if defined POSIX_FADV_SEQUENTIAL
+	UNIX_CONST(POSIX_FADV_SEQUENTIAL),
+#endif
+#if defined POSIX_FADV_WILLNEED
+	UNIX_CONST(POSIX_FADV_WILLNEED),
 #endif
 }; /* const_fcntl[] */
 

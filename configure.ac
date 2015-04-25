@@ -31,6 +31,7 @@ AC_SYS_LARGEFILE
 AC_SEARCH_LIBS([isnormal], [m])
 AC_SEARCH_LIBS([clock_gettime], [rt])
 AC_SEARCH_LIBS([sigtimedwait], [rt])
+AC_SEARCH_LIBS([posix_fadvise], [rt])
 AC_SEARCH_LIBS([dlopen], [dl])
 AX_LIB_SOCKET_NSL # -lsocket and -lnsl
 
@@ -59,7 +60,8 @@ WA_CHECK_VAR([program_invocation_short_name])
 AC_CHECK_FUNCS([ \
 	arc4random arc4random_addrandom arc4random_stir clock_gettime \
 	dup2 dup3 fdopendir getauxval getenv_r getexecname getifaddrs \
-	getprogname issetugid pipe2 sigtimedwait sysctl \
+	getprogname issetugid pipe2 posix_fadvise posix_ftruncate \
+	sigtimedwait sysctl \
 ])
 
 # Check for strerror_r and variant
@@ -72,6 +74,28 @@ AC_LINK_IFELSE([
 ], [
 	AC_MSG_RESULT([yes])
 	AC_DEFINE([HAVE__STATIC_ASSERT], [1], [Define to 1 if have _Static_assert])
+], [
+	AC_MSG_RESULT([no])
+])
+
+# Check for statement expression construct ({})
+AC_MSG_CHECKING([for statement expression support])
+AC_LINK_IFELSE([
+	AC_LANG_PROGRAM([],[({ 0; });])
+], [
+	AC_MSG_RESULT([yes])
+	AC_DEFINE([HAVE_C_STATEMENT_EXPRESSION], [1], [Define to 1 if compiler supports statement expressions])
+], [
+	AC_MSG_RESULT([no])
+])
+
+# Check for __extension__ annotation
+AC_MSG_CHECKING([for __extension__ annotation support])
+AC_LINK_IFELSE([
+	AC_LANG_PROGRAM([],[__extension__ 0;])
+], [
+	AC_MSG_RESULT([yes])
+	AC_DEFINE([HAVE_C___EXTENSION__], [1], [Define to 1 if compiler supports statement expressions])
 ], [
 	AC_MSG_RESULT([no])
 ])
