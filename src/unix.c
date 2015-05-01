@@ -124,14 +124,6 @@
 #define HAVE_SYS_PROCFS_H (defined _AIX)
 #endif
 
-#ifndef HAVE_INTMAX_T
-#define HAVE_INTMAX_T (defined INTMAX_T)
-#endif
-
-#ifndef HAVE_UINTMAX_T
-#define HAVE_UINTMAX_T (defined UINTMAX_T)
-#endif
-
 #ifndef HAVE_STRUCT_PSINFO
 #define HAVE_STRUCT_PSINFO (defined _AIX)
 #endif
@@ -495,76 +487,19 @@ static void luaL_setfuncs(lua_State *L, const luaL_Reg *l, int nup) {
 /*
  * I N T E G E R  R A N G E  D E T E C T I O N
  *
- * Assumes two's-complement and no padding bits.
- *
- * Some ideas copied from Jens Gustedt's (Jens.Gustedt@inria.fr) P99
- * library. See http://p99.gforge.inria.fr/p99-html/index.html.
- *
  * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
 
-/*
- * Promote v to type of E without evaluating E.
- *
- * Use as-if E has already undergone the usual arithemtic conversions and
- * has at least the rank of int, as all expressions will when operands of an
- * arithemtic operator. NB: An expression such as (unsigned char)0 will be
- * promoted in our conditional expression to int, and so U_ISESIGNED will
- * evaluate to true.
- */
-#define U_PROMOTE_(v, E) (1? (v) : (E))
+#define U_UTPREC(T) (sizeof (T) * CHAR_BIT) /* assumes no padding bits */
+#define U_STPREC(T) (U_UTPREC(T) - 1)
+#define U_STMAX(T) (((((T)1 << (U_STPREC(T) - 1)) - 1) << 1) + 1)
+#define U_STMIN(T) (-U_STMAX(T) - 1) /* assumes two's complement */
+#define U_UTMAX(T) (((((T)1 << (U_UTPREC(T) - 1)) - 1) << 1) + 1)
 
-/* Silence GCC's -Wsign-compare diagnostic */
-#if HAVE_C_STATEMENT_EXPRESSION
-#define U_PROMOTE(v, E) u___extension__ ({ \
-	U_WARN_PUSH \
-	U_WARN_NO_SIGN_COMPARE \
-	U_PROMOTE_((v), (E)); \
-	U_WARN_POP \
-})
-#else
-#define U_PROMOTE(v, E) U_PROMOTE_((v), (E))
-#endif
+#define U_TMAX(T) (U_ISTSIGNED(T)? U_STMAX(T) : U_UTMAX(T))
+#define U_TMIN(T) (U_ISTSIGNED(T)? U_STMIN(T) : (T)0)
 
-#define U_Sx_MAX(_1) (((((_1) << (sizeof (_1) * 8 - 2)) - 1) << 1) + 1)
-#define U_Ux_MAX(_1) (((((_1) << (sizeof (_1) * 8 - 1)) - 1) << 1) + 1)
-#define U_SE_MAX(E) U_Sx_MAX(U_PROMOTE(1, (E))) /* maximum value of type of signed expression */
-#define U_SE_MIN(E) (-U_SE_MAX((E)) - 1)        /* minimum value "" */
-#define U_UE_MAX(E) U_Ux_MAX(U_PROMOTE(1, (E))) /* maximum value of type of unsigned expression */
-#define U_ST_MAX(T) U_Sx_MAX((T)1)              /* maximum value of signed type */
-#define U_ST_MIN(T) (-U_ST_MAX(T) - 1)          /* minimum value "" */
-#define U_UT_MAX(T) U_Ux_MAX((T)1)              /* maximum value of unsigned type */
-
-#define U_ISESIGNED(E) (U_PROMOTE(-1, (E)) < U_PROMOTE(1, (E)))
 #define U_ISTSIGNED(T) ((T)-1 < (T)1)
-
-#define U_EMAX(E) (U_ISESIGNED(E)? U_SE_MAX(E) : U_UE_MAX(E))
-#define U_EMIN(E) (U_ISESIGNED(E)? U_SE_MIN(E) : U_PROMOTE(0, E))
-
-#define U_TMAX(T) (U_ISTSIGNED(T)? U_ST_MAX(T) : U_UT_MAX(T))
-#define U_TMIN(T) (U_ISTSIGNED(T)? U_ST_MIN(T) : (T)0)
-
 #define U_ISTFLOAT(T) ((_Bool)(T)0.1 == 1) /* see C11 6.3.1.2 (N1570) */
-
-#define u_assert_twos(T) \
-	u_static_assert(-U_TMAX(T) > U_TMIN(T), STRINGIFY(T) " type not supported (not two's complement)")
-
-#if defined FLT_RADIX
-#define U_FLT_RADIX FLT_RADIX
-#else
-#define U_FLT_RADIX 2
-#endif
-
-#if HAVE_INTMAX_T
-#define u_intmax_t intmax_t
-#else
-#define u_intmax_t long long
-#endif
-
-#if HAVE_UINTMAX_T
-#define u_uintmax_t uintmax_t
-#else
-#define u_uintmax_t unsigned long long
-#endif
 
 
 /*
@@ -2609,102 +2544,42 @@ static const char *unixL_strerror(lua_State *L, int error) {
 } /* unixL_strerror() */
 
 
-#define unixL_Integer u_intmax_t
-#define unixL_Unsigned u_uintmax_t
+#define unixL_Integer intmax_t
+#define UNIXL_INTEGER_MAX INTMAX_MAX
+#define UNIXL_INTEGER_MIN INTMAX_MIN
+#define UNIXL_INTEGER_PREC ((sizeof (unixL_Integer) * CHAR_BIT) - 1)
 
-static _Bool unixL_ispower2u(unixL_Unsigned i) {
-	return i && ((i & (i - 1)) == 0);
-} /* unixL_ispower2u() */
+#define unixL_Unsigned uintmax_t
+#define UNIXL_UNSIGNED_MAX UINTMAX_MAX
+#define UNIXL_UNSIGNED_PREC (sizeof (unixL_Unsigned) * CHAR_BIT)
 
-static _Bool unixL_ispower2s(unixL_Integer i) {
-	u_assert_twos(unixL_Integer);
-	return i == U_TMIN(unixL_Integer) || unixL_ispower2u(-i);
-} /* unixL_ispower2s() */
+#define UNIXL_INTNUM_MAX ((((INTMAX_C(1) << (sizeof (lua_Number) - 2)) - 1) << 1) + 1)
+#define UNIXL_INTNUM_MIN (-UNIXL_INTNUM_MAX - 1)
 
-#define unixL_ispower2(i) \
-	(u_inline_assert(sizeof (i) <= sizeof (unixL_Integer)), \
-	 (U_ISESIGNED(i))? unixL_ispower2s(i) : unixL_ispower2u(i))
-
-/* translate mantissa digits to maximum integer value */
-static _Bool unixL_digitstointeger(unsigned digits, unixL_Integer *p) {
-		u_static_assert(U_FLT_RADIX == 2, "FLT_RADIX value not supported");
-
-		if (!digits || digits > (sizeof (unixL_Integer) * 8 - 1))
-			return 0;
-
-		*p = (((unixL_Integer)1 << (digits - 1) << 1) + 1);
-
-		return 1;
-} /* unixL_digitstointeger() */
-
-#define UNIXL_FINDHUGE(T) do { \
-	T n = 2, p = 0; \
-	while (n > p && !isinf(n)) { \
-		p = n; \
-		n *= 2.0; \
-	} \
-	return isinf(n)? p : n; \
-} while (0)
-
-static float unixL_floathuge(void) {
-	if (!isinf(HUGE_VALF))
-		return HUGE_VALF;
-	UNIXL_FINDHUGE(float);
-} /* unixL_floathuge() */
-
-static double unixL_doublehuge(void) {
-	if (!isinf(HUGE_VAL))
-		return HUGE_VAL;
-	UNIXL_FINDHUGE(double);
-} /* unixL_doublehuge() */
-
-static long double unixL_ldoublehuge(void) {
-	if (!isinf(HUGE_VALL))
-		return HUGE_VALL;
-	UNIXL_FINDHUGE(long double);
-} /* unixL_ldoublehuge() */
-
-static lua_Number unixL_numberhuge(void) {
-	if (U_ISTFLOAT(lua_Number)) {
-		UNIXL_FINDHUGE(lua_Number);
-	} else {
-		/* cannot static_assert that lua_Number is two's complement */
-		return -((lua_Number)ldexp(-1.0, sizeof (lua_Number) * 8 - 1) + 1);
-	}
-} /* unixL_numberhuge() */
-
-static unsigned unixL_numberdigits(void) {
-	if (U_ISTFLOAT(lua_Number)) {
-		lua_Number huge = unixL_numberhuge();
-
-		if (huge == unixL_floathuge()) {
-			return FLT_MANT_DIG;
-		} else if (huge == unixL_doublehuge()) {
-			return DBL_MANT_DIG;
-		} else if (huge == unixL_ldoublehuge()) {
-			return LDBL_MANT_DIG;
-		} else {
-			return 0;
-		}
-	} else {
-		return 0;
-	}
-} /* unixL_numberdigits() */
+#if !defined LUA_NUMBER_MAX_EXP
+#if HAVE__GENERIC
+#define LUA_NUMBER_MAX_EXP _Generic((lua_Number)0.0, \
+	default: 0, \
+	float: FLT_MAX_EXP, \
+	double: DBL_MAX_EXP, \
+	long double: LDBL_MAX_EXP)
+#else
+#define LUA_NUMBER_MAX_EXP \
+	((sizeof (lua_Number) == sizeof (long double))? LDBL_MAX_EXP : \
+	 (sizeof (lua_Number) == sizeof (double))? DBL_MAX_EXP : \
+	 (sizeof (lua_Number) == sizeof (float))? FLT_MAX_EXP : 0)
+#endif
+#endif
 
 static _Bool unixL_integertonumber(unixL_Integer i, lua_Number *p) {
 	if (U_ISTFLOAT(lua_Number)) {
-		unixL_Integer m;
+		u_static_assert(FLT_RADIX == 2, "FLT_RADIX value unsupported");
+		u_static_assert(LUA_NUMBER_MAX_EXP == 0 || UNIXL_INTEGER_PREC < LUA_NUMBER_MAX_EXP, "LUA_NUMBER_MAX_EXP too small");
 
-		if (unixL_digitstointeger(unixL_numberdigits(), &m)) {
-			u_assert_twos(unixL_Integer);
-
-			if ((i > m || i < -m) && !unixL_ispower2(i))
-				return 0;
-		} /* else mantissa fits entire range */
+		if (i != (unixL_Integer)(lua_Number)i)
+			return 0;
 	} else {
-		lua_Number m = unixL_numberhuge();
-
-		if (i > m || i < -m - 1)
+		if (i > UNIXL_INTNUM_MAX || i < UNIXL_INTNUM_MIN)
 			return 0;
 	}
 
@@ -2715,16 +2590,13 @@ static _Bool unixL_integertonumber(unixL_Integer i, lua_Number *p) {
 
 static _Bool unixL_unsignedtonumber(unixL_Unsigned i, lua_Number *p) {
 	if (U_ISTFLOAT(lua_Number)) {
-		unixL_Integer m;
+		u_static_assert(FLT_RADIX == 2, "FLT_RADIX value unsupported");
+		u_static_assert(LUA_NUMBER_MAX_EXP == 0 || UNIXL_UNSIGNED_PREC < LUA_NUMBER_MAX_EXP, "LUA_NUMBER_MAX_EXP too small");
 
-		if (unixL_digitstointeger(unixL_numberdigits(), &m)) {
-			if (i > (unixL_Unsigned)m && !unixL_ispower2(i))
-				return 0;
-		} /* else mantissa fits entire range */
+		if (i != (unixL_Unsigned)(lua_Number)i)
+			return 0;
 	} else {
-		lua_Number m = unixL_numberhuge();
-
-		if (i > m)
+		if (i > UNIXL_INTNUM_MAX)
 			return 0;
 	}
 
@@ -2735,16 +2607,22 @@ static _Bool unixL_unsignedtonumber(unixL_Unsigned i, lua_Number *p) {
 
 static _Bool unixL_numbertointeger(lua_Number n, unixL_Integer *p) {
 	if (U_ISTFLOAT(lua_Number)) {
-		u_assert_twos(unixL_Integer);
+		u_static_assert(FLT_RADIX == 2, "FLT_RADIX value unsupported");
+		u_static_assert(LUA_NUMBER_MAX_EXP == 0 || UNIXL_INTEGER_PREC < LUA_NUMBER_MAX_EXP, "LUA_NUMBER_MAX_EXP too small");
+		/*
+		 * Require two's complement, guaranteeing UNIXL_INTEGER_MIN
+		 * to be a power of 2 and representable as float.
+		 */
+		u_static_assert(-UNIXL_INTEGER_MAX > UNIXL_INTEGER_MIN, "unixL_Integer type not two's complement");
 
-		if (n < (lua_Number)U_TMIN(unixL_Integer))
+		if (n < (lua_Number)UNIXL_INTEGER_MIN)
 			return 0;
-		if (n >= -(lua_Number)U_TMIN(unixL_Integer))
+		if (n >= -(lua_Number)UNIXL_INTEGER_MIN)
 			return 0;
 	} else {
-		if (n < U_TMIN(unixL_Integer))
+		if (n < UNIXL_INTEGER_MIN)
 			return 0;
-		if (n > U_TMAX(unixL_Integer))
+		if (n > UNIXL_INTEGER_MAX)
 			return 0;
 	}
 
@@ -2757,12 +2635,16 @@ static _Bool unixL_numbertounsigned(lua_Number n, unixL_Unsigned *p) {
 	if (U_ISTFLOAT(lua_Number)) {
 		if (n < 0)
 			return 0;
-		if (n >= ldexp(1.0, sizeof *p * 8))
+
+		u_static_assert(FLT_RADIX == 2, "FLT_RADIX value unsupported");
+		u_static_assert(UNIXL_UNSIGNED_PREC < DBL_MAX_EXP, "DBL_MAX_EXP too small");
+
+		if (n >= ldexp(1.0, UNIXL_UNSIGNED_PREC))
 			return 0;
 	} else {
 		if (n < 0)
 			return 0;
-		if (n > U_TMAX(unixL_Unsigned))
+		if (n > UNIXL_UNSIGNED_MAX)
 			return 0;
 	}
 
@@ -2775,7 +2657,7 @@ static void unixL_pushinteger(lua_State *L, unixL_Integer i) {
 	lua_Number n;
 
 #if LUA_VERSION_NUM >= 503
-	if (i >= U_TMIN(lua_Integer) && i <= U_TMAX(lua_Integer)) {
+	if (i >= LUA_MININTEGER && i <= LUA_MAXINTEGER) {
 		lua_pushinteger(L, i);
 
 		return;
@@ -2792,7 +2674,7 @@ static void unixL_pushunsigned(lua_State *L, unixL_Unsigned i) {
 	lua_Number n;
 
 #if LUA_VERSION_NUM >= 503
-	if (i <= U_TMAX(lua_Integer)) {
+	if (i <= LUA_MAXINTEGER) {
 		lua_pushinteger(L, i);
 
 		return;
@@ -2806,7 +2688,7 @@ static void unixL_pushunsigned(lua_State *L, unixL_Unsigned i) {
 } /* unixL_pushunsigned() */
 
 #define unixL_checkinteger_(L, index, min, max, ...) unixL_checkinteger((L), (index), (min), (max))
-#define unixL_checkinteger(...) unixL_checkinteger_(__VA_ARGS__, U_TMIN(unixL_Integer), U_TMAX(unixL_Integer), 0)
+#define unixL_checkinteger(...) unixL_checkinteger_(__VA_ARGS__, UNIXL_INTEGER_MIN, UNIXL_INTEGER_MAX, 0)
 
 static unixL_Integer (unixL_checkinteger)(lua_State *L, int index, unixL_Integer min, unixL_Integer max) {
 	if (lua_isinteger(L, index)) {
@@ -2834,7 +2716,7 @@ erange:
 } /* unixL_checkinteger() */
 
 #define unixL_checkunsigned_(L, index, min, max, ...) unixL_checkunsigned((L), (index), (min), (max))
-#define unixL_checkunsigned(...) unixL_checkunsigned_(__VA_ARGS__, U_TMIN(unixL_Unsigned), U_TMAX(unixL_Unsigned), 0)
+#define unixL_checkunsigned(...) unixL_checkunsigned_(__VA_ARGS__, 0, UNIXL_UNSIGNED_MAX, 0)
 
 static unixL_Unsigned (unixL_checkunsigned)(lua_State *L, int index, unixL_Unsigned min, unixL_Unsigned max) {
 	if (lua_isinteger(L, index)) {
@@ -2843,7 +2725,7 @@ static unixL_Unsigned (unixL_checkunsigned)(lua_State *L, int index, unixL_Unsig
 		U_WARN_PUSH;
 		U_WARN_NO_SIGN_COMPARE;
 
-		if (i < 0 || i > U_TMAX(unixL_Unsigned))
+		if (i < 0 || i > UNIXL_UNSIGNED_MAX)
 			goto erange;
 
 		U_WARN_POP;
@@ -2888,22 +2770,22 @@ static int unixL_checkint(lua_State *L, int index) {
 } /* unixL_checkint() */
 
 static size_t unixL_checksize(lua_State *L, int index) {
-	return unixL_checkunsigned(L, index, 0, MIN(U_TMAX(unixL_Unsigned), SIZE_MAX));
+	return unixL_checkunsigned(L, index, 0, MIN(UNIXL_UNSIGNED_MAX, SIZE_MAX));
 } /* unixL_checksize() */
 
 static void unixL_pushsize(lua_State *L, size_t size) {
-	if (size > U_TMAX(unixL_Unsigned))
+	if (size > UNIXL_UNSIGNED_MAX)
 		luaL_error(L, "size_t value not representable as unsigned");
 
 	unixL_pushunsigned(L, size);
 } /* unixL_pushsize() */
 
 static off_t unixL_checkoff(lua_State *L, int index) {
-	return unixL_checkinteger(L, index, MAX(U_TMIN(unixL_Integer), U_TMIN(off_t)), MIN(U_TMAX(unixL_Integer), U_TMAX(off_t)));
+	return unixL_checkinteger(L, index, MAX(UNIXL_INTEGER_MIN, U_TMIN(off_t)), MIN(UNIXL_INTEGER_MAX, U_TMAX(off_t)));
 } /* unixL_checkoff() */
 
 static void unixL_pushoff(lua_State *L, off_t off) {
-	if (off < U_TMIN(unixL_Integer) || off > U_TMAX(unixL_Integer))
+	if (off < UNIXL_INTEGER_MIN || off > UNIXL_INTEGER_MAX)
 		luaL_error(L, "off_t value not representable as integer");
 
 	unixL_pushunsigned(L, off);

@@ -45,9 +45,6 @@ AC_CHECK_HEADERS([ \
 ])
 AC_CHECK_HEADERS([netinet6/in6_var.h], [], [], [/* silence autoconf */])
 
-# Checks for types
-AC_CHECK_TYPES([intmax_t, uintmax_t])
-
 # Checks for structure members
 AC_CHECK_MEMBERS([struct stat.st_rdev, struct stat.st_blksize, struct stat.st_blocks])
 AC_CHECK_MEMBERS([struct stat.st_atim, struct stat.st_mtim, struct stat.st_ctim])
