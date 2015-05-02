@@ -1,6 +1,6 @@
 #!/bin/sh
 _=[[
-	. "${0%%/*}/regress.sh"
+	. "${0%/*}/regress.sh"
 	exec runlua -j- "$0" "$@"
 ]]
 

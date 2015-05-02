@@ -4,7 +4,7 @@ set -f # disable pathname expansion
 set -C # noclobber
 unset IFS
 
-SRCDIR="$(cd "${0%%/*}/.." && pwd -L)"
+SRCDIR="$(cd "${0%/*}/.." && pwd -L)"
 PATH="${PATH:-$(command -p getconf PATH)}:${SRCDIR}/mk"
 
 lua51path="${SRCDIR}/regress/.local/share/5.1"
