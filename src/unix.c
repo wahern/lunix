@@ -96,6 +96,14 @@
 #define HAVE_C___EXTENSION__ GNUC_PREREQ(1, 0)
 #endif
 
+#ifndef HAVE_C__GENERIC
+#define HAVE_C__GENERIC (GNUC_PREREQ(4, 9) || __has_feature(c_generic_selections) || __has_extension(c_generic_selections))
+#endif
+
+#ifndef HAVE__STATIC_ASSERT
+#define HAVE__STATIC_ASSERT (GNUC_PREREQ(4, 6) || __has_feature(c_static_assert) || __has_extension(c_static_assert))
+#endif
+
 #ifndef HAVE_C_STATEMENT_EXPRESSION
 #define HAVE_C_STATEMENT_EXPRESSION GNUC_PREREQ(1, 0)
 #endif
@@ -170,10 +178,6 @@
 
 #ifndef HAVE_STRUCT_STAT_ST_CTIMESPEC
 #define HAVE_STRUCT_STAT_ST_CTIMESPEC HAVE_STRUCT_STAT_ST_ATIMESPEC
-#endif
-
-#ifndef HAVE__STATIC_ASSERT
-#define HAVE__STATIC_ASSERT (GNUC_PREREQ(4,6) || __has_feature(c_static_assert) || __has_extension(c_static_assert))
 #endif
 
 #ifndef HAVE_ARC4RANDOM

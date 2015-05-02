@@ -72,6 +72,9 @@ AC_FUNC_STRERROR_R
 # Check for static_assert and _Static_assert
 WA_CHECK_STATIC_ASSERT
 
+# Check for _Generic
+WA_C__GENERIC
+
 # Check for statement expression construct ({})
 WA_C_STATEMENT_EXPRESSION
 
