@@ -2561,7 +2561,7 @@ static const char *unixL_strerror(lua_State *L, int error) {
 #define UNIXL_INTNUM_MIN (-UNIXL_INTNUM_MAX - 1)
 
 #if !defined LUA_NUMBER_MAX_EXP
-#if HAVE__GENERIC
+#if HAVE_C__GENERIC
 #define LUA_NUMBER_MAX_EXP _Generic((lua_Number)0.0, \
 	default: 0, \
 	float: FLT_MAX_EXP, \
