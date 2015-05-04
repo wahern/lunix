@@ -1,3 +1,15 @@
+lua-unix (20150504-1) unstable; urgency=low
+
+  * Add autoconf support.
+  * Detect and throw exceptions on integer overflow.
+  * Add chmod, dup, fchmod, fchown, fdopen, fdopendir, fdup, fstat, fopen,
+    fpipe, getgroups, getprogname, lseek, lstat, mkfifo, open, pipe,
+    posix_fadvise, posix_fallocate, setgroups, stat.
+  * Add bindings to iso646 named bitwise operators: bitand, bitor, comp,
+    and xor.
+
+ -- William Ahern <william@25thandClement.com>  Mon, 04 May 2015 15:21:04 -0700
+
 lua-unix (20150224-1) unstable; urgency=low
 
   * Fix MUSL libc build.
