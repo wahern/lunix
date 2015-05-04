@@ -243,7 +243,7 @@
 /*
  * Only if we lack <ifaddrs.h>. FreeBSD requires <net/if_var.h> and many
  * other dependencies.
- */ 
+ */
 #ifndef HAVE_NETINET6_IN6_VAR_H
 #define HAVE_NETINET6_IN6_VAR_H (defined __KAME__ && !HAVE_IFADDRS_H)
 #endif
@@ -931,11 +931,11 @@ static u_error_t u_sigtimedwait(int *_signo, const sigset_t *set, siginfo_t *_in
 
 			/*
 			 * sigtimedwait and sigwait will atomically clear a
-			 * pending signal without delivering the signal. 
+			 * pending signal without delivering the signal.
 			 * Emulate that behavior by allowing the signal to
 			 * be delivered to our noop signal handler.
 			 *
-			 * Note that this is definitely not thread-safe. 
+			 * Note that this is definitely not thread-safe.
 			 * But OpenBSD leaves us little choice.
 			 */
 			act.sa_handler = &sa_discard;
@@ -1531,7 +1531,7 @@ static u_flags_t u_toflags(const char *mode) {
 			if (*mode == '+') {
 				accmode |= O_CREAT;
 				mode++;
-			} 
+			}
 
 			break;
 		case 'b':
