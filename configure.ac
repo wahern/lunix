@@ -63,7 +63,7 @@ AC_CHECK_FUNCS([ \
 	arc4random arc4random_addrandom arc4random_stir clock_gettime \
 	dup2 dup3 fdopendir getauxval getenv_r getexecname getifaddrs \
 	getprogname issetugid pipe2 posix_fadvise posix_fallocate \
-	sigtimedwait sysctl \
+	sigtimedwait sigwait sysctl \
 ])
 
 # Check for strerror_r and variant

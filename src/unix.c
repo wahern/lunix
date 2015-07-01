@@ -268,6 +268,10 @@
 #define HAVE_SIGTIMEDWAIT (!defined __APPLE__ && !defined __OpenBSD__)
 #endif
 
+#ifndef HAVE_SIGWAIT
+#define HAVE_SIGWAIT (!defined __minix)
+#endif
+
 #ifndef HAVE_STATIC_ASSERT
 #define HAVE_STATIC_ASSERT (defined static_assert)
 #endif
@@ -975,7 +979,7 @@ static u_error_t u_sigtimedwait(int *_signo, const sigset_t *set, siginfo_t *_in
 	} while (!timeout || ts_timercmp(elapsed, *timeout, <));
 
 	return EAGAIN;
-#else
+#elif HAVE_SIGWAIT
 	struct timespec elapsed = { 0, 0 }, req, rem;
 	sigset_t pending;
 	int signo, error;
@@ -1036,6 +1040,13 @@ static u_error_t u_sigtimedwait(int *_signo, const sigset_t *set, siginfo_t *_in
 	} while (!timeout || ts_timercmp(elapsed, *timeout, <));
 
 	return EAGAIN;
+#else
+	(void)_signo;
+	(void)set;
+	(void)_info;
+	(void)timeout;
+
+	return ENOTSUP;
 #endif
 } /* u_sigtimedwait() */
 
@@ -7600,8 +7611,10 @@ static const struct unix_const const_signal[] = {
 	UNIX_CONST(SIG_BLOCK), UNIX_CONST(SIG_UNBLOCK), UNIX_CONST(SIG_SETMASK),
 
 	UNIX_CONST(SA_NOCLDSTOP), UNIX_CONST(SA_ONSTACK), UNIX_CONST(SA_RESETHAND),
-	UNIX_CONST(SA_RESTART), UNIX_CONST(SA_SIGINFO), UNIX_CONST(SA_NOCLDWAIT),
-	UNIX_CONST(SA_NODEFER),
+	UNIX_CONST(SA_RESTART), UNIX_CONST(SA_NOCLDWAIT), UNIX_CONST(SA_NODEFER),
+#if defined SA_SIGINFO
+	UNIX_CONST(SA_SIGINFO),
+#endif
 }; /* const_signal[] */
 
 static const struct {
