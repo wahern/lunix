@@ -1506,13 +1506,13 @@ static const char *(u_strmode)(u_flags_t flags, void *dst, size_t lim) {
 	if (flags & O_APPEND) {
 		*p++ = 'a';
 
-		if (O_WRONLY != (flags & O_WRONLY))
+		if (O_WRONLY != (flags & O_ACCMODE))
 			*p++ = '+';
-	} else if (O_RDONLY == (flags & O_RDONLY)) {
+	} else if (O_RDONLY == (flags & O_ACCMODE)) {
 		*p++ = 'r';
-	} else if (O_WRONLY == (flags & O_WRONLY)) {
+	} else if (O_WRONLY == (flags & O_ACCMODE)) {
 		*p++ = 'w';
-	} else if (O_RDWR == (flags & O_RDWR)) {
+	} else if (O_RDWR == (flags & O_ACCMODE)) {
 		*p++ = 'r';
 		*p++ = '+';
 	}
@@ -1602,7 +1602,7 @@ static int u_fdopen(FILE **fp, int *fd, const char *mode, u_flags_t flags) {
 		return error;
 
 	if (!(*fp = fdopen(*fd, mode)))
-		return error;
+		return errno;
 
 	*fd = -1;
 
@@ -4958,15 +4958,18 @@ static int unix_fpipe(lua_State *L) {
 	lua_settop(L, 1);
 	unixL_checkflags(L, 1, &mode, &flags, NULL);
 
+	mode = NULL;
+	flags &= ~(O_ACCMODE|O_APPEND);
+
 	fh[0] = unixL_prepfile(L);
 	fh[1] = unixL_prepfile(L);
 
 	if ((error = u_pipe(fd, flags)))
 		goto error;
 
-	if ((error = u_fdopen(&fh[0]->f, &fd[0], mode, flags)))
+	if ((error = u_fdopen(&fh[0]->f, &fd[0], mode, flags|O_RDONLY)))
 		goto error;
-	if ((error = u_fdopen(&fh[1]->f, &fd[1], mode, flags)))
+	if ((error = u_fdopen(&fh[1]->f, &fd[1], mode, flags|O_WRONLY)))
 		goto error;
 
 	return 2;
