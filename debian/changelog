@@ -1,3 +1,9 @@
+lua-unix (20150923-1) unstable; urgency=low
+
+  * Fix bugs in unix_fpipe, u_fdopen, and u_strmode.
+
+ -- William Ahern <william@25thandClement.com>  Wed, 23 Sep 2015 03:30:34 -0700
+
 lua-unix (20150504-1) unstable; urgency=low
 
   * Add autoconf support.
