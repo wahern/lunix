@@ -17,7 +17,7 @@
 #include <limits.h>       /* INT_MAX INT_MIN NL_TEXTMAX */
 #include <stdarg.h>       /* va_list va_start va_arg va_end */
 #include <stdint.h>       /* SIZE_MAX intmax_t uintmax_t */
-#include <stdlib.h>       /* arc4random(3) calloc(3) _exit(2) exit(3) free(3) getenv(3) getenv_r(3) getexecname(3) getprogname(3) realloc(3) setenv(3) strtoul(3) unsetenv(3) */
+#include <stdlib.h>       /* arc4random(3) calloc(3) _exit(2) exit(3) free(3) getenv(3) getenv_r(3) getexecname(3) getprogname(3) grantpt(3) posix_openpt(3) ptsname(3) realloc(3) setenv(3) strtoul(3) unlockpt(3) unsetenv(3) */
 #include <stdio.h>        /* fileno(3) flockfile(3) ftrylockfile(3) funlockfile(3) snprintf(3) */
 #include <string.h>       /* memset(3) strcmp(3) strerror_r(3) strsignal(3) strspn(3) strcspn(3) */
 #include <signal.h>       /* NSIG struct sigaction sigset_t sigaction(3) sigfillset(3) sigemptyset(3) sigprocmask(2) */
@@ -38,7 +38,7 @@
 #include <sys/wait.h>     /* WNOHANG waitpid(2) */
 #include <sys/ioctl.h>    /* SIOCGIFCONF SIOCGIFFLAGS SIOCGIFNETMASK SIOCGIFDSTADDR SIOCGIFBRDADDR SIOCGLIFADDR ioctl(2) */
 #include <net/if.h>       /* IF_NAMESIZE struct ifconf struct ifreq */
-#include <unistd.h>       /* _PC_NAME_MAX chdir(2) chroot(2) close(2) chdir(2) chown(2) chroot(2) dup2(2) execve(2) execl(2) execlp(2) execvp(2) fork(2) fpathconf(3) getegid(2) geteuid(2) getgid(2) getgroups(2) gethostname(3) getpid(2) getppid(2) getuid(2) issetugid(2) lchown(2) link(2) pread(2) pwrite(2) rename(2) rmdir(2) setegid(2) seteuid(2) setgid(2) setgroups(2) setuid(2) setsid(2) symlink(2) truncate(2) umask(2) unlink(2) */
+#include <unistd.h>       /* _PC_NAME_MAX chdir(2) chroot(2) close(2) chdir(2) chown(2) chroot(2) dup2(2) execve(2) execl(2) execlp(2) execvp(2) fork(2) fpathconf(3) getegid(2) geteuid(2) getgid(2) getgroups(2) gethostname(3) getpgid(2) getpgrp(2) getpid(2) getppid(2) getuid(2) isatty(3) issetugid(2) lchown(2) link(2) pread(2) pwrite(2) rename(2) rmdir(2) setegid(2) seteuid(2) setgid(2) setgroups(2) setpgid(2) setuid(2) setsid(2) symlink(2) tcgetpgrp(3) tcsetpgrp(3) truncate(2) umask(2) unlink(2) */
 #include <fcntl.h>        /* F_* fcntl(2) open(2) */
 #include <pwd.h>          /* struct passwd getpwnam_r(3) */
 #include <grp.h>          /* struct group getgrnam_r(3) */
@@ -262,6 +262,11 @@
 
 #ifndef HAVE_PROGRAM_INVOCATION_SHORT_NAME
 #define HAVE_PROGRAM_INVOCATION_SHORT_NAME (defined __linux)
+#endif
+
+/* TODO: available on musl libc when _GNU_SOURCE */
+#ifndef HAVE_PTSNAME_R
+#define HAVE_PTSNAME_R GLIBC_PREREQ(2,1)
 #endif
 
 #ifndef HAVE_SIGTIMEDWAIT
@@ -612,13 +617,21 @@ static u_error_t u_realloc(char **buf, size_t *size, size_t minsiz) {
 } /* u_realloc() */
 
 
+static u_error_t u_growby(char **buf, size_t *size, size_t n) {
+	if (~n < *size)
+		return ENOMEM;
+
+	return u_realloc(buf, size, *size + n);
+} /* u_growby() */
+
+
 static u_error_t u_appendc(char **buf, size_t *size, size_t *p, int c) {
 	int error;
 
 	if (*p < *size) {
 		(*buf)[(*p)++] = c;
 	} else {
-		if ((error = u_realloc(buf, size, *p + 1)))
+		if ((error = u_growby(buf, size, (*p - *size) + 1)))
 			return error;
 
 		(*buf)[(*p)++] = c;
@@ -2069,6 +2082,27 @@ static int u_getpwnam_r(const char *nam, struct passwd *pwd, char *buf, size_t b
 } /* u_getpwnam_r() */
 
 
+static u_error_t u_ptsname_r(int fd, char *buf, size_t buflen) {
+#if HAVE_PTSNAME_R
+	return (0 == ptsname_r(fd, buf, buflen))? 0 : errno;
+#else
+	const char *path;
+
+	/*
+	 * NB: POSIX doesn't require that errno be set on error. We'll just
+	 * return whatever non-0 errno value we see, EINVAL if 0.
+	 */
+	errno = 0;
+	if (!(path = ptsname(fd)))
+		return (errno)? errno : EINVAL;
+
+	if (u_strlcpy(buf, path, buflen) >= buflen)
+		return ERANGE;
+
+	return 0;
+#endif
+} /* u_ptsname_r() */
+
 #if !HAVE_ARC4RANDOM
 
 #define UNIXL_RANDOM_INITIALIZER { .fd = -1, }
@@ -3233,6 +3267,11 @@ static gid_t unixL_checkgid(lua_State *L, int index) {
 
 	return unixL_optgid(L, index, -1);
 } /* unixL_checkgid() */
+
+
+static pid_t unixL_checkpid(lua_State *L, int index) {
+	return unixL_checkinteger(L, index, U_TMIN(pid_t), U_TMAX(pid_t));
+} /* unixL_checkpid() */
 
 
 #if HAVE_STRUCT_PSINFO
@@ -5574,6 +5613,26 @@ static const luaL_Reg ifs_metamethods[] = {
 }; /* ifs_metamethods[] */
 
 
+static int unix_getpgid(lua_State *L) {
+	pid_t pid = unixL_checkpid(L, 1);
+	pid_t pgid;
+
+	if (-1 == (pgid = getpgid(pid)))
+		return unixL_pusherror(L, errno, "getpgid", "~$#");
+
+	lua_pushinteger(L, pgid);
+
+	return 1;
+} /* unix_getpgid() */
+
+
+static int unix_getpgrp(lua_State *L) {
+	lua_pushinteger(L, getpgrp());
+
+	return 1;
+} /* unix_getpgrp() */
+
+
 static int unix_getpid(lua_State *L) {
 	lua_pushinteger(L, getpid());
 
@@ -5771,6 +5830,73 @@ static int unix_getuid(lua_State *L) {
 
 	return 1;
 } /* unix_getuid() */
+
+
+static int unix_grantpt(lua_State *L) {
+	int fd = unixL_checkfileno(L, 1);
+
+	if (0 != grantpt(fd))
+		return unixL_pusherror(L, errno, "grantpt", "~$#");
+
+	lua_pushvalue(L, 1);
+
+	return 1;
+} /* unix_grantpt() */
+
+
+static int unix_ioctl(lua_State *L) {
+	int fd = unixL_checkfileno(L, 1);
+	int cmd = luaL_checkint(L, 2);
+	int val, error;
+
+	switch (cmd) {
+#if defined SIOCATMARK
+	case SIOCATMARK:
+		if (-1 == ioctl(fd, cmd, &val))
+			goto syerr;
+
+		lua_pushboolean(L, val != 0);
+
+		return 1;
+#endif
+#if defined TIOCSCTTY
+	case TIOCSCTTY:
+		if (-1 == ioctl(fd, cmd, (char *)NULL))
+			goto syerr;
+
+		lua_pushvalue(L, 1);
+
+		return 1;
+#endif
+	default:
+		/*
+		 * NOTE: We don't allow unsupported operations because we
+		 * cannot know the argument type that ioctl expects. If it's
+		 * a pointer then this interface becomes a vector for
+		 * reading or writing random process memory.
+		 */
+		return luaL_error(L, "%d: unsupported ioctl operation", cmd);
+	} /* switch () */
+syerr:
+	error = errno;
+error:
+	return unixL_pusherror(L, error, "ioctl", "~$#");
+} /* unix_ioctl() */
+
+
+static int unix_isatty(lua_State *L) {
+	int fd = unixL_checkfileno(L, 1);
+
+	/* NB: POSIX doesn't require implementations to set errno */
+	errno = 0;
+	if (isatty(fd)) {
+		return lua_pushboolean(L, 1), 1;
+	} else if (errno == EBADF) {
+		return unixL_pusherror(L, errno, "isatty", "0$#");
+	} else {
+		return lua_pushboolean(L, 0), 1;
+	}
+} /* unix_isatty() */
 
 
 #if HAVE_GETAUXVAL
@@ -6078,6 +6204,41 @@ static int unix_posix_fallocate(lua_State *L) {
 #endif
 
 
+static int unix_posix_openpt(lua_State *L) {
+	u_flags_t flags = unixL_optinteger(L, 1, O_RDWR, 0, U_TMAX(u_flags_t));
+	int fd;
+
+	if (-1 == (fd = posix_openpt(flags)))
+		return unixL_pusherror(L, errno, "posix_openpt", "~$#");
+
+	lua_pushinteger(L, fd);
+
+	return 1;
+} /* unix_posix_openpt() */
+
+static int unix_posix_fopenpt(lua_State *L) {
+	u_flags_t flags = unixL_optinteger(L, 1, O_RDWR, 0, U_TMAX(u_flags_t));
+	luaL_Stream *fh;
+	int fd, error;
+
+	fh = unixL_prepfile(L);
+
+	if (-1 == (fd = posix_openpt(flags)))
+		goto syerr;
+
+	if ((error = u_fdopen(&fh->f, &fd, NULL, flags)))
+		goto error;
+
+	return 1;
+syerr:
+	error = errno;
+error:
+	u_close(&fd);
+
+	return unixL_pusherror(L, error, "posix_openpt", "~$#");
+} /* unix_posix_fopenpt() */
+
+
 static DIR *dir_checkself(lua_State *L, int index) {
 	DIR **dp = luaL_checkudata(L, index, "DIR*");
 
@@ -6290,6 +6451,22 @@ static int unix_pread(lua_State *L) {
 } /* unix_pread() */
 
 
+static int unix_ptsname(lua_State *L) {
+	unixL_State *U = unixL_getstate(L);
+	int fd = unixL_checkfileno(L, 1);
+	int error;
+
+	while ((error = u_ptsname_r(fd, U->buf, U->bufsiz))) {
+		if (error != ERANGE || (error = u_growby(&U->buf, &U->bufsiz, 64)))
+			return unixL_pusherror(L, error, "ptsname", "~$#");
+	}
+
+	lua_pushstring(L, U->buf);
+
+	return 1;
+} /* unix_ptsname() */
+
+
 static int unix_pwrite(lua_State *L) {
 	int fd = unixL_checkfileno(L, 1);
 	size_t size;
@@ -6488,6 +6665,19 @@ static int unix_setlocale(lua_State *L) {
 
 	return 1;
 } /* unix_setlocale() */
+
+
+static int unix_setpgid(lua_State *L) {
+	pid_t pid = unixL_checkpid(L, 1);
+	pid_t pgid = unixL_checkpid(L, 2);
+
+	if (0 != setpgid(pid, pgid))
+		return unixL_pusherror(L, errno, "setpgid", "0$#");
+
+	lua_pushboolean(L, 1);
+
+	return 1;
+} /* unix_setpgid() */
 
 
 static int unix_setsid(lua_State *L) {
@@ -6879,6 +7069,32 @@ static int unix_symlink(lua_State *L) {
 } /* unix_symlink() */
 
 
+static int unix_tcgetpgrp(lua_State *L) {
+	int fd = unixL_checkfileno(L, 1);
+	pid_t pgid;
+
+	if (-1 == (pgid = tcgetpgrp(fd)))
+		return unixL_pusherror(L, errno, "tcgetpgrp", "~$#");
+
+	lua_pushinteger(L, pgid);
+
+	return 1;
+} /* unix_tcgetpgrp() */
+
+
+static int unix_tcsetpgrp(lua_State *L) {
+	int fd = unixL_checkfileno(L, 1);
+	pid_t pgid = unixL_checkpid(L, 2);
+
+	if (0 != tcsetpgrp(fd, pgid))
+		return unixL_pusherror(L, errno, "tcsetpgrp", "~$#");
+
+	lua_pushvalue(L, 1);
+
+	return 1;
+} /* unix_tcsetpgrp() */
+
+
 static int yr_isleap(int year) {
 	if (year >= 0)
 		return !(year % 4) && ((year % 100) || !(year % 400));
@@ -7058,6 +7274,18 @@ static int unix_unlink(lua_State *L) {
 } /* unix_unlink() */
 
 
+static int unix_unlockpt(lua_State *L) {
+	int fd = unixL_checkfileno(L, 1);
+
+	if (0 != unlockpt(fd))
+		return unixL_pusherror(L, errno, "unlockpt", "~$#");
+
+	lua_pushvalue(L, 1);
+
+	return 1;
+} /* unix_unlockpt() */
+
+
 static int unix_unsetenv(lua_State *L) {
 	return unixL_unsetenv(L, 1);
 } /* unix_unsetenv() */
@@ -7179,6 +7407,8 @@ static const luaL_Reg unix_routines[] = {
 	{ "getgroups",          &unix_getgroups },
 	{ "gethostname",        &unix_gethostname },
 	{ "getifaddrs",         &unix_getifaddrs },
+	{ "getpgid",            &unix_getpgid },
+	{ "getpgrp",            &unix_getpgrp },
 	{ "getpid",             &unix_getpid },
 	{ "getppid",            &unix_getppid },
 	{ "getprogname",        &unix_getprogname },
@@ -7186,6 +7416,9 @@ static const luaL_Reg unix_routines[] = {
 	{ "getpwuid",           &unix_getpwnam },
 	{ "gettimeofday",       &unix_gettimeofday },
 	{ "getuid",             &unix_getuid },
+	{ "grantpt",            &unix_grantpt },
+	{ "ioctl",              &unix_ioctl },
+	{ "isatty",             &unix_isatty },
 	{ "issetugid",          &unix_issetugid },
 	{ "kill",               &unix_kill },
 	{ "lchown",             &unix_lchown },
@@ -7204,7 +7437,10 @@ static const luaL_Reg unix_routines[] = {
 #if HAVE_POSIX_FALLOCATE
 	{ "posix_fallocate",    &unix_posix_fallocate },
 #endif
+	{ "posix_openpt",       &unix_posix_openpt },
+	{ "posix_fopenpt",      &unix_posix_fopenpt },
 	{ "pread",              &unix_pread },
+	{ "ptsname",            &unix_ptsname },
 	{ "pwrite",             &unix_pwrite },
 	{ "raise",              &unix_raise },
 	{ "read",               &unix_read },
@@ -7225,8 +7461,9 @@ static const luaL_Reg unix_routines[] = {
 	{ "setgid",             &unix_setgid },
 	{ "setgroups",          &unix_setgroups },
 	{ "setlocale",          &unix_setlocale },
-	{ "setuid",             &unix_setuid },
+	{ "setpgid",            &unix_setpgid },
 	{ "setsid",             &unix_setsid },
+	{ "setuid",             &unix_setuid },
 	{ "sigaction",          &unix_sigaction },
 	{ "sigfillset",         &unix_sigfillset },
 	{ "sigemptyset",        &unix_sigemptyset },
@@ -7239,12 +7476,15 @@ static const luaL_Reg unix_routines[] = {
 	{ "strerror",           &unix_strerror },
 	{ "strsignal",          &unix_strsignal },
 	{ "symlink",            &unix_symlink },
+	{ "tcgetpgrp",          &unix_tcgetpgrp },
+	{ "tcsetpgrp",          &unix_tcsetpgrp },
 	{ "timegm",             &unix_timegm },
 	{ "truncate",           &unix_truncate },
 	{ "tzset",              &unix_tzset },
 	{ "umask",              &unix_umask },
 	{ "uname",              &unix_uname },
 	{ "unlink",             &unix_unlink },
+	{ "unlockpt",           &unix_unlockpt },
 	{ "unsetenv",           &unix_unsetenv },
 	{ "wait",               &unix_wait },
 	{ "waitpid",            &unix_waitpid },
@@ -7712,6 +7952,27 @@ static const struct unix_const const_fcntl[] = {
 #endif
 }; /* const_fcntl[] */
 
+static const struct unix_const const_ioctl[] = {
+#if defined SIOCATMARK
+	UNIX_CONST(SIOCATMARK),
+#endif
+#if defined TIOCGSIZE
+	UNIX_CONST(TIOCGSIZE),
+#endif
+#if defined TIOCSSIZE
+	UNIX_CONST(TIOCSSIZE),
+#endif
+#if defined TIOCGWINSZ
+	UNIX_CONST(TIOCGWINSZ),
+#endif
+#if defined TIOCSWINSZ
+	UNIX_CONST(TIOCSWINSZ),
+#endif
+#if defined TIOCSCTTY
+	UNIX_CONST(TIOCSCTTY),
+#endif
+}; /* const_ioctl[] */
+
 static const struct unix_const const_locale[] = {
 	UNIX_CONST(LC_ALL), UNIX_CONST(LC_COLLATE), UNIX_CONST(LC_CTYPE),
 	UNIX_CONST(LC_MONETARY), UNIX_CONST(LC_NUMERIC), UNIX_CONST(LC_TIME),
@@ -7732,6 +7993,7 @@ static const struct {
 	{ const_wait,    countof(const_wait) },
 	{ const_signal,  countof(const_signal) },
 	{ const_fcntl,   countof(const_fcntl) },
+	{ const_ioctl,   countof(const_ioctl) },
 	{ const_locale,  countof(const_locale) },
 }; /* unix_const[] */
 
