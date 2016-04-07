@@ -38,7 +38,7 @@
 #include <sys/wait.h>     /* WNOHANG waitpid(2) */
 #include <sys/ioctl.h>    /* SIOCGIFCONF SIOCGIFFLAGS SIOCGIFNETMASK SIOCGIFDSTADDR SIOCGIFBRDADDR SIOCGLIFADDR ioctl(2) */
 #include <net/if.h>       /* IF_NAMESIZE struct ifconf struct ifreq */
-#include <unistd.h>       /* _PC_NAME_MAX chdir(2) chroot(2) close(2) chdir(2) chown(2) chroot(2) dup2(2) execve(2) execl(2) execlp(2) execvp(2) fork(2) fpathconf(3) getegid(2) geteuid(2) getgid(2) getgroups(2) gethostname(3) getpgid(2) getpgrp(2) getpid(2) getppid(2) getuid(2) isatty(3) issetugid(2) lchown(2) link(2) pread(2) pwrite(2) rename(2) rmdir(2) setegid(2) seteuid(2) setgid(2) setgroups(2) setpgid(2) setuid(2) setsid(2) symlink(2) tcgetpgrp(3) tcsetpgrp(3) truncate(2) umask(2) unlink(2) */
+#include <unistd.h>       /* _PC_NAME_MAX alarm(3) chdir(2) chroot(2) close(2) chdir(2) chown(2) chroot(2) dup2(2) execve(2) execl(2) execlp(2) execvp(2) fork(2) fpathconf(3) getegid(2) geteuid(2) getgid(2) getgroups(2) gethostname(3) getpgid(2) getpgrp(2) getpid(2) getppid(2) getuid(2) isatty(3) issetugid(2) lchown(2) link(2) pread(2) pwrite(2) rename(2) rmdir(2) setegid(2) seteuid(2) setgid(2) setgroups(2) setpgid(2) setuid(2) setsid(2) symlink(2) tcgetpgrp(3) tcsetpgrp(3) truncate(2) umask(2) unlink(2) */
 #include <fcntl.h>        /* F_* fcntl(2) open(2) */
 #include <pwd.h>          /* struct passwd getpwnam_r(3) */
 #include <grp.h>          /* struct group getgrnam_r(3) */
@@ -1160,6 +1160,38 @@ static u_error_t u_strerror_r(int error, char *dst, size_t lim) {
 #define u_flags_t long long
 
 
+/* u_close_nocancel(fd:int)
+ *
+ * Deterministic close(2) wrapper which safely handles signal
+ * interruption[1] and pthread cancellations[2]
+ *
+ * [1] http://austingroupbugs.net/view.php?id=529
+ * [2] https://bugs.chromium.org/p/chromium/issues/detail?id=269623
+ */
+static u_error_t u_close_nocancel(int fd) {
+	int _errno, error;
+
+	_errno = errno;
+#if __APPLE__
+	extern int close$NOCANCEL(int);
+	error = (0 == close$NOCANCEL(fd))? 0 : errno;
+#elif __hpux__
+	do {
+		error = (0 == close(fd))? 0 : errno;
+	} while (error == EINTR);
+#else
+	error = (0 == close(fd))? 0 : errno;
+#endif
+	errno = _errno;
+
+	return (error == EINTR)? 0 : error;
+} /* u_close_nocancel() */
+
+
+/*
+ * NB: This is an awkward function written before settling on a consistent
+ * naming scheme; it should have been named something else.
+ */
 static u_error_t u_close(int *fd) {
 	int error;
 
@@ -1168,7 +1200,7 @@ static u_error_t u_close(int *fd) {
 
 	error = errno;
 
-	(void)close(*fd);
+	(void)u_close_nocancel(*fd);
 	*fd = -1;
 
 	errno = error;
@@ -4170,6 +4202,15 @@ static const luaL_Reg sighandler_metamethods[] = {
 }; /* sighandler_metamethods[] */
 
 
+static int unix_alarm(lua_State *L) {
+	unsigned n = unixL_checkunsigned(L, 1, 0, U_TMAX(unsigned));
+
+	unixL_pushunsigned(L, alarm(n));
+
+	return 1;
+} /* unix_alarm() */
+
+
 static int unix_arc4random(lua_State *L) {
 	unixL_pushunsigned(L, unixL_random(L));
 
@@ -4464,6 +4505,29 @@ static int unix_compl(lua_State *L) {
 
 	return 1;
 } /* unix_compl() */
+
+
+static int unix_close(lua_State *L) {
+	if (lua_isuserdata(L, 1) || lua_istable(L, 1)) {
+		lua_settop(L, 1);
+
+		lua_getfield(L, 1, "close");
+		lua_pushvalue(L, 1);
+		lua_call(L, 1, LUA_MULTRET);
+
+		return lua_gettop(L) - 1;
+	} else {
+		int fd = unixL_checkinteger(L, 1, U_TMIN(int), U_TMAX(int));
+		int error;
+
+		if ((error = u_close_nocancel(fd)))
+			return unixL_pusherror(L, error, "close", "0$#");
+
+		lua_pushboolean(L, 1);
+
+		return 1;
+	}
+} /* unix_close() */
 
 
 static int dir_close(lua_State *);
@@ -6861,6 +6925,43 @@ static int unix_sigtimedwait(lua_State *L) {
 } /* unix_sigtimedwait() */
 
 
+#if HAVE_SIGWAIT
+static int unix_sigwait(lua_State *L) {
+	sigset_t set, *_set;
+	struct timespec timeout;
+	siginfo_t si;
+	int signo, error;
+
+	if (lua_isnoneornil(L, 1)) {
+		sigfillset(&set);
+	} else {
+		if (&set != (_set = unixL_tosigset(L, 1, &set)))
+			set = *_set;
+	}
+
+	/* these cannot be caught and will trigger EINVAL on AIX */
+	sigdelset(&set, SIGKILL);
+	sigdelset(&set, SIGSTOP);
+
+	if ((error = sigwait(&set, &signo)))
+		return unixL_pusherror(L, error, "sigwait", "~$#");
+
+	lua_pushinteger(L, signo);
+
+	return 1;
+} /* unix_sigwait() */
+#endif
+
+
+static int unix_sleep(lua_State *L) {
+	unsigned n = unixL_checkunsigned(L, 1, 0, U_TMAX(unsigned));
+
+	unixL_pushunsigned(L, sleep(n));
+
+	return 1;
+} /* unix_sleep() */
+
+
 enum st_field {
 	STF_DEV,
 	STF_INO,
@@ -7358,6 +7459,7 @@ static int unix__gc(lua_State *L) {
 
 
 static const luaL_Reg unix_routines[] = {
+	{ "alarm",              &unix_alarm },
 	{ "arc4random",         &unix_arc4random },
 	{ "arc4random_buf",     &unix_arc4random_buf },
 	{ "arc4random_stir",    &unix_arc4random_stir },
@@ -7369,6 +7471,7 @@ static const luaL_Reg unix_routines[] = {
 	{ "chown",              &unix_chown },
 	{ "chroot",             &unix_chroot },
 	{ "clock_gettime",      &unix_clock_gettime },
+	{ "close",              &unix_close },
 	{ "closedir",           &unix_closedir },
 	{ "compl",              &unix_compl },
 	{ "dup",                &unix_dup },
@@ -7472,6 +7575,10 @@ static const luaL_Reg unix_routines[] = {
 	{ "sigismember",        &unix_sigismember },
 	{ "sigprocmask",        &unix_sigprocmask },
 	{ "sigtimedwait",       &unix_sigtimedwait },
+#if HAVE_SIGWAIT
+	{ "sigwait",            &unix_sigwait },
+#endif
+	{ "sleep",              &unix_sleep },
 	{ "stat",               &unix_stat },
 	{ "strerror",           &unix_strerror },
 	{ "strsignal",          &unix_strsignal },
