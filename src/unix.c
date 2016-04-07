@@ -38,7 +38,7 @@
 #include <sys/wait.h>     /* WNOHANG waitpid(2) */
 #include <sys/ioctl.h>    /* SIOCGIFCONF SIOCGIFFLAGS SIOCGIFNETMASK SIOCGIFDSTADDR SIOCGIFBRDADDR SIOCGLIFADDR ioctl(2) */
 #include <net/if.h>       /* IF_NAMESIZE struct ifconf struct ifreq */
-#include <unistd.h>       /* _PC_NAME_MAX alarm(3) chdir(2) chroot(2) close(2) chdir(2) chown(2) chroot(2) dup2(2) execve(2) execl(2) execlp(2) execvp(2) fork(2) fpathconf(3) getegid(2) geteuid(2) getgid(2) getgroups(2) gethostname(3) getpgid(2) getpgrp(2) getpid(2) getppid(2) getuid(2) isatty(3) issetugid(2) lchown(2) link(2) pread(2) pwrite(2) rename(2) rmdir(2) setegid(2) seteuid(2) setgid(2) setgroups(2) setpgid(2) setuid(2) setsid(2) symlink(2) tcgetpgrp(3) tcsetpgrp(3) truncate(2) umask(2) unlink(2) */
+#include <unistd.h>       /* _PC_NAME_MAX alarm(3) chdir(2) chroot(2) close(2) chdir(2) chown(2) chroot(2) dup2(2) execve(2) execl(2) execlp(2) execvp(2) fork(2) fpathconf(3) getegid(2) geteuid(2) getgid(2) getgroups(2) gethostname(3) getpgid(2) getpgrp(2) getpid(2) getppid(2) getuid(2) isatty(3) issetugid(2) lchown(2) lockf(3) link(2) pread(2) pwrite(2) rename(2) rmdir(2) setegid(2) seteuid(2) setgid(2) setgroups(2) setpgid(2) setuid(2) setsid(2) symlink(2) tcgetpgrp(3) tcsetpgrp(3) truncate(2) umask(2) unlink(2) */
 #include <fcntl.h>        /* F_* fcntl(2) open(2) */
 #include <pwd.h>          /* struct passwd getpwnam_r(3) */
 #include <grp.h>          /* struct group getgrnam_r(3) */
@@ -2865,6 +2865,13 @@ static off_t unixL_checkoff(lua_State *L, int index) {
 	return unixL_checkinteger(L, index, MAX(UNIXL_INTEGER_MIN, U_TMIN(off_t)), MIN(UNIXL_INTEGER_MAX, U_TMAX(off_t)));
 } /* unixL_checkoff() */
 
+static off_t unixL_optoff(lua_State *L, int index, off_t def) {
+	if (lua_isnoneornil(L, index))
+		return def;
+
+	return unixL_checkoff(L, index);
+} /* unixL_optoff() */
+
 static void unixL_pushoff(lua_State *L, off_t off) {
 	if (off < UNIXL_INTEGER_MIN || off > UNIXL_INTEGER_MAX)
 		luaL_error(L, "off_t value not representable as integer");
@@ -4509,13 +4516,24 @@ static int unix_compl(lua_State *L) {
 
 static int unix_close(lua_State *L) {
 	if (lua_isuserdata(L, 1) || lua_istable(L, 1)) {
+		int nret;
+
 		lua_settop(L, 1);
 
 		lua_getfield(L, 1, "close");
 		lua_pushvalue(L, 1);
 		lua_call(L, 1, LUA_MULTRET);
 
-		return lua_gettop(L) - 1;
+		if ((nret = lua_gettop(L) - 1)) {
+			return nret;
+		} else {
+			/*
+			 * Lua 5.1's closef handler only returns value on
+			 * failure.
+			 */
+			lua_pushboolean(L, 1);
+			return 1;
+		}
 	} else {
 		int fd = unixL_checkinteger(L, 1, U_TMIN(int), U_TMAX(int));
 		int error;
@@ -6047,6 +6065,20 @@ static int unix_link(lua_State *L) {
 } /* unix_link() */
 
 
+static int unix_lockf(lua_State *L) {
+	int fd = unixL_checkfileno(L, 1);
+	int cmd = unixL_checkint(L, 2);
+	off_t size = unixL_optoff(L, 3, 0);
+
+	if (0 != lockf(fd, cmd, size))
+		return unixL_pusherror(L, errno, "lockf", "~$#");
+
+	lua_pushvalue(L, 1);
+
+	return 1;
+} /* unix_lockf() */
+
+
 static int unix_lseek(lua_State *L) {
 	int fd = unixL_checkfileno(L, 1);
 	off_t offset = unixL_checkoff(L, 2);
@@ -7526,6 +7558,7 @@ static const luaL_Reg unix_routines[] = {
 	{ "kill",               &unix_kill },
 	{ "lchown",             &unix_lchown },
 	{ "link",               &unix_link },
+	{ "lockf",              &unix_lockf },
 	{ "lseek",              &unix_lseek },
 	{ "lstat",              &unix_lstat },
 	{ "mkdir",              &unix_mkdir },
@@ -8085,6 +8118,15 @@ static const struct unix_const const_locale[] = {
 	UNIX_CONST(LC_MONETARY), UNIX_CONST(LC_NUMERIC), UNIX_CONST(LC_TIME),
 }; /* const_locale[] */
 
+/* miscellaneous constants */
+static const struct unix_const const_unistd[] = {
+	UNIX_CONST(STDIN_FILENO), UNIX_CONST(STDOUT_FILENO),
+	UNIX_CONST(STDERR_FILENO),
+
+	UNIX_CONST(F_ULOCK), UNIX_CONST(F_LOCK),
+	UNIX_CONST(F_TLOCK), UNIX_CONST(F_TEST),
+}; /* const_unistd[] */
+
 static const struct {
 	const struct unix_const *table;
 	size_t size;
@@ -8102,6 +8144,7 @@ static const struct {
 	{ const_fcntl,   countof(const_fcntl) },
 	{ const_ioctl,   countof(const_ioctl) },
 	{ const_locale,  countof(const_locale) },
+	{ const_unistd,  countof(const_unistd) },
 }; /* unix_const[] */
 
 
