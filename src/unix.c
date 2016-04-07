@@ -1064,6 +1064,21 @@ static u_error_t u_sigtimedwait(int *_signo, const sigset_t *set, siginfo_t *_in
 } /* u_sigtimedwait() */
 
 
+static u_error_t u_sigwait(const sigset_t *set, int *signo) {
+#if defined __OpenBSD__
+	/*
+	 * OpenBSD implements sigwait in libpthread, which might not be
+	 * loaded. Use our u_sigtimedwait implementation.
+	 */
+	return u_sigtimedwait(signo, set, NULL, NULL);
+#elif HAVE_SIGWAIT
+	return sigwait(set, signo);
+#else
+	return u_sigtimedwait(signo, set, NULL, NULL);
+#endif
+} /* u_sigwait() */
+
+
 static size_t u_strlcpy(char *dst, const char *src, size_t lim) {
 	size_t len, n;
 
@@ -6957,7 +6972,6 @@ static int unix_sigtimedwait(lua_State *L) {
 } /* unix_sigtimedwait() */
 
 
-#if HAVE_SIGWAIT
 static int unix_sigwait(lua_State *L) {
 	sigset_t set, *_set;
 	struct timespec timeout;
@@ -6975,14 +6989,13 @@ static int unix_sigwait(lua_State *L) {
 	sigdelset(&set, SIGKILL);
 	sigdelset(&set, SIGSTOP);
 
-	if ((error = sigwait(&set, &signo)))
+	if ((error = u_sigwait(&set, &signo)))
 		return unixL_pusherror(L, error, "sigwait", "~$#");
 
 	lua_pushinteger(L, signo);
 
 	return 1;
 } /* unix_sigwait() */
-#endif
 
 
 static int unix_sleep(lua_State *L) {
@@ -7608,9 +7621,7 @@ static const luaL_Reg unix_routines[] = {
 	{ "sigismember",        &unix_sigismember },
 	{ "sigprocmask",        &unix_sigprocmask },
 	{ "sigtimedwait",       &unix_sigtimedwait },
-#if HAVE_SIGWAIT
 	{ "sigwait",            &unix_sigwait },
-#endif
 	{ "sleep",              &unix_sleep },
 	{ "stat",               &unix_stat },
 	{ "strerror",           &unix_strerror },
