@@ -6,18 +6,25 @@ regress.mpsafe = false
 regress.mtsafe = false
 regress.logpid = false
 
+local _lockfh
+function regress.setmpsafe(mpsafe)
+	regress.mpsafe = mpsafe
+
+	if regress.mpsafe and not _lockfh then
+		_lockfh = assert(io.tmpfile())
+	end
+end
+
 local _progname
 local function progname()
 	_progname = _progname or string.gsub(os.getenv"PROGNAME" or "regress", ".lua$", "")
 	return _progname
 end
 
-
-local _lockfh = nil
 local function lock_stderr()
 	if regress.mpsafe then
 		_lockfh = _lockfh or assert(io.tmpfile())
-		unix.lockf(_lockfh, unix.F_LOCK)
+		assert(unix.lockf(_lockfh, unix.F_LOCK))
 	end
 
 	if regress.mtsafe then
@@ -31,7 +38,7 @@ local function unlock_stderr()
 	end
 
 	if _lockfh then
-		unix.lockf(_lockfh, unix.F_ULOCK)
+		assert(unix.lockf(_lockfh, unix.F_ULOCK))
 	end
 end -- unlock_stderr
 

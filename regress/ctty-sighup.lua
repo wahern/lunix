@@ -7,7 +7,7 @@ _=[[
 local unix = require"unix"
 local regress = require"regress".export".*"
 
-regress.mpsafe = true
+regress.setmpsafe(true)
 
 local fmt = string.format
 
