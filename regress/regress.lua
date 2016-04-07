@@ -2,14 +2,44 @@ local unix = require"unix"
 
 local regress = { }
 
+regress.mpsafe = false
+regress.mtsafe = false
+regress.logpid = false
+
 local _progname
 local function progname()
 	_progname = _progname or string.gsub(os.getenv"PROGNAME" or "regress", ".lua$", "")
 	return _progname
 end
 
+
+local _lockfh = nil
+local function lock_stderr()
+	if regress.mpsafe then
+		_lockfh = _lockfh or assert(io.tmpfile())
+		unix.lockf(_lockfh, unix.F_LOCK)
+	end
+
+	if regress.mtsafe then
+		unix.flockfile(_lockfh)
+	end
+end -- lock_stderr
+
+local function unlock_stderr()
+	if regress.mtsafe then
+		unix.funlockfile(_lockfh)
+	end
+
+	if _lockfh then
+		unix.lockf(_lockfh, unix.F_ULOCK)
+	end
+end -- unlock_stderr
+
 function regress.say(fmt, ...)
-	io.stderr:write(progname(), ": ", string.format(fmt, ...), "\n")
+	local pid = regress.logpid and string.format("[%d] ", unix.getpid()) or ""
+	lock_stderr()
+	io.stderr:write(progname(), ": ", pid, string.format(fmt, ...), "\n")
+	unlock_stderr()
 end -- say
 
 function regress.panic(...)
