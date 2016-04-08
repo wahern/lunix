@@ -269,6 +269,14 @@
 #define HAVE_PTSNAME_R GLIBC_PREREQ(2,1)
 #endif
 
+#ifndef HAVE_P_XARGV
+#define HAVE_P_XARGV (defined _AIX)
+#endif
+
+#ifndef HAVE_DECL_P_XARGV
+#define HAVE_DECL_P_XARGV 0
+#endif
+
 #ifndef HAVE_SIGTIMEDWAIT
 #define HAVE_SIGTIMEDWAIT (!defined __APPLE__ && !defined __OpenBSD__)
 #endif
@@ -5744,6 +5752,11 @@ static int unix_getppid(lua_State *L) {
 } /* unix_getppid() */
 
 
+static const char *getprogname_basename(const char *path) {
+	const char *name;
+	return ((name = strrchr(path, '/')))? ++name : path;
+}
+
 static int unix_getprogname(lua_State *L) {
 	const char *name = NULL;
 
@@ -5755,11 +5768,7 @@ static int unix_getprogname(lua_State *L) {
 	if (!(path = getexecname()))
 		goto notsup;
 
-	if ((name = strrchr(path, '/'))) {
-		name++;
-	} else {
-		name = path;
-	}
+	name = getprogname_basename(path);
 #elif HAVE_PROGRAM_INVOCATION_SHORT_NAME
 	name = program_invocation_short_name;
 #elif HAVE_STRUCT_PSINFO_PR_FNAME
@@ -5770,6 +5779,14 @@ static int unix_getprogname(lua_State *L) {
 		return unixL_pusherror(L, error, "getprogname", "~$#");
 
 	name = pr.pr_fname;
+#elif HAVE_P_XARGV
+#if !HAVE_DECL_P_XARGV
+	extern char **p_xargv;
+#endif
+	if (!*p_xargv)
+		goto notsup;
+
+	name = getprogname_basename(*p_xargv);
 #endif
 
 	if (!name || !*name)
