@@ -2303,6 +2303,14 @@ static uint32_t arc4_getword(unixL_Random *R) {
 
 
 /*
+ * E X T E R N A L  C O M P A T  R O U T I N E S
+ *
+ * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
+
+#include "unix-getopt.c"
+
+
+/*
  * Extends luaL_newmetatable by adding all the relevant fields to the
  * metatable using the standard pattern (placing all the methods in the
  * __index metafield). Leaves the metatable on the stack.
@@ -2396,6 +2404,10 @@ typedef struct unixL_State {
 		char path[64];
 		int error;
 	} fd;
+
+	struct {
+		int opterr, optind, optopt;
+	} opt;
 } unixL_State;
 
 static const unixL_State unixL_initializer = {
@@ -2496,6 +2508,9 @@ static int unixL_init(lua_State *L, unixL_State *U) {
 		return ENOTSUP;
 #endif
 #endif
+
+	U->opt.opterr = 1;
+	U->opt.optind = 1;
 
 	return 0;
 } /* unixL_init() */
@@ -5718,6 +5733,101 @@ static const luaL_Reg ifs_metamethods[] = {
 }; /* ifs_metamethods[] */
 
 
+static void getopt_pushoptc(lua_State *L, int optc) {
+	char ch = (char)(unsigned char)optc;
+	lua_pushlstring(L, &ch, 1);
+} /* getopt_pushoptc() */
+
+static int getopt_nextopt(lua_State *L) {
+	unixL_State *U = lua_touserdata(L, lua_upvalueindex(1));
+	struct u_getopt_r *opts = lua_touserdata(L, lua_upvalueindex(2));
+	/* NB: upvalue 3 is our string anchoring table */
+	char **argv = lua_touserdata(L, lua_upvalueindex(4));
+	int argc = lua_tointeger(L, lua_upvalueindex(5));
+	const char *shortopts = lua_tostring(L, lua_upvalueindex(6));
+	int optc;
+
+	optc = u_getopt_r(argc, argv, shortopts, opts);
+	U->opt.optind = opts->optind;
+	U->opt.optopt = opts->optopt;
+
+	if (optc == -1)
+		return 0;
+
+	getopt_pushoptc(L, optc);
+
+	if (optc == ':' || optc == '?') {
+		getopt_pushoptc(L, U->opt.optopt);
+	} else if (opts->optarg) {
+		lua_pushstring(L, opts->optarg);
+	} else {
+		lua_pushnil(L);
+	}
+
+	/*
+	 * NB: If returning optind in the future then +1 to adhere to Lua
+	 * indexing semantics. See unix__index for unix.optint indexing.
+	 */
+
+	return 2;
+} /* getopt_nextopt() */
+
+static int getopt_pushargs(lua_State *L, int index) {
+	const char **argv;
+	size_t argc, i;
+
+	index = lua_absindex(L, index);
+	luaL_checktype(L, index, LUA_TTABLE);
+
+	argc = lua_rawlen(L, index);
+	if (argc >= INT_MAX || argc >= (size_t)-1 / sizeof *argv)
+		return unixL_pusherror(L, ENOMEM, "getopt", "~$#");
+
+	/* duplicate argument table to guarantee strings remained anchored */
+	lua_createtable(L, argc, 0);
+	argv = lua_newuserdata(L, (argc + 1) * sizeof *argv);
+	for (i = 0; i < argc; i++) {
+		lua_rawgeti(L, index, i + 1);
+		argv[i] = lua_tostring(L, -1); /* coerce to string */
+		lua_rawseti(L, -3, i + 1); /* anchor coerced string */
+	}
+	argv[argc] = NULL;
+
+	lua_pushinteger(L, argc);
+
+	return 3;
+} /* getopt_pushargs() */
+
+static int unix_getopt(lua_State *L) {
+	unixL_State *U = unixL_getstate(L);
+	int argc;
+	const char *shortopts;
+	struct u_getopt_r *opts;
+
+	lua_settop(L, 2);
+	luaL_checktype(L, 1, LUA_TTABLE);
+	luaL_checkstring(L, 2);
+
+	/* push unixL_State */
+	lua_pushvalue(L, lua_upvalueindex(1));
+
+	/* push getopt_r state */
+	opts = lua_newuserdata(L, sizeof *opts);
+	U_GETOPT_R_INIT(opts);
+	opts->opterr = U->opt.opterr;
+
+	/* push arguments as 3 values: local table, argv array, argc int */
+	getopt_pushargs(L, 1); /* pushes 3 values */
+
+	/* push shortopts */
+	lua_pushvalue(L, 2);
+
+	lua_pushcclosure(L, &getopt_nextopt, 6);
+
+	return 1;
+} /* unix_getopt() */
+
+
 static int unix_getpgid(lua_State *L) {
 	pid_t pid = unixL_checkpid(L, 1);
 	pid_t pgid;
@@ -7519,6 +7629,44 @@ static int unix__gc(lua_State *L) {
 	return 0;
 } /* unix__gc() */
 
+static int unix__index(lua_State *L) {
+	unixL_State *U = unixL_getstate(L);
+	const char *k = luaL_checkstring(L, 2);
+
+	if (!strcmp(k, "opterr")) {
+		lua_pushboolean(L, !!U->opt.opterr);
+		return 1;
+	} else if (!strcmp(k, "optind")) {
+		lua_pushinteger(L, U->opt.optind + 1);
+		return 1;
+	} else if (!strcmp(k, "optopt")) {
+		getopt_pushoptc(L, U->opt.optopt);
+		return 1;
+	} else {
+		return 0;
+	}
+} /* unix__index() */
+
+static int unix__newindex(lua_State *L) {
+	if (lua_type(L, 2) == LUA_TSTRING) {
+		unixL_State *U = unixL_getstate(L);
+		const char *k = lua_tostring(L, 2);
+
+		if (!strcmp(k, "opterr")) {
+			if (lua_isboolean(L, 3)) {
+				U->opt.opterr = lua_toboolean(L, 3);
+			} else {
+				U->opt.opterr = unixL_checkint(L, 3);
+			}
+			return 0;
+		}
+	}
+
+	lua_rawset(L, 1);
+
+	return 0;
+} /* unix__newindex() */
+
 
 static const luaL_Reg unix_routines[] = {
 	{ "alarm",              &unix_alarm },
@@ -7572,6 +7720,7 @@ static const luaL_Reg unix_routines[] = {
 	{ "getgroups",          &unix_getgroups },
 	{ "gethostname",        &unix_gethostname },
 	{ "getifaddrs",         &unix_getifaddrs },
+	{ "getopt",             &unix_getopt },
 	{ "getpgid",            &unix_getpgid },
 	{ "getpgrp",            &unix_getpgrp },
 	{ "getpid",             &unix_getpid },
@@ -8276,6 +8425,18 @@ int luaopen_unix(lua_State *L) {
 		luaL_setmetatable(L, "sighandler_t*");
 		lua_setfield(L, -2, unix_sighandler[i].name);
 	}
+
+	/*
+	 * add __index and __newindex metamethods to unix module table
+	 */
+	lua_createtable(L, 0, 2);
+	lua_pushvalue(L, -3);
+	lua_pushcclosure(L, &unix__index, 1);
+	lua_setfield(L, -2, "__index");
+	lua_pushvalue(L, -3);
+	lua_pushcclosure(L, &unix__newindex, 1);
+	lua_setfield(L, -2, "__newindex");
+	lua_setmetatable(L, -2);
 
 	return 1;
 } /* luaopen_unix() */

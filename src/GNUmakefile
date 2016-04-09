@@ -41,7 +41,7 @@ LDFLAGS_$(d) += -lm
 #
 define BUILD_$(d)
 
-$$(d)/$(1)/%.so: $$(d)/%.c
+$$(d)/$(1)/%.so: $$(d)/%.c $$(d)/unix-getopt.c
 	@test '$$(notdir $$(@D))' = '$$(call LUAPATH_$$(<D), $$(notdir $$(@D)), version)' \
 	|| (printf '%s'"\n" 'Unable to find Lua $(1) API headers (CPPFLAGS = $$(strip $$(call LUAPATH_$$(<D), $$(notdir $$(@D)), cppflags) $(CPPFLAGS)))' >&2; false)
 	$$(MKDIR) -p $$(@D)
