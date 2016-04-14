@@ -2231,7 +2231,7 @@ static void arc4_stir(unixL_Random *R, int force) {
 		return;
 
 #if HAVE_SYSCTL && HAVE_CTL_KERN && HAVE_KERN_RANDOM && HAVE_RANDOM_UUID
-	{	
+	{
 		int mib[] = { CTL_KERN, KERN_RANDOM, RANDOM_UUID };
 
 		while (count < sizeof bytes) {
@@ -7373,7 +7373,7 @@ static int tm_yday(const struct tm *tm) {
 
 	if (tm->tm_yday)
 		return tm->tm_yday;
-	
+
 	yday = past[CLAMP(tm->tm_mon, 0, 11)] + CLAMP(tm->tm_mday, 1, 31) - 1;
 
 	return yday + (tm->tm_mon > 1 && yr_isleap(1900 + tm->tm_year));
