@@ -2876,13 +2876,6 @@ static unixL_Integer unixL_optinteger(lua_State *L, int index, unixL_Integer def
 	return unixL_checkinteger(L, index, min, max);
 } /* unixL_optinteger() */
 
-static unixL_Unsigned unixL_optunsigned(lua_State *L, int index, unixL_Unsigned def, unixL_Unsigned min, unixL_Unsigned max) {
-	if (lua_isnoneornil(L, index))
-		return def;
-
-	return unixL_checkunsigned(L, index, min, max);
-} /* unixL_optunsigned() */
-
 static int unixL_checkint(lua_State *L, int index) {
 	return unixL_checkinteger(L, index, INT_MIN, INT_MAX);
 } /* unixL_checkint() */
