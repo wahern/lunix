@@ -2142,7 +2142,12 @@ static int u_getpwnam_r(const char *nam, struct passwd *pwd, char *buf, size_t b
 
 static u_error_t u_ptsname_r(int fd, char *buf, size_t buflen) {
 #if HAVE_PTSNAME_R
-	return (0 == ptsname_r(fd, buf, buflen))? 0 : errno;
+	if (!buf || buflen == 0)
+		return ERANGE;
+	if (0 != ptsname_r(fd, buf, buflen))
+		return errno;
+
+	return 0;
 #else
 	const char *path;
 
