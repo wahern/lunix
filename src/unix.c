@@ -5850,7 +5850,7 @@ static int unix_getppid(lua_State *L) {
 } /* unix_getppid() */
 
 
-static const char *getprogname_basename(const char *path) {
+MAYBEUSED static const char *getprogname_basename(const char *path) {
 	const char *name;
 	return ((name = strrchr(path, '/')))? ++name : path;
 }
