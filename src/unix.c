@@ -267,9 +267,8 @@
 #define HAVE_PROGRAM_INVOCATION_SHORT_NAME (defined __linux)
 #endif
 
-/* TODO: available on musl libc when _GNU_SOURCE */
 #ifndef HAVE_PTSNAME_R
-#define HAVE_PTSNAME_R GLIBC_PREREQ(2,1)
+#define HAVE_PTSNAME_R (GLIBC_PREREQ(2,1) || (MUSL_MAYBE && _GNU_SOURCE))
 #endif
 
 #ifndef HAVE_P_XARGV
