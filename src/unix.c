@@ -6091,7 +6091,6 @@ static int unix_ioctl(lua_State *L) {
 	} /* switch () */
 syerr:
 	error = errno;
-error:
 	return unixL_pusherror(L, error, "ioctl", "~$#");
 } /* unix_ioctl() */
 
