@@ -28,7 +28,6 @@ static void
 getopt_err(int argc, char *const argv[], const char *shortopts, struct u_getopt_r *K, const char *fmt, ...)
 {
 	va_list ap;
-	int error;
 
 	if (*shortopts == ':' || !K->opterr)
 		return;

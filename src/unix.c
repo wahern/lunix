@@ -2581,7 +2581,6 @@ static uint32_t unixL_random(lua_State *L NOTUSED) {
 static void unixL_random_buf(lua_State *L, void *buf, size_t bufsiz, const unsigned char *charmap, size_t mapsiz) {
 	unsigned char *p = buf, *pe = p + bufsiz;
 	uint32_t r;
-	size_t i;
 
 	while (p < pe) {
 		r = unixL_random(L);
@@ -2969,7 +2968,7 @@ static u_error_t fd_reopen(int *fd, int ofd, const char *fspath, u_flags_t flags
 	char path[sizeof ((unixL_State *)0)->fd.path];
 	const char *dev, *ino, *nul;
 	struct stat st = { 0 };
-	int n, error;
+	int error;
 
 	dev = strstr(fspath, "%"FD_PRIdev);
 	ino = strstr(fspath, "%"FD_PRIino);
@@ -3132,8 +3131,6 @@ static u_error_t fd_init(lua_State *L, unixL_State *U) {
 
 	error = ENOTSUP;
 	goto error;
-syerr:
-	error = errno;
 error:
 	u_close(&pipefd[0]);
 	u_close(&pipefd[1]);
@@ -5800,8 +5797,6 @@ static int getopt_pushargs(lua_State *L, int index) {
 
 static int unix_getopt(lua_State *L) {
 	unixL_State *U = unixL_getstate(L);
-	int argc;
-	const char *shortopts;
 	struct u_getopt_r *opts;
 
 	lua_settop(L, 2);
@@ -6375,8 +6370,6 @@ static int unix_open(lua_State *L) {
 	lua_pushinteger(L, fd);
 
 	return 1;
-syerr:
-	error = errno;
 error:
 	u_close(&fd);
 
@@ -7101,8 +7094,6 @@ static int unix_sigtimedwait(lua_State *L) {
 
 static int unix_sigwait(lua_State *L) {
 	sigset_t set, *_set;
-	struct timespec timeout;
-	siginfo_t si;
 	int signo, error;
 
 	if (lua_isnoneornil(L, 1)) {
