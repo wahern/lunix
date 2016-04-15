@@ -2238,7 +2238,7 @@ static void arc4_stir(unixL_Random *R, int force) {
 		return;
 
 #if HAVE_SYSCTL && HAVE_CTL_KERN && HAVE_KERN_RANDOM && HAVE_RANDOM_UUID
-	{	
+	{
 		int mib[] = { CTL_KERN, KERN_RANDOM, RANDOM_UUID };
 
 		while (count < sizeof bytes) {
@@ -2588,7 +2588,6 @@ static uint32_t unixL_random(lua_State *L NOTUSED) {
 static void unixL_random_buf(lua_State *L, void *buf, size_t bufsiz, const unsigned char *charmap, size_t mapsiz) {
 	unsigned char *p = buf, *pe = p + bufsiz;
 	uint32_t r;
-	size_t i;
 
 	while (p < pe) {
 		r = unixL_random(L);
@@ -2892,13 +2891,6 @@ static unixL_Integer unixL_optinteger(lua_State *L, int index, unixL_Integer def
 	return unixL_checkinteger(L, index, min, max);
 } /* unixL_optinteger() */
 
-static unixL_Unsigned unixL_optunsigned(lua_State *L, int index, unixL_Unsigned def, unixL_Unsigned min, unixL_Unsigned max) {
-	if (lua_isnoneornil(L, index))
-		return def;
-
-	return unixL_checkunsigned(L, index, min, max);
-} /* unixL_optunsigned() */
-
 static int unixL_checkint(lua_State *L, int index) {
 	return unixL_checkinteger(L, index, INT_MIN, INT_MAX);
 } /* unixL_checkint() */
@@ -2984,7 +2976,7 @@ static u_error_t fd_reopen(int *fd, int ofd, const char *fspath, u_flags_t flags
 	char path[sizeof ((unixL_State *)0)->fd.path];
 	const char *dev, *ino, *nul;
 	struct stat st = { 0 };
-	int n, error;
+	int error;
 
 	dev = strstr(fspath, "%"FD_PRIdev);
 	ino = strstr(fspath, "%"FD_PRIino);
@@ -3147,8 +3139,6 @@ static u_error_t fd_init(lua_State *L, unixL_State *U) {
 
 	error = ENOTSUP;
 	goto error;
-syerr:
-	error = errno;
 error:
 	u_close(&pipefd[0]);
 	u_close(&pipefd[1]);
@@ -5815,8 +5805,6 @@ static int getopt_pushargs(lua_State *L, int index) {
 
 static int unix_getopt(lua_State *L) {
 	unixL_State *U = unixL_getstate(L);
-	int argc;
-	const char *shortopts;
 	struct u_getopt_r *opts;
 
 	lua_settop(L, 2);
@@ -5877,7 +5865,7 @@ static int unix_getppid(lua_State *L) {
 } /* unix_getppid() */
 
 
-static const char *getprogname_basename(const char *path) {
+MAYBEUSED static const char *getprogname_basename(const char *path) {
 	const char *name;
 	return ((name = strrchr(path, '/')))? ++name : path;
 }
@@ -6118,7 +6106,6 @@ static int unix_ioctl(lua_State *L) {
 	} /* switch () */
 syerr:
 	error = errno;
-error:
 	return unixL_pusherror(L, error, "ioctl", "~$#");
 } /* unix_ioctl() */
 
@@ -6390,8 +6377,6 @@ static int unix_open(lua_State *L) {
 	lua_pushinteger(L, fd);
 
 	return 1;
-syerr:
-	error = errno;
 error:
 	u_close(&fd);
 
@@ -7116,8 +7101,6 @@ static int unix_sigtimedwait(lua_State *L) {
 
 static int unix_sigwait(lua_State *L) {
 	sigset_t set, *_set;
-	struct timespec timeout;
-	siginfo_t si;
 	int signo, error;
 
 	if (lua_isnoneornil(L, 1)) {
@@ -7397,7 +7380,7 @@ static int tm_yday(const struct tm *tm) {
 
 	if (tm->tm_yday)
 		return tm->tm_yday;
-	
+
 	yday = past[CLAMP(tm->tm_mon, 0, 11)] + CLAMP(tm->tm_mday, 1, 31) - 1;
 
 	return yday + (tm->tm_mon > 1 && yr_isleap(1900 + tm->tm_year));
