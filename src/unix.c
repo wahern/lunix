@@ -2413,7 +2413,7 @@ typedef struct unixL_State {
 	} fd;
 
 	struct {
-		int opterr, optind, optopt;
+		int opterr, optind, optopt, arg0;
 	} opt;
 } unixL_State;
 
@@ -5770,21 +5770,34 @@ static int getopt_nextopt(lua_State *L) {
 	}
 
 	/*
-	 * NB: If returning optind in the future then +1 to adhere to Lua
-	 * indexing semantics. See unix__index for unix.optint indexing.
+	 * NB: If returning optind in the future then adjust by arg0 to
+	 * adhere to Lua indexing semantics if U->opt.arg0. See unix__index
+	 * for unix.optint indexing.
 	 */
 
 	return 2;
 } /* getopt_nextopt() */
 
 static int getopt_pushargs(lua_State *L, int index) {
+	unixL_State *U = unixL_getstate(L);
 	const char **argv;
-	size_t argc, i;
+	size_t arg0, argc, i;
+	int isnil;
 
 	index = lua_absindex(L, index);
 	luaL_checktype(L, index, LUA_TTABLE);
 
-	argc = lua_rawlen(L, index);
+	/* determine whether table is 0-indexed or 1-indexed */
+	lua_rawgeti(L, index, 0);
+	U->opt.arg0 = arg0 = lua_isnil(L, -1)? 1 : 0;
+	lua_pop(L, 1);
+
+	/* count number of arguments */
+	for (i = arg0, argc = 0, isnil = 0; i < SIZE_MAX && !isnil; i++, argc += !isnil) {
+		lua_rawgeti(L, index, i);
+		isnil = lua_isnil(L, -1);
+		lua_pop(L, 1);
+	}
 	if (argc >= INT_MAX || argc >= (size_t)-1 / sizeof *argv)
 		return unixL_pusherror(L, ENOMEM, "getopt", "~$#");
 
@@ -5792,9 +5805,9 @@ static int getopt_pushargs(lua_State *L, int index) {
 	lua_createtable(L, argc, 0);
 	argv = lua_newuserdata(L, (argc + 1) * sizeof *argv);
 	for (i = 0; i < argc; i++) {
-		lua_rawgeti(L, index, i + 1);
+		lua_rawgeti(L, index, i + arg0);
 		argv[i] = lua_tostring(L, -1); /* coerce to string */
-		lua_rawseti(L, -3, i + 1); /* anchor coerced string */
+		lua_rawseti(L, -3, i + arg0); /* anchor coerced string */
 	}
 	argv[argc] = NULL;
 
@@ -7635,10 +7648,13 @@ static int unix__index(lua_State *L) {
 		lua_pushboolean(L, !!U->opt.opterr);
 		return 1;
 	} else if (!strcmp(k, "optind")) {
-		lua_pushinteger(L, U->opt.optind + 1);
+		lua_pushinteger(L, U->opt.optind + U->opt.arg0);
 		return 1;
 	} else if (!strcmp(k, "optopt")) {
 		getopt_pushoptc(L, U->opt.optopt);
+		return 1;
+	} else if (!strcmp(k, "_arg0")) {
+		lua_pushinteger(L, U->opt.arg0);
 		return 1;
 	} else {
 		return 0;
