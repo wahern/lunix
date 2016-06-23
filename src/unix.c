@@ -6768,6 +6768,71 @@ static int unix_readdir(lua_State *L) {
 } /* unix_readdir() */
 
 
+static int unix_recvfrom(lua_State *L) {
+	unixL_State *U = unixL_getstate(L);
+	int fd = unixL_checkfileno(L, 1);
+	size_t size = unixL_checksize(L, 2);
+	int flags = unixL_optinteger(L, 3, 0, 0, INT_MAX);
+	struct sockaddr_storage frombuf;
+	socklen_t frombuflen, fromlen;
+	ssize_t n;
+	void *from, *ud;
+	int error;
+
+	if (U->bufsiz < size && ((error = u_realloc(&U->buf, &U->bufsiz, size))))
+		return unixL_pusherror(L, error, "recvfrom", "~$#");
+
+	from = &frombuf;
+	frombuflen = sizeof frombuf;
+	fromlen = frombuflen;
+	if (-1 == (n = recvfrom(fd, U->buf, size, flags, from, &fromlen)))
+		return unixL_pusherror(L, errno, "recvfrom", "~$#");
+
+	lua_pushlstring(L, U->buf, n);
+
+	/*
+	 * FIXME
+	 *
+	 * 1) What if our buffer is too small? Ideally we check the
+	 * socket family before doing the read.
+	 *
+	 * 2) What if we can't allocate new memory? We should allocate
+	 * a return buffer ahead of time, if necessary.
+	 */
+	ud = lua_newuserdata(L, fromlen);
+	memcpy(ud, from, MIN(fromlen, frombuflen));
+	luaL_setmetatable(L, "struct sockaddr");
+
+	return 2;
+} /* unix_recvfrom() */
+
+static int sa_family(lua_State *L) {
+	struct sockaddr *sa = luaL_checkudata(L, 1, "struct sockaddr");
+
+	unixL_pushinteger(L, sa->sa_family);
+
+	return 1;
+} /* sa_family() */
+
+static int sa__tostring(lua_State *L) {
+	struct sockaddr *sa = luaL_checkudata(L, 1, "struct sockaddr");
+
+	lua_pushlstring(L, (char *)sa, lua_rawlen(L, 1));
+
+	return 1;
+} /* sa__tostring() */
+
+static const luaL_Reg sa_methods[] = {
+	{ "family", &sa_family },
+	{ NULL,     NULL }
+}; /* sa_methods[] */
+
+static const luaL_Reg sa_metamethods[] = {
+	{ "__tostring", &sa__tostring },
+	{ NULL,         NULL }
+}; /* sa_metamethods[] */
+
+
 static int unix_rename(lua_State *L) {
 	const char *opath = luaL_checkstring(L, 1);
 	const char *npath = luaL_checkstring(L, 2);
@@ -6837,6 +6902,26 @@ static int unix_rmdir(lua_State *L) {
 
 	return 1;
 } /* unix_rmdir() */
+
+
+static int unix_sendto(lua_State *L) {
+	unixL_State *U = unixL_getstate(L);
+	int fd = unixL_checkfileno(L, 1);
+	size_t size;
+	const char *src = luaL_checklstring(L, 2, &size);
+	int flags = unixL_optinteger(L, 3, 0, 0, INT_MAX);
+	void *from = luaL_checkudata(L, 4, "struct sockaddr");
+	size_t fromlen = lua_rawlen(L, 4);
+	ssize_t n;
+	int error;
+
+	if (-1 == (n = sendto(fd, src, size, flags, from, fromlen)))
+		return unixL_pusherror(L, errno, "sendto", "~$#");
+
+	unixL_pushsize(L, n);
+
+	return 1;
+} /* unix_sendto() */
 
 
 static int unix_setegid(lua_State *L) {
@@ -7774,6 +7859,7 @@ static const luaL_Reg unix_routines[] = {
 	{ "raise",              &unix_raise },
 	{ "read",               &unix_read },
 	{ "readdir",            &unix_readdir },
+	{ "recvfrom",           &unix_recvfrom },
 	{ "rename",             &unix_rename },
 	{ "rewinddir",          &unix_rewinddir },
 	{ "rmdir",              &unix_rmdir },
@@ -7784,6 +7870,7 @@ static const luaL_Reg unix_routines[] = {
 	{ "S_ISREG",            &unix_S_ISREG },
 	{ "S_ISLNK",            &unix_S_ISLNK },
 	{ "S_ISSOCK",           &unix_S_ISSOCK },
+	{ "sendto",             &unix_sendto },
 	{ "setegid",            &unix_setegid },
 	{ "setenv",             &unix_setenv },
 	{ "seteuid",            &unix_seteuid },
@@ -7877,6 +7964,24 @@ static const struct unix_const const_eai[] = {
 	UNIX_CONST(EAI_OVERFLOW),
 #endif
 }; /* const_eai[] */
+
+static const struct unix_const const_msg[] = {
+#if defined MSG_EOR
+	UNIX_CONST(MSG_EOR),
+#endif
+#if defined MSG_NOSIGNAL
+	UNIX_CONST(MSG_NOSIGNAL),
+#endif
+#if defined MSG_OOB
+	UNIX_CONST(MSG_OOB),
+#endif
+#if defined MSG_PEEK
+	UNIX_CONST(MSG_PEEK),
+#endif
+#if defined MSG_WAITALL
+	UNIX_CONST(MSG_WAITALL),
+#endif
+}; /* const_msg[] */
 
 static const struct unix_const const_clock[] = {
 	{ "CLOCK_MONOTONIC", U_CLOCK_MONOTONIC },
@@ -8327,6 +8432,7 @@ static const struct {
 	{ const_ipproto, countof(const_ipproto) },
 	{ const_ai,      countof(const_ai) },
 	{ const_eai,     countof(const_eai) },
+	{ const_msg,     countof(const_msg) },
 	{ const_clock,   countof(const_clock) },
 	{ const_errno,   countof(const_errno) },
 	{ const_iff,     countof(const_iff) },
@@ -8394,6 +8500,13 @@ int luaopen_unix(lua_State *L) {
 	 */
 	lua_pushvalue(L, -1);
 	unixL_newmetatable(L, "sighandler_t*", sighandler_methods, sighandler_metamethods, 1);
+	lua_pop(L, 1);
+
+	/*
+	 * add struct sockaddr class
+	 */
+	lua_pushvalue(L, -1);
+	unixL_newmetatable(L, "struct sockaddr", sa_methods, sa_metamethods, 1);
 	lua_pop(L, 1);
 
 	/*
