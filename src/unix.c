@@ -288,31 +288,40 @@
 #endif
 
 #ifndef HAVE_STATIC_ASSERT
-#define HAVE_STATIC_ASSERT (defined static_assert)
+#define HAVE_STATIC_ASSERT_ (!GLIBC_PREREQ(0,0) || HAVE__STATIC_ASSERT) /* glibc doesn't check GCC version */
+#define HAVE_STATIC_ASSERT (defined static_assert && HAVE_STATIC_ASSERT_)
 #endif
 
 #ifndef HAVE_SYS_SOCKIO_H
 #define HAVE_SYS_SOCKIO_H (defined __sun)
 #endif
 
+#ifndef HAVE_SYS_SYSCALL_H
+#define HAVE_SYS_SYSCALL_H (defined BSD || __linux__ || __sun)
+#endif
+
 #ifndef HAVE_SYS_SYSCTL_H /* missing on musl libc */
 #define HAVE_SYS_SYSCTL_H (defined BSD || GLIBC_PREREQ(0,0) || UCLIBC_PREREQ(0,0,0))
+#endif
+
+#ifndef HAVE_SYSCALL
+#define HAVE_SYSCALL HAVE_SYS_SYSCALL_H
 #endif
 
 #ifndef HAVE_SYSCTL
 #define HAVE_SYSCTL HAVE_SYS_SYSCTL_H
 #endif
 
-#ifndef HAVE_CTL_KERN
-#define HAVE_CTL_KERN (HAVE_SYS_SYSCTL_H && __linux)
+#ifndef HAVE_DECL_CTL_KERN
+#define HAVE_DECL_CTL_KERN (HAVE_SYS_SYSCTL_H && __linux)
 #endif
 
-#ifndef HAVE_KERN_RANDOM
-#define HAVE_KERN_RANDOM (HAVE_SYS_SYSCTL_H && __linux)
+#ifndef HAVE_DECL_KERN_RANDOM
+#define HAVE_DECL_KERN_RANDOM (HAVE_SYS_SYSCTL_H && __linux)
 #endif
 
-#ifndef HAVE_RANDOM_UUID
-#define HAVE_RANDOM_UUID (HAVE_SYS_SYSCTL_H && __linux)
+#ifndef HAVE_DECL_RANDOM_UUID
+#define HAVE_DECL_RANDOM_UUID (HAVE_SYS_SYSCTL_H && __linux)
 #endif
 
 #ifndef HAVE_STRSIGNAL
@@ -352,6 +361,10 @@
 
 #if HAVE_SYS_SOCKIO_H
 #include <sys/sockio.h> /* SIOCGIFCONF SIOCGIFFLAGS SIOCGIFNETMASK SIOCGIFDSTADDR SIOCGIFBRDADDR */
+#endif
+
+#if HAVE_SYS_SYSCALL_H
+#include <sys/syscall.h> /* SYS_getrandom syscall(2) */
 #endif
 
 #if HAVE_SYS_SYSCTL_H
@@ -2232,30 +2245,35 @@ static int arc4_getbyte(unixL_Random *R) {
 
 static void arc4_stir(unixL_Random *R, int force) {
 	unsigned char bytes[128];
-	size_t count = 0, n;
+	size_t count = 0;
 
 	if (R->count > 0 && R->pid == getpid() && !force)
 		return;
 
-#if HAVE_SYSCTL && HAVE_CTL_KERN && HAVE_KERN_RANDOM && HAVE_RANDOM_UUID
-	{
-		int mib[] = { CTL_KERN, KERN_RANDOM, RANDOM_UUID };
+#if HAVE_SYSCALL && HAVE_DECL_SYS_GETRANDOM
+	while (count < sizeof bytes) {
+		int n = syscall(SYS_getrandom, bytes, sizeof bytes - count, 0);
 
-		while (count < sizeof bytes) {
-			n = sizeof bytes - count;
+		if (n == -1)
+			break;
 
-			if (0 != sysctl(mib, countof(mib), &bytes[count], &n, (void *)0, 0))
-				break;
-
-			count += n;
-		}
-
-		if (count == sizeof bytes)
-			goto stir;
+		count += n;
 	}
 #endif
 
-	{
+#if HAVE_SYSCTL && HAVE_DECL_CTL_KERN && HAVE_DECL_KERN_RANDOM && HAVE_DECL_RANDOM_UUID
+	while (count < sizeof bytes) {
+		int mib[] = { CTL_KERN, KERN_RANDOM, RANDOM_UUID };
+		size_t n = sizeof bytes - count;
+
+		if (0 != sysctl(mib, countof(mib), &bytes[count], &n, (void *)0, 0))
+			break;
+
+		count += n;
+	}
+#endif
+
+	if (count < sizeof bytes) {
 		if (R->fd == -1 && 0 != u_open(&R->fd, "/dev/urandom", O_RDONLY|U_CLOEXEC, 0))
 			goto stir;
 
@@ -2286,7 +2304,7 @@ stir:
 	for (n = 0; n < 1024; n++)
 		arc4_getbyte(R);
 
-	R->count = 1600000;
+	R->count = 1600000 / 10; /* reseed sooner than original construct */
 	R->pid = getpid();
 } /* arc4_stir() */
 
