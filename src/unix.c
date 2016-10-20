@@ -135,6 +135,18 @@
 #define HAVE_SYS_PROCFS_H (defined _AIX)
 #endif
 
+#ifndef HAVE_SYS_SOCKIO_H
+#define HAVE_SYS_SOCKIO_H (defined __sun)
+#endif
+
+#ifndef HAVE_SYS_SYSCALL_H
+#define HAVE_SYS_SYSCALL_H (defined BSD || __linux__ || __sun)
+#endif
+
+#ifndef HAVE_SYS_SYSCTL_H /* missing on musl libc */
+#define HAVE_SYS_SYSCTL_H (defined BSD || GLIBC_PREREQ(0,0) || UCLIBC_PREREQ(0,0,0))
+#endif
+
 #ifndef HAVE_STRUCT_PSINFO
 #define HAVE_STRUCT_PSINFO (defined _AIX)
 #endif
@@ -292,16 +304,8 @@
 #define HAVE_STATIC_ASSERT (defined static_assert && HAVE_STATIC_ASSERT_)
 #endif
 
-#ifndef HAVE_SYS_SOCKIO_H
-#define HAVE_SYS_SOCKIO_H (defined __sun)
-#endif
-
-#ifndef HAVE_SYS_SYSCALL_H
-#define HAVE_SYS_SYSCALL_H (defined BSD || __linux__ || __sun)
-#endif
-
-#ifndef HAVE_SYS_SYSCTL_H /* missing on musl libc */
-#define HAVE_SYS_SYSCTL_H (defined BSD || GLIBC_PREREQ(0,0) || UCLIBC_PREREQ(0,0,0))
+#ifndef HAVE_DECL_SYS_GETRANDOM
+#define HAVE_DECL_SYS_GETRANDOM (defined SYS_getrandom)
 #endif
 
 #ifndef HAVE_SYSCALL
@@ -2245,7 +2249,7 @@ static int arc4_getbyte(unixL_Random *R) {
 
 static void arc4_stir(unixL_Random *R, int force) {
 	unsigned char bytes[128];
-	size_t count = 0;
+	size_t count = 0, n;
 
 	if (R->count > 0 && R->pid == getpid() && !force)
 		return;
