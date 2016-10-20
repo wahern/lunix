@@ -291,6 +291,10 @@
 #define HAVE_DECL_P_XARGV 0
 #endif
 
+#ifndef HAVE_DECL_RLIMIT_AS
+#define HAVE_DECL_RLIMIT_AS (defined RLIMIT_AS)
+#endif
+
 #ifndef HAVE_SIGTIMEDWAIT
 #define HAVE_SIGTIMEDWAIT (!defined __APPLE__ && !defined __OpenBSD__)
 #endif
@@ -6074,11 +6078,18 @@ static int unix_getpwnam(lua_State *L) {
 
 static int rl_checkrlimit(lua_State *L, int index) {
 	static const char *const what_s[] = {
-		"as", "core", "cpu", "data", "fsize", "nofile", "stack", NULL
+		"core", "cpu", "data", "fsize", "nofile", "stack",
+#if HAVE_DECL_RLIMIT_AS
+		"as",
+#endif
+		NULL
 	};
 	static const int what_i[countof(what_s) - 1] = {
-		RLIMIT_AS, RLIMIT_CORE, RLIMIT_CPU, RLIMIT_DATA, RLIMIT_FSIZE,
-		RLIMIT_NOFILE, RLIMIT_STACK
+		RLIMIT_CORE, RLIMIT_CPU, RLIMIT_DATA, RLIMIT_FSIZE,
+		RLIMIT_NOFILE, RLIMIT_STACK,
+#if HAVE_DECL_RLIMIT_AS
+		RLIMIT_AS,
+#endif
 	};
 	int i;
 
@@ -8450,10 +8461,12 @@ static const struct unix_const const_wait[] = {
 }; /* const_wait[] */
 
 static const struct unix_const const_resource[] = {
-	UNIX_CONST(RLIMIT_AS), UNIX_CONST(RLIMIT_CORE),
-	UNIX_CONST(RLIMIT_CPU), UNIX_CONST(RLIMIT_DATA),
-	UNIX_CONST(RLIMIT_FSIZE), UNIX_CONST(RLIMIT_NOFILE),
-	UNIX_CONST(RLIMIT_STACK),
+	UNIX_CONST(RLIMIT_CORE), UNIX_CONST(RLIMIT_CPU),
+	UNIX_CONST(RLIMIT_DATA), UNIX_CONST(RLIMIT_FSIZE),
+	UNIX_CONST(RLIMIT_NOFILE), UNIX_CONST(RLIMIT_STACK),
+#if HAVE_DECL_RLIMIT_AS
+	UNIX_CONST(RLIMIT_AS),
+#endif
 
 	UNIX_CONST(RUSAGE_CHILDREN), UNIX_CONST(RUSAGE_SELF),
 }; /* const_resource[] */
