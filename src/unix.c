@@ -2256,7 +2256,7 @@ static void arc4_stir(unixL_Random *R, int force) {
 
 #if HAVE_SYSCALL && HAVE_DECL_SYS_GETRANDOM
 	while (count < sizeof bytes) {
-		int n = syscall(SYS_getrandom, bytes, sizeof bytes - count, 0);
+		int n = syscall(SYS_getrandom, &bytes[count], sizeof bytes - count, 0);
 
 		if (n == -1)
 			break;
