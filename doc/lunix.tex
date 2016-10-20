@@ -271,6 +271,12 @@ If $dir$ is a string, attempts to change the current working directory using \sy
 
 Returns \true on success, otherwise returns \false, an error string, and an integer system error.
 
+\subsubsection[\fn{chmod}]{\fn{chmod($file$, $mode$)}}
+
+$file$ may either be a string path for use with \syscall{chmod}, or a FILE handle or integer file descriptor for use with \syscall{fchmod}. $mode$ may be an integer value or symbolic string.
+
+Returns \true on success, otherwise returns \false, an error string, and an integer system error.
+
 \subsubsection[\fn{chown}]{\fn{chown($file$[, $uid$][, $gid$])}}
 
 $file$ may either be a string path for use with \syscall{chown}, or a FILE handle or integer file descriptor for use with \syscall{fchown}. $uid$ and $gid$ may be integer values or symbolic string names.
@@ -292,6 +298,18 @@ Returns a time value as a Lua floating point number, otherwise returns \nil, an 
 \subsubsection[\fn{closedir}]{\fn{closedir($dir$)}}
 
 Closes the DIR handle, releasing the underlying file descriptor.
+
+\subsubsection[\fn{dup}]{\fn{dup($file$[, $flags$])}}
+
+$file$ may either a FILE handle or integer file descriptor. $flags$ is an optional integer value.
+
+Returns an integer descriptor on success, otherwise returns \nil, an error string, and an integer system error.
+
+\subsubsection[\fn{dup2}]{\fn{dup2($file$, $file$, [, $flags$])}}
+
+$file$ may either a FILE handle or integer file descriptor. $flags$ is an optional integer value.
+
+Returns an integer descriptor on success, otherwise returns \nil, an error string, and an integer system error.
 
 \subsubsection[\fn{execve}]{\fn{execve($path$[, $argv$][, $env$])}}
 
@@ -325,6 +343,28 @@ Exits the process immediately without first flushing and closing open streams, o
 
 Like \fn{\_exit}, but first flushes and closes open streams, and calls \syscall{atexit} handlers.
 
+\subsubsection[\fn{fcntl}]{\fn{fcntl($file$|$dir$|$fd$, \ldots)}}
+
+FIXME
+
+\subsubsection[\fn{fdatasync}]{\fn{fdatasync($file$|$dir$|$fd$)}}
+
+FIXME
+
+\subsubsection[\fn{fdopen}]{\fn{fdopen($file$|$dir$|$fd$[, $mode$])}}
+
+FIXME
+
+\subsubsection[\fn{fdopendir}]{\fn{fdopendir($file$|$dir$|$fd$)}}
+
+FIXME
+
+\subsubsection[\fn{fdup}]{\fn{fdup($file$[, $flags$])}}
+
+$file$ may either a FILE handle or integer file descriptor. $flags$ is an optional integer or symbolic mode.
+
+Returns a FILE handle on success, otherwise returns \nil, an error string, and an integer system error.
+
 \subsubsection[\fn{fileno}]{\fn{fileno($file$|$dir$|$fd$)}}
 
 Resolves the specified FILE handle or DIR handle to an integer file descriptor. An integer descriptor is returned as-is.
@@ -339,6 +379,10 @@ This function only works on FILE handles and not DIR handlers or integer descrip
 
 See \fn{stat}.
 
+\subsubsection[\fn{fsync}]{\fn{fsync($file$|$dir$|$fd$)}}
+
+FIXME
+
 \subsubsection[\fn{ftrylockfile}]{\fn{ftrylockfile($fh$)}}
 
 Attempts to lock the FILE handle $fh$. Returns \true on success or \false if $fh$ was locked by another thread.
@@ -346,6 +390,14 @@ Attempts to lock the FILE handle $fh$. Returns \true on success or \false if $fh
 \subsubsection[\fn{funlockfile}]{\fn{funlockfile($fh$)}}
 
 Unlocks the FILE handle $fh$. Returns \true.
+
+\subsubsection[\fn{fopen}]{\fn{fopen($path$|$file$|$dir$|$fd$,[$mode$][,$perm$])}}
+
+FIXME.
+
+\subsubsection[\fn{fpipe}]{\fn{fpipe([$mode$])}}
+
+FIXME.
 
 \subsubsection[\fn{fork}]{\fn{fork()}}
 
@@ -444,6 +496,14 @@ If no group was found, returns \nil followed by the error string ``no such group
 
 If a system error occurred, returns \nil, an error string, and an integer system error.
 
+\subsubsection[\fn{getgroups}]{\fn{getgroups()}}
+
+Returns table of supplementary GIDs on success, otherwise \nil, an error string, and an integer system error.
+
+\subsubsection[\fn{gethostname}]{\fn{gethostname()}}
+
+Returns system hostname as string on success, otherwise \nil, an error string, and an integer system error.
+
 \subsubsection[\fn{getifaddrs}]{\fn{getifaddrs([$\ldots$])}}
 
 Returns an iterator over the current system network interfaces on success. If a system error occurred, returns \nil, an error string, and an integer system error.
@@ -471,10 +531,25 @@ Interface broadcast address, or \nil if absent or of an unknown address family.
 
 If arguments are given, each field specified (as named above) is returned as part of the return value list on every invocation of the iterator.
 
+\subsubsection[\fn{getpgid}]{\fn{getpgid()}}
+
+FIXME.
+
+\subsubsection[\fn{getpgrp}]{\fn{getpgrp()}}
+
+FIXME.
 
 \subsubsection[\fn{getpid}]{\fn{getpid()}}
 
 Returns the process ID as a Lua number.
+
+\subsubsection[\fn{getppid}]{\fn{getppid()}}
+
+Returns the parent process ID as a Lua number.
+
+\subsubsection[\fn{getprogname}]{\fn{getprogname()}}
+
+Returns the program name as a string, otherwise \nil, an error string, and an integer system error.
 
 \subsubsection[\fn{getpwnam}]{\fn{getpwnam($usr$[, $\ldots$])}}
 
@@ -505,6 +580,14 @@ If no user was found, returns \nil followed by the error string ``no such user''
 
 If a system error occurred, returns \nil, an error string, and an integer system error.
 
+\subsubsection[\fn{getrlimit}]{\fn{getrlimit([$what$])}}
+
+FIXME.
+
+\subsubsection[\fn{getrusage}]{\fn{getrusage([$who$])}}
+
+FIXME.
+
 \subsubsection[\fn{gettimeofday}]{\fn{gettimeofday([$ints$])}}
 
 Returns the current time as a Lua floating point number or, if $ints$ is \true, as two integers representing seconds and microseconds.
@@ -515,6 +598,18 @@ On failure returns \nil, an error string, and an integer system error.
 
 Returns the real process UID as a Lua number.
 
+\subsubsection[\fn{grantpt}]{\fn{grantpt($file$)}}
+
+FIXME.
+
+\subsubsection[\fn{ioctl}]{\fn{ioctl($file$, \ldots)}}
+
+FIXME.
+
+\subsubsection[\fn{isatty}]{\fn{isatty($file$)}}
+
+FIXME.
+
 \subsubsection[\fn{issetugid}]{\fn{issetugid()}}
 
 Returns \true if the process environment is considered unsafe because of setuid, setgid, or similar operations, otherwise \false.
@@ -523,11 +618,23 @@ Returns \true if the process environment is considered unsafe because of setuid,
 
 Sends signal $signo$ to process or process group $pid$. Returns \true on success, otherwise \false, an error string, and an integer system error.
 
+\subsubsection[\fn{lchown}]{\fn{lchown($path1$[, $uid$][, $gid$])}}
+
+FIXME.
+
 \subsubsection[\fn{link}]{\fn{link($path1$, $path2$)}}
 
 Creates a new directory entry at $path2$ as a hard link to $path1$.
 
 Returns \true on success, otherwise \false, an error string, and an integer system error. 
+
+\subsubsection[\fn{lockf}]{\fn{lockf($file$, $cmd$[, $size$])}}
+
+FIXME.
+
+\subsubsection[\fn{lseek}]{\fn{lseek($file$, $offset$, $whence$)}}
+
+FIXME.
 
 \subsubsection[\fn{lstat}]{\fn{lstat($path$[, $field$ \ldots])}}
 
@@ -545,15 +652,55 @@ Like \fn{mkdir}, but also creates intermediate directories if missing. $imode$ i
 
 Returns \true on success, otherwise \false, an error string, and an integer system error.
 
+\subsubsection[\fn{open}]{\fn{open($path$|$file$[, $mode$][, $perm$])}}
+
+FIXME.
+
 \subsubsection[\fn{opendir}]{\fn{opendir($path$|$file$|$dir$|$fd$)}}
 
 Creates a DIR handle for reading directory entries. Caller may specify a path string, a Lua FILE handle, another DIR handle, or an integer descriptor. In the latter three cases, the underlying descriptor is duplicated using \syscall{dup3} (if available) or \syscall{dup2} because there's no safe way to steal the descriptor from existing FILE or DIR handles. But it's not a good idea to mix reads between the two original and duplicated descriptors as they will normally share the same open file entry in the kernel, including the same position cursor.\footnote{In the future may add ability to open /proc/self/fd or /dev/fd entries, which should create a new open file entry.}
 
 Returns a DIR handle on success, otherwise nil, an error string, and an integer system error.
 
+\subsubsection[\fn{pipe}]{\fn{pipe($mode$)}}
+
+FIXME.
+
+\subsubsection[\fn{posix\_fadvise}]{\fn{posix\_fadvise($file$, $offset$, $len$, $advice$)}}
+
+FIXME.
+
+\subsubsection[\fn{posix\_fallocate}]{\fn{posix\_fallocate($file$, $offset$, $len$)}}
+
+FIXME.
+
+\subsubsection[\fn{posix\_openpt}]{\fn{posix\_openpt([$flags$])}}
+
+FIXME.
+
+\subsubsection[\fn{posix\_fopenpt}]{\fn{posix\_fopenpt([$flags$])}}
+
+FIXME.
+
+\subsubsection[\fn{pread}]{\fn{pread($file$, $size$, $offset$)}}
+
+FIXME.
+
+\subsubsection[\fn{ptsname}]{\fn{ptsname($file$)}}
+
+FIXME.
+
+\subsubsection[\fn{pwrite}]{\fn{pwrite($file$, $data$, $offset$)}}
+
+FIXME.
+
 \subsubsection[\fn{raise}]{\fn{raise($signo$)}}
 
 Sends signal $signo$ to calling thread. Returns \true on success, otherwise \false, an error string, and an integer system error.
+
+\subsubsection[\fn{read}]{\fn{read($file$, $size$)}}
+
+FIXME.
 
 \subsubsection[\fn{readdir}]{\fn{readdir($dir$[, $field$ $\ldots$])}}
 
@@ -575,6 +722,10 @@ If additional arguments are given, on success each field specified (as named abo
 If the end of directory entries has been reached, returns \nil.
 
 If a system error occurred, returns \nil, an error string, and an integer system error.
+
+\subsubsection[\fn{recvfrom}]{\fn{recvfrom($file$, $size$[, $flags$])}}
+
+FIXME.
 
 \subsubsection[\fn{rename}]{\fn{rename($path1$, $path2$)}}
 
@@ -634,6 +785,10 @@ Tests whether the specified $mode$ value---as returned by, e.g., \syscall{stat} 
 
 Returns \true or \false.
 
+\subsubsection[\fn{sendto}]{\fn{sendto($file$, $data$[, $flags$][, $addr$])}}
+
+FIXME.
+
 \subsubsection[\fn{setegid}]{\fn{setegid($gid$)}}
 
 Set the effective process GID to $gid$. $gid$ must be an integer or symbolic group name.
@@ -673,6 +828,14 @@ Set or query the program locale. $category$ is an integer constant which specifi
 $locale$ can be either a string identifier for the locale, or \nil to query the specified category. An empty locale string selects the system's native locale.
 
 Returns a locale string identifier on success, otherwise \nil if the specified $category$ and $locale$ could not be honored.
+
+\subsubsection[\fn{setpgid}]{\fn{setpgid($pid$, $pgid$)}}
+
+FIXME.
+
+\subsubsection[\fn{setrlimit}]{\fn{setrlimit($what$[, $soft$][, $hard$])}}
+
+FIXME.
 
 \subsubsection[\fn{setsid}]{\fn{setsid()}}
 
@@ -746,6 +909,14 @@ On success returns an integer signal number cleared from the pending set and an 
 
 \emph{OS X and OpenBSD lack a native \syscall{sigtimedwait} implementation. On OS X \lunix uses \syscall{sigpending} and \syscall{sigwait} to emulate the behavior. However, in a multi--threaded application if another thread clears a signal between \syscall{sigpending} and \syscall{sigwait} then \syscall{sigwait} could block indefinitely. There's no way to solve this race condition.\footnote{One possible solution is to explicitly \syscall{raise} the signal before calling \syscall{sigpending}, but this solutions relies on untested assumptions about signal handling on these platforms.} On OpenBSD \syscall{sigwait} is only available through libpthread, but on OpenBSD libpthread must be loaded at process load--time and cannot be brought in as a \syscall{dlopen} run--time dependency. Therefore an alternative emulation is used which clears the pending signal by installing a noop signal handler. This is not thread-safe if another thread is also installing a signal handler simultaneously. Threaded applications on these platforms should be mindful of these limitations. The \cqueues project supports thread-safe signal listening with \syscall{kqueue} on both OpenBSD and Mac OS X.}
 
+\subsubsection[\fn{sigwait}]{\fn{sigwait($set$)}}
+
+FIXME.
+
+\subsubsection[\fn{sleep}]{\fn{sleep($n$)}}
+
+FIXME.
+
 \subsubsection[\fn{stat}]{\fn{stat($path$|$file$|$dir$|$fd$[, $field$ $\ldots$])}}
 
 Stats the specified file. Caller may specify a path string, a Lua FILE handle, a DIR handle (see \fn{opendir}), or an integer descriptor.
@@ -799,6 +970,14 @@ Creates a new directory entry at $path2$ as a symbolic link to $path1$.
 
 Returns \true on success, otherwise \false, an error string, and an integer system error. 
 
+\subsubsection[\fn{tcgetpgrp}]{\fn{tcgetpgrp($file$)}}
+
+FIXME.
+
+\subsubsection[\fn{tcsetpgrp}]{\fn{tcsetpgrp($file$, $pgid$)}}
+
+FIXME.
+
 \subsubsection[\fn{timegm}]{\fn{timegm($tm$)}}
 
 $tm$ is a table of the form returned by the Lua routine \fn{os.date("*t")}. This allows converting a datetime in GMT directly to a POSIX timestamp without having to change the process timezone, which is inherently non-thread-safe.
@@ -850,6 +1029,10 @@ Deletes the file entry at $path$.
 
 Returns \true on success, otherwise \false, an error string, and an integer system error. 
 
+\subsubsection[\fn{unlockpt}]{\fn{unlockpt($file$)}}
+
+FIXME.
+
 \subsubsection[\fn{unsetenv}]{\fn{unsetenv($name$)}}
 
 Deletes the environment variable $name$ from the environment table.
@@ -857,6 +1040,18 @@ Deletes the environment variable $name$ from the environment table.
 Returns \true on success, otherwise \false, an error string, and an integer system error.
 
 \emph{This function is thread-safe on Solaris, NetBSD, and Linux/glibc. But see note at \fn{getenv}. Also see note at \fn{setenv}. In general \fn{unsetenv} should be avoided in multi-threaded environments.}
+
+\subsubsection[\fn{wait}]{\fn{wait([$pid$][, $options$])}}
+
+FIXME.
+
+\subsubsection[\fn{waitpid}]{\fn{waitpid([$pid$][, $options$])}}
+
+FIXME.
+
+\subsubsection[\fn{write}]{\fn{write($file$, $data$)}}
+
+FIXME.
 
 \end{Module}
 
