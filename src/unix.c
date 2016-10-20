@@ -25,12 +25,12 @@
 #include <time.h>         /* struct tm struct timespec gmtime_r(3) clock_gettime(3) tzset(3) */
 #include <errno.h>        /* E* errno program_invocation_short_name */
 #include <assert.h>       /* assert(3) static_assert */
-#include <math.h>         /* NAN isnormal(3) signbit(3) */
+#include <math.h>         /* INFINITY NAN isnormal(3) signbit(3) */
 #include <float.h>        /* DBL_HUGE DBL_MANT_DIG FLT_HUGE FLT_MANT_DIG FLT_RADIX LDBL_HUGE LDBL_MANT_DIG */
 #include <locale.h>       /* LC_* setlocale(3) */
 
 #include <sys/types.h>    /* gid_t mode_t off_t pid_t uid_t */
-#include <sys/resource.h> /* RUSAGE_SELF struct rusage getrusage(2) */
+#include <sys/resource.h> /* RLIMIT_* RUSAGE_SELF struct rlimit struct rusage getrlimit(2) getrusage(2) setrlimit(2) */
 #include <sys/socket.h>   /* AF_* SOCK_* struct sockaddr socket(2) */
 #include <sys/stat.h>     /* S_ISDIR() */
 #include <sys/time.h>     /* struct timeval gettimeofday(2) */
@@ -866,6 +866,11 @@ static struct timespec *u_f2ts(struct timespec *ts, const double f) {
 static double u_ts2f(const struct timespec *ts) {
 	return ts->tv_sec + (ts->tv_nsec / 1000000000.0);
 } /* u_ts2f() */
+
+
+static double u_tv2f(const struct timeval *tv) {
+	return tv->tv_sec + (tv->tv_usec / 1000000.0);
+} /* u_tv2f() */
 
 
 #define ts_timercmp(a, b, cmp) \
@@ -3857,7 +3862,6 @@ static int unixL_optfint(lua_State *L, int index, const char *name, int def) {
 	return i;
 } /* unixL_optfint() */
 
-
 static struct tm *unixL_checktm(lua_State *L, int index, struct tm *tm) {
 	luaL_checktype(L, 1, LUA_TTABLE);
 
@@ -6068,6 +6072,129 @@ static int unix_getpwnam(lua_State *L) {
 } /* unix_getpwnam() */
 
 
+static int rl_checkrlimit(lua_State *L, int index) {
+	static const char *const what_s[] = {
+		"as", "core", "cpu", "data", "fsize", "nofile", "stack", NULL
+	};
+	static const int what_i[countof(what_s) - 1] = {
+		RLIMIT_AS, RLIMIT_CORE, RLIMIT_CPU, RLIMIT_DATA, RLIMIT_FSIZE,
+		RLIMIT_NOFILE, RLIMIT_STACK
+	};
+	int i;
+
+	if (lua_isnumber(L, index))
+		return unixL_checkint(L, index);
+
+	i = luaL_checkoption(L, index, NULL, what_s);
+	luaL_argcheck(L, i >= 0 && i < (int)countof(what_i), index, lua_pushfstring(L, "unexpected rlimit (%s)", lua_tostring(L, index)));
+
+	return what_i[i];
+} /* rl_checkrlimit() */
+
+#define U_RLIM_INFINITY INFINITY
+#define U_RLIM_SAVED_CUR -1.0
+#define U_RLIM_SAVED_MAX -2.0
+
+static _Bool rl_isequal(lua_State *L, int index, lua_Number n) {
+	_Bool eq;
+
+	index = lua_absindex(L, index);
+	lua_pushnumber(L, n);
+#if LUA_VERSION_NUM == 501
+	eq = lua_equal(L, index, -1);
+#else
+	eq = lua_compare(L, index, -1, LUA_OPEQ);
+#endif
+	lua_pop(L, 1);
+
+	return eq;
+} /* rl_isequal() */
+
+static rlim_t rl_checkrlim(lua_State *L, int index) {
+	luaL_checktype(L, index, LUA_TNUMBER);
+
+	if (!lua_isinteger(L, index)) {
+		/*
+		 * NB: On some systems RLIM_INFINITY, RLIM_SAVED_CUR, and
+		 * RLIM_SAVED_MAX are equal. The semantics work because
+		 * applications are expected to only echo the RLIM_SAVED_CUR
+		 * and RLIM_SAVED_MAX values; not specify them de novo.
+		 * However, we could call getrlimit() for
+		 * U_RLIM_SAVED_{CUR,MAX} and use that value.
+		 */
+		if (rl_isequal(L, index, U_RLIM_INFINITY))
+			return RLIM_INFINITY;
+		if (rl_isequal(L, index, U_RLIM_SAVED_CUR))
+			return RLIM_SAVED_CUR;
+		if (rl_isequal(L, index, U_RLIM_SAVED_MAX))
+			return RLIM_SAVED_MAX;
+	}
+
+	return unixL_checkunsigned(L, index, 0, (rlim_t)-1);
+} /* rl_checkrlim() */
+
+static rlim_t rl_optrlim(lua_State *L, int index, rlim_t def) {
+	if (lua_isnoneornil(L, index))
+		return def;
+
+	return rl_checkrlim(L, index);
+} /* rl_optrlim() */
+
+static void rl_pushrlim(lua_State *L, rlim_t rlim) {
+	if (rlim == RLIM_SAVED_MAX) {
+		lua_pushnumber(L, U_RLIM_SAVED_MAX);
+	} else if (rlim == RLIM_SAVED_CUR) {
+		lua_pushnumber(L, U_RLIM_SAVED_CUR);
+	} else {
+		unixL_pushunsigned(L, rlim);
+	}
+} /* rl_pushrlim() */
+
+static int unix_getrlimit(lua_State *L) {
+	struct rlimit rl;
+
+	if (0 != getrlimit(rl_checkrlimit(L, 1), &rl))
+		return unixL_pusherror(L, errno, "getrlimit", "~$#");
+
+	rl_pushrlim(L, rl.rlim_cur);
+	rl_pushrlim(L, rl.rlim_max);
+
+	return 2;
+} /* unix_getrlimit() */
+
+
+static int ru_checkrusage(lua_State *L, int index) {
+	static const char *const what_s[] = { "children", "self", NULL };
+	static const int what_i[countof(what_s) - 1] = {
+		RUSAGE_CHILDREN, RUSAGE_SELF,
+	};
+	int i;
+
+	if (lua_isnumber(L, index))
+		return unixL_checkint(L, index);
+
+	i = luaL_checkoption(L, index, NULL, what_s);
+	luaL_argcheck(L, i >= 0 && i < (int)countof(what_i), index, lua_pushfstring(L, "unexpected resource (%s)", lua_tostring(L, index)));
+
+	return what_i[i];
+} /* ru_checkrusage() */
+
+static int unix_getrusage(lua_State *L) {
+	struct rusage ru;
+
+	if (0 != getrusage(ru_checkrusage(L, 1), &ru))
+		return unixL_pusherror(L, errno, "getrusage", "~$#");
+
+	lua_newtable(L);
+	lua_pushnumber(L, u_tv2f(&ru.ru_utime));
+	lua_setfield(L, -2, "utime");
+	lua_pushnumber(L, u_tv2f(&ru.ru_stime));
+	lua_setfield(L, -2, "stime");
+
+	return 1;
+} /* unix_getrusage() */
+
+
 static int unix_gettimeofday(lua_State *L) {
 	struct timeval tv;
 
@@ -6075,7 +6202,7 @@ static int unix_gettimeofday(lua_State *L) {
 		return unixL_pusherror(L, errno, "gettimeofday", "~$#");
 
 	if (lua_isnoneornil(L, 1) || !lua_toboolean(L, 1)) {
-		lua_pushnumber(L, (double)tv.tv_sec + ((double)tv.tv_usec / 1000000L));
+		lua_pushnumber(L, u_tv2f(&tv));
 
 		return 1;
 	} else {
@@ -7038,6 +7165,27 @@ static int unix_setpgid(lua_State *L) {
 } /* unix_setpgid() */
 
 
+static int unix_setrlimit(lua_State *L) {
+	int what = rl_checkrlimit(L, 1);
+	struct rlimit rl;
+
+	rl.rlim_cur = rl_optrlim(L, 2, RLIM_SAVED_CUR);
+	rl.rlim_max = rl_optrlim(L, 3, RLIM_SAVED_MAX);
+
+	if (0 != setrlimit(what, &rl))
+		return unixL_pusherror(L, errno, "setrlimit", "~$#");
+
+	/*
+	 * .rlim_cur and .rlim_max will be updated with new value
+	 * if RLIM_SAVED_CUR or RLIM_SAVED_MAX
+	 */
+	rl_pushrlim(L, rl.rlim_cur);
+	rl_pushrlim(L, rl.rlim_max);
+
+	return 2;
+} /* unix_setrlimit() */
+
+
 static int unix_setsid(lua_State *L) {
 	pid_t pg;
 
@@ -7849,6 +7997,8 @@ static const luaL_Reg unix_routines[] = {
 	{ "getprogname",        &unix_getprogname },
 	{ "getpwnam",           &unix_getpwnam },
 	{ "getpwuid",           &unix_getpwnam },
+	{ "getrlimit",          &unix_getrlimit },
+	{ "getrusage",          &unix_getrusage },
 	{ "gettimeofday",       &unix_gettimeofday },
 	{ "getuid",             &unix_getuid },
 	{ "grantpt",            &unix_grantpt },
@@ -7900,6 +8050,7 @@ static const luaL_Reg unix_routines[] = {
 	{ "setgroups",          &unix_setgroups },
 	{ "setlocale",          &unix_setlocale },
 	{ "setpgid",            &unix_setpgid },
+	{ "setrlimit",          &unix_setrlimit },
 	{ "setsid",             &unix_setsid },
 	{ "setuid",             &unix_setuid },
 	{ "sigaction",          &unix_sigaction },
@@ -8298,6 +8449,15 @@ static const struct unix_const const_wait[] = {
 #endif
 }; /* const_wait[] */
 
+static const struct unix_const const_resource[] = {
+	UNIX_CONST(RLIMIT_AS), UNIX_CONST(RLIMIT_CORE),
+	UNIX_CONST(RLIMIT_CPU), UNIX_CONST(RLIMIT_DATA),
+	UNIX_CONST(RLIMIT_FSIZE), UNIX_CONST(RLIMIT_NOFILE),
+	UNIX_CONST(RLIMIT_STACK),
+
+	UNIX_CONST(RUSAGE_CHILDREN), UNIX_CONST(RUSAGE_SELF),
+}; /* const_resource[] */
+
 static const struct unix_const const_signal[] = {
 	UNIX_CONST(SIGABRT), UNIX_CONST(SIGALRM), UNIX_CONST(SIGBUS),
 	UNIX_CONST(SIGCHLD), UNIX_CONST(SIGCONT), UNIX_CONST(SIGFPE),
@@ -8449,21 +8609,22 @@ static const struct {
 	const struct unix_const *table;
 	size_t size;
 } unix_const[] = {
-	{ const_af,      countof(const_af) },
-	{ const_sock,    countof(const_sock) },
-	{ const_ipproto, countof(const_ipproto) },
-	{ const_ai,      countof(const_ai) },
-	{ const_eai,     countof(const_eai) },
-	{ const_msg,     countof(const_msg) },
-	{ const_clock,   countof(const_clock) },
-	{ const_errno,   countof(const_errno) },
-	{ const_iff,     countof(const_iff) },
-	{ const_wait,    countof(const_wait) },
-	{ const_signal,  countof(const_signal) },
-	{ const_fcntl,   countof(const_fcntl) },
-	{ const_ioctl,   countof(const_ioctl) },
-	{ const_locale,  countof(const_locale) },
-	{ const_unistd,  countof(const_unistd) },
+	{ const_af,       countof(const_af) },
+	{ const_sock,     countof(const_sock) },
+	{ const_ipproto,  countof(const_ipproto) },
+	{ const_ai,       countof(const_ai) },
+	{ const_eai,      countof(const_eai) },
+	{ const_msg,      countof(const_msg) },
+	{ const_clock,    countof(const_clock) },
+	{ const_errno,    countof(const_errno) },
+	{ const_iff,      countof(const_iff) },
+	{ const_wait,     countof(const_wait) },
+	{ const_signal,   countof(const_signal) },
+	{ const_resource, countof(const_resource) },
+	{ const_fcntl,    countof(const_fcntl) },
+	{ const_ioctl,    countof(const_ioctl) },
+	{ const_locale,   countof(const_locale) },
+	{ const_unistd,   countof(const_unistd) },
 }; /* unix_const[] */
 
 
@@ -8564,6 +8725,16 @@ int luaopen_unix(lua_State *L) {
 			lua_setfield(L, -2, table[j].name);
 		}
 	}
+
+	/*
+	 * special RLIM values
+	 */
+	lua_pushnumber(L, U_RLIM_INFINITY);
+	lua_setfield(L, -2, "RLIM_INFINITY");
+	lua_pushnumber(L, U_RLIM_SAVED_CUR);
+	lua_setfield(L, -2, "RLIM_SAVED_CUR");
+	lua_pushnumber(L, U_RLIM_SAVED_MAX);
+	lua_setfield(L, -2, "RLIM_SAVED_MAX");
 
 	/*
 	 * insert signal handlers
