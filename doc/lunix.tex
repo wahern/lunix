@@ -249,9 +249,9 @@ Identical to the \_\_pairs metamethod, to be used to create an iterator directly
 
 \subsubsection[\fn{arc4random}]{\fn{arc4random()}}
 
-Returns a cryptographically strong uniformly random 32-bit integer as a Lua number. On Linux the \const{RANDOM\_UUID} \fn{sysctl} feature is used to seed the generator if available.\footnote{Some Linux distributions, such as Red Hat, disable \syscall{sysctl}.} This avoids fiddling with file descriptors, and also works in a chroot jail. On other platforms without a native \fn{arc4random} interface, such as Solaris, the implementation must resort to /dev/urandom for seeding.
+Returns a cryptographically strong uniformly random 32-bit integer as a Lua number. On Linux the \const{RANDOM\_UUID} \fn{sysctl} feature is used to seed the generator if available; or on more recent Linux and Solaris kernels the \syscall{getrandom} interface.\footnote{Some Linux distributions, such as Red Hat, disable \syscall{sysctl}.} This avoids fiddling with file descriptors, and also works in a chroot jail. On other platforms without a native \fn{arc4random} interface, such as Solaris 11.2 or earlier, the implementation must resort to /dev/urandom for seeding.
 
-Note that unlike the original implementation on OpenBSD, \fn{arc4random} on OS X and FreeBSD (prior to 10.0) seeds itself from /dev/urandom. This could cause problems in chroot jails.
+Note that unlike the original implementation on OpenBSD, \fn{arc4random} on some older platforms (e.g. FreeBSD prior to 10.10) seeds itself from /dev/urandom. This could cause problems in chroot jails.
 
 \subsubsection[\fn{arc4random\_buf}]{\fn{arc4random\_buf($n$)}}
 
