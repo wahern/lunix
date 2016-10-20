@@ -223,6 +223,10 @@
 #define HAVE_DUP3 (GLIBC_PREREQ(2,9) || FREEBSD_PREREQ(10,0) || NETBSD_PREREQ(6,0) || UCLIBC_PREREQ(0,9,34))
 #endif
 
+#ifndef HAVE_FDATASYNC
+#define HAVE_FDATASYNC (!defined __APPLE__)
+#endif
+
 #ifndef HAVE_FDOPENDIR
 #define HAVE_FDOPENDIR (!defined __APPLE__ && (!defined __NetBSD__ || NETBSD_PREREQ(6,0)))
 #endif
@@ -4997,6 +5001,20 @@ error:
 } /* unix_fcntl() */
 
 
+#if HAVE_FDATASYNC
+static int unix_fdatasync(lua_State *L) {
+	int fd = unixL_checkfileno(L, 1);
+
+	if (0 != fdatasync(fd))
+		return unixL_pusherror(L, errno, "fdatasync", "0$#");
+
+	lua_pushboolean(L, 1);
+
+	return 1;
+} /* unix_fdatasync() */
+#endif
+
+
 static int unix_fdopen(lua_State *L) {
 	u_flags_t flags;
 	const char *mode;
@@ -5080,6 +5098,18 @@ static int unix_flockfile(lua_State *L) {
 
 	return 1;
 } /* unix_flockfile() */
+
+
+static int unix_fsync(lua_State *L) {
+	int fd = unixL_checkfileno(L, 1);
+
+	if (0 != fsync(fd))
+		return unixL_pusherror(L, errno, "fsync", "0$#");
+
+	lua_pushboolean(L, 1);
+
+	return 1;
+} /* unix_fsync() */
 
 
 static int unix_ftrylockfile(lua_State *L) {
@@ -7975,6 +8005,9 @@ static const luaL_Reg unix_routines[] = {
 	{ "fchmod",             &unix_chmod },
 	{ "fchown",             &unix_chown },
 	{ "fcntl",              &unix_fcntl },
+#if HAVE_FDATASYNC
+	{ "fdatasync",          &unix_fdatasync },
+#endif
 	{ "fdopen",             &unix_fdopen },
 #if HAVE_FDOPENDIR
 	{ "fdopendir",          &unix_fdopendir },
@@ -7983,6 +8016,7 @@ static const luaL_Reg unix_routines[] = {
 	{ "fileno",             &unix_fileno },
 	{ "flockfile",          &unix_flockfile },
 	{ "fstat",              &unix_stat },
+	{ "fsync",              &unix_fsync },
 	{ "ftrylockfile",       &unix_ftrylockfile },
 	{ "funlockfile",        &unix_funlockfile },
 	{ "fopen",              &unix_fopen },
