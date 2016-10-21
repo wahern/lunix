@@ -7921,6 +7921,72 @@ static int unix_setrlimit(lua_State *L) {
 } /* unix_setrlimit() */
 
 
+static int unix_setsockopt(lua_State *L) {
+	int fd = unixL_checkfileno(L, 1);
+	int level = unixL_checkint(L, 2);
+	int type = unixL_checkint(L, 3);
+	int i, error;
+
+	luaL_checkany(L, 4);
+
+	switch (level) {
+	case IPPROTO_IP:
+		switch (type) {
+#if HAVE_DECL_IP_PKTINFO
+		case IP_PKTINFO:
+			goto setbool;
+#endif
+#if HAVE_DECL_IP_RECVDSTADDR
+		case IP_RECVDSTADDR:
+			goto setbool;
+#endif
+#if HAVE_DECL_IP_TTL
+		case IP_TTL:
+			goto setint;
+#endif
+		}
+
+		break;
+	case IPPROTO_IPV6:
+		switch (type) {
+#if HAVE_DECL_IPV6_PKTINFO
+		case IPV6_PKTINFO:
+			goto setbool;
+#endif
+#if HAVE_DECL_IPV6_RECVPKTINFO
+		case IPV6_RECVPKTINFO:
+			goto setbool;
+#endif
+#if HAVE_DECL_IPV6_V6ONLY
+		case IPV6_V6ONLY:
+			goto setbool;
+#endif
+		}
+
+		break;
+	}
+
+	error = ENOTSUP;
+	goto error;
+setbool:
+	i = lua_toboolean(L, 4);
+	if (0 != setsockopt(fd, level, type, &i, sizeof i))
+		goto syerr;
+	lua_pushboolean(L, 1);
+	return 1;
+setint:
+	i = unixL_checkint(L, 4);
+	if (0 != setsockopt(fd, level, type, &i, sizeof i))
+		goto syerr;
+	lua_pushboolean(L, 1);
+	return 1;
+syerr:
+	error = errno;
+error:
+	return unixL_pusherror(L, error, "setsockopt", "0$#");
+} /* unix_setsockopt() */
+
+
 static int unix_setsid(lua_State *L) {
 	pid_t pg;
 
@@ -8814,6 +8880,7 @@ static const luaL_Reg unix_routines[] = {
 	{ "setlocale",          &unix_setlocale },
 	{ "setpgid",            &unix_setpgid },
 	{ "setrlimit",          &unix_setrlimit },
+	{ "setsockopt",         &unix_setsockopt },
 	{ "setsid",             &unix_setsid },
 	{ "setuid",             &unix_setuid },
 	{ "sigaction",          &unix_sigaction },
@@ -8888,6 +8955,33 @@ static const struct unix_const const_ipproto[] = {
 	UNIX_CONST(IPPROTO_RAW),
 #endif
 }; /* const_ipproto[] */
+
+static const struct unix_const const_ip[] = {
+#if defined IP_PKTINFO
+	UNIX_CONST(IP_PKTINFO),
+#endif
+#if defined IP_RECVDSTADDR
+	UNIX_CONST(IP_RECVDSTADDR),
+#endif
+#if defined IP_SENDSRCADDR
+	UNIX_CONST(IP_SENDSRCADDR),
+#endif
+#if defined IP_TTL
+	UNIX_CONST(IP_TTL),
+#endif
+}; /* const_ip[] */
+
+static const struct unix_const const_ipv6[] = {
+#if defined IPV6_PKTINFO
+	UNIX_CONST(IPV6_PKTINFO),
+#endif
+#if defined IPV6_RECVPKTINFO
+	UNIX_CONST(IPV6_RECVPKTINFO),
+#endif
+#if defined IPV6_V6ONLY
+	UNIX_CONST(IPV6_V6ONLY),
+#endif
+}; /* const_ipv6[] */
 
 static const struct unix_const const_ai[] = {
 	UNIX_CONST(AI_PASSIVE), UNIX_CONST(AI_CANONNAME),
@@ -9401,6 +9495,8 @@ static const struct {
 	{ const_af,       countof(const_af) },
 	{ const_sock,     countof(const_sock) },
 	{ const_ipproto,  countof(const_ipproto) },
+	{ const_ip,       countof(const_ip) },
+	{ const_ipv6,     countof(const_ipv6) },
 	{ const_ai,       countof(const_ai) },
 	{ const_eai,      countof(const_eai) },
 	{ const_msg,      countof(const_msg) },
