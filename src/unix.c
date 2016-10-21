@@ -151,6 +151,10 @@
 #define HAVE_STRUCT_IN_PKTINFO HAVE_DECL_IP_PKTINFO
 #endif
 
+#ifndef HAVE_STRUCT_IN_PKTINFO_IPI_SPEC_DST
+#define HAVE_STRUCT_IN_PKTINFO_IPI_SPEC_DST (HAVE_DECL_IP_PKTINFO && !__NetBSD__)
+#endif
+
 #ifndef HAVE_STRUCT_INV6_PKTINFO
 #define HAVE_STRUCT_INV6_PKTINFO HAVE_DECL_IPV6_PKTINFO
 #endif
@@ -2394,7 +2398,7 @@ static ssize_t u_sendtofrom(int fd, const void *buf, size_t len, int flags, cons
 		memcpy(CMSG_DATA(cmsg), &in->sin_addr, sizeof in->sin_addr);
 
 		break;
-#elif HAVE_DECL_IP_PKTINFO && HAVE_STRUCT_IN_PKTINFO
+#elif HAVE_DECL_IP_PKTINFO && HAVE_STRUCT_IN_PKTINFO_IPI_SPEC_DST
 	case AF_INET:
 		msg.msg_controllen = sizeof cmsgbuf.inbuf;
 		cmsg->cmsg_len = CMSG_LEN(sizeof pkt);
