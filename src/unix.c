@@ -156,8 +156,8 @@
 #define HAVE_STRUCT_IN_PKTINFO_IPI_SPEC_DST (HAVE_DECL_IP_PKTINFO && !__NetBSD__)
 #endif
 
-#ifndef HAVE_STRUCT_INV6_PKTINFO
-#define HAVE_STRUCT_INV6_PKTINFO HAVE_DECL_IPV6_PKTINFO
+#ifndef HAVE_STRUCT_IN6_PKTINFO
+#define HAVE_STRUCT_IN6_PKTINFO HAVE_DECL_IPV6_PKTINFO
 #endif
 
 #ifndef HAVE_STRUCT_PSINFO
@@ -230,6 +230,10 @@
 
 #ifndef HAVE_DECL_IPV6_PKTINFO
 #define HAVE_DECL_IPV6_PKTINFO (defined IPV6_PKTINFO)
+#endif
+
+#ifndef HAVE_DECL_IPV6_RECVPKTINFO
+#define HAVE_DECL_IPV6_RECVPKTINFO (defined IPV6_RECVPKTINFO)
 #endif
 
 #ifndef HAVE_DECL_RANDOM_UUID
@@ -2251,15 +2255,59 @@ static u_error_t u_ptsname_r(int fd, char *buf, size_t buflen) {
 
 #if HAVE_DECL_IP_RECVDSTADDR || HAVE_DECL_IP_PKTINFO || HAVE_DECL_IPV6_PKTINFO
 
+static u_error_t u_recvfromto_init(int fd, in_port_t *port) {
+	union {
+		struct sockaddr_in in;
+		struct sockaddr_in6 in6;
+	} addr;
+	socklen_t addrlen = sizeof addr;
+	int level = 0, type = 0;
+
+	memset(&addr, 0, sizeof addr);
+
+	if (0 != getsockname(fd, (struct sockaddr *)&addr, &addrlen))
+		return errno;
+
+	switch (addr.in.sin_family) {
+	case AF_INET:
+		*port = addr.in.sin_port;
+#if HAVE_DECL_IP_RECVDSTADDR
+		level = IPPROTO_IP;
+		type = IP_RECVDSTADDR;
+#elif HAVE_DECL_IP_PKTINFO
+		level = IPPROTO_IP;
+		type = IP_PKTINFO;
+#endif
+		break;
+	case AF_INET6:
+		*port = addr.in6.sin6_port;
+#if HAVE_DECL_IPV6_RECVPKTINFO
+		level = IPPROTO_IPV6;
+		type = IPV6_RECVPKTINFO;
+#elif HAVE_DECL_IPV6_PKTINFO
+		level = IPPROTO_IPV6;
+		type = IPV6_PKTINFO;
+#endif
+		break;
+	}
+
+	if (0 != setsockopt(fd, level, type, &(int){ 1 }, sizeof (int)))
+		return errno;
+
+	return 0;
+}
+
 static ssize_t u_recvfromto(int fd, void *buf, size_t lim, int flags, struct sockaddr *from, size_t *fromlen, struct sockaddr *to, size_t *tolen, u_error_t *error) {
+	in_port_t to_port = 0;
 	struct iovec iov;
 	struct msghdr msg;
 	struct cmsghdr *cmsg;
-	struct sockaddr_in in;
+	struct sockaddr_in *in;
 #if HAVE_STRUCT_IN_PKTINFO
 	struct in_pktinfo pkt;
 #endif
 #if HAVE_STRUCT_IN6_PKTINFO
+	struct sockaddr_in6 *in6;
 	struct in6_pktinfo pkt6;
 #endif
 	union {
@@ -2267,13 +2315,16 @@ static ssize_t u_recvfromto(int fd, void *buf, size_t lim, int flags, struct soc
 #if HAVE_STRUCT_IN_PKTINFO
 		char inbuf[CMSG_SPACE(sizeof pkt)];
 #else
-		char inbuf[CMSG_SPACE(sizeof in)];
+		char inbuf[CMSG_SPACE(sizeof in->sin_addr)];
 #endif
 #if HAVE_STRUCT_IN6_PKTINFO
 		char in6buf[CMSG_SPACE(sizeof pkt6)];
 #endif
 	} cmsgbuf;
 	ssize_t n;
+
+	if ((*error = u_recvfromto_init(fd, &to_port)))
+		return -1;
 
 	memset(&msg, 0, sizeof msg);
 	memset(&cmsgbuf, 0, sizeof cmsgbuf);
@@ -2299,41 +2350,51 @@ static ssize_t u_recvfromto(int fd, void *buf, size_t lim, int flags, struct soc
 	for (cmsg = CMSG_FIRSTHDR(&msg); cmsg != NULL; cmsg = CMSG_NXTHDR(&msg, cmsg)) {
 #if HAVE_DECL_IP_RECVDSTADDR
 		if (cmsg->cmsg_level == IPPROTO_IP && cmsg->cmsg_type == IP_RECVDSTADDR) {
-			memcpy(&in, CMSG_DATA(cmsg), sizeof in);
-
-			/* XXX: update port? */
-
-			if (*tolen < sizeof in)
+			if (*tolen < sizeof *in)
 				goto inval;
-			memcpy(to, &in, sizeof in);
-			*tolen = sizeof in;
+			in = (struct sockaddr_in *)to;
+			in->sin_family = AF_INET;
+#if HAVE_SOCKADDR_SA_LEN
+			in->sin_len = sizeof *in
+#endif
+			in->sin_port = to_port;
+			memcpy(&in->sin_addr, CMSG_DATA(cmsg), sizeof in->sin_addr);
+			*tolen = sizeof *in;
+			break;
 		}
 #endif
 
 #if HAVE_DECL_IP_PKTINFO && HAVE_STRUCT_IN_PKTINFO
 		if (cmsg->cmsg_level == IPPROTO_IP && cmsg->cmsg_type == IP_PKTINFO) {
 			memcpy(&pkt, CMSG_DATA(cmsg), sizeof pkt);
-
-			/* XXX: update port? */
-
-			if (*tolen < sizeof pkt.ipi_addr)
+			if (*tolen < sizeof *in)
 				goto inval;
-			memcpy(to, &pkt.ipi_addr, sizeof pkt.ipi_addr);
-			*tolen = sizeof pkt.ipi_addr;
+			in = (struct sockaddr_in *)to;
+			in->sin_family = AF_INET;
+#if HAVE_SOCKADDR_SA_LEN
+			in->sin_len = sizeof *in
+#endif
+			in->sin_port = to_port;
+			in->sin_addr = pkt.ipi_addr;
+			*tolen = sizeof *in;
+			break;
 		}
 #endif
 
-
 #if HAVE_DECL_IPV6_PKTINFO && HAVE_STRUCT_IN6_PKTINFO
-		if (cmsg->cmsg_level == IPPROTO_IP && cmsg->cmsg_type == IPV6_PKTINFO) {
-			memcpy(&pkt6, CMSG_DATA(cmsg), sizeof pkt6);
-
-			/* XXX: update port? */
-
-			if (*tolen < sizeof pkt6.ipi6_addr)
+		if (cmsg->cmsg_level == IPPROTO_IPV6 && cmsg->cmsg_type == IPV6_PKTINFO) {
+			if (*tolen < sizeof *in6)
 				goto inval;
-			memcpy(to, &pkt6.ipi6_addr, sizeof pkt6.ipi6_addr);
-			*tolen = sizeof pkt6.ipi6_addr;
+			in6 = (struct sockaddr_in6 *)to;
+			in6->sin6_family = AF_INET6;
+#if HAVE_SOCKADDR_SA_LEN
+			in6->sin6_len = sizeof *in6
+#endif
+			in6->sin6_port = to_port;
+			in6->sin6_addr = pkt6.ipi6_addr;
+			/* TODO: set .sin6_scope_id fromm .ipi6_ifindex? */
+			*tolen = sizeof *in6;
+			break;
 		}
 #endif
 	}
@@ -2388,7 +2449,7 @@ static ssize_t u_sendtofrom(int fd, const void *buf, size_t len, int flags, cons
 #if HAVE_STRUCT_IN_PKTINFO
 		char inbuf[CMSG_SPACE(sizeof pkt)];
 #else
-		char inbuf[CMSG_SPACE(sizeof *in)];
+		char inbuf[CMSG_SPACE(sizeof (struct in_addr))];
 #endif
 #if HAVE_STRUCT_IN6_PKTINFO
 		char in6buf[CMSG_SPACE(sizeof pkt6)];
@@ -7531,14 +7592,8 @@ static int unix_recvfromto(lua_State *L) {
 		return unixL_pusherror(L, error, "recvfrom", "~$#");
 
 	lua_pushlstring(L, U->buf, n);
-
-	ud = lua_newuserdata(L, fromlen);
-	memcpy(ud, &from, MIN(fromlen, sizeof from));
-	luaL_setmetatable(L, "struct sockaddr");
-
-	ud = lua_newuserdata(L, tolen);
-	memcpy(ud, &to, MIN(tolen, sizeof to));
-	luaL_setmetatable(L, "struct sockaddr");
+	unixL_newsockaddr(L, &from, fromlen);
+	unixL_newsockaddr(L, &to, tolen);
 
 	return 3;
 } /* unix_recvfromto() */
@@ -7738,9 +7793,9 @@ static int unix_sendtofrom(lua_State *L) {
 	const char *src = luaL_checklstring(L, 2, &size);
 	int flags = unixL_optinteger(L, 3, 0, 0, INT_MAX);
 	size_t tolen;
-	void *to = unixL_checksockaddr(L, 4, &tolen);
+	struct sockaddr *to = unixL_checksockaddr(L, 4, &tolen);
 	size_t fromlen;
-	void *from = unixL_checksockaddr(L, 5, &fromlen);
+	struct sockaddr *from = unixL_checksockaddr(L, 5, &fromlen);
 	ssize_t n;
 	int error;
 
@@ -8862,6 +8917,9 @@ static const struct unix_const const_msg[] = {
 #endif
 #if defined MSG_NOSIGNAL
 	UNIX_CONST(MSG_NOSIGNAL),
+#endif
+#if defined MSG_DONTWAIT
+	UNIX_CONST(MSG_DONTWAIT),
 #endif
 #if defined MSG_OOB
 	UNIX_CONST(MSG_OOB),
