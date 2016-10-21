@@ -34,6 +34,7 @@
 #include <sys/socket.h>   /* AF_* SOCK_* struct sockaddr socket(2) */
 #include <sys/stat.h>     /* S_ISDIR() */
 #include <sys/time.h>     /* struct timeval gettimeofday(2) */
+#include <sys/un.h>       /* struct sockaddr_un */
 #include <sys/utsname.h>  /* uname(2) */
 #include <sys/wait.h>     /* WNOHANG waitpid(2) */
 #include <sys/ioctl.h>    /* SIOCGIFCONF SIOCGIFFLAGS SIOCGIFNETMASK SIOCGIFDSTADDR SIOCGIFBRDADDR SIOCGLIFADDR ioctl(2) */
@@ -43,7 +44,7 @@
 #include <pwd.h>          /* struct passwd getpwnam_r(3) */
 #include <grp.h>          /* struct group getgrnam_r(3) */
 #include <dirent.h>       /* closedir(3) fdopendir(3) opendir(3) readdir_r(3) rewinddir(3) */
-#include <arpa/inet.h>    /* ntohl(3) */
+#include <arpa/inet.h>    /* inet_ntop(3) ntohs(3) ntohl(3) */
 #include <netinet/in.h>   /* __KAME__ IPPROTO_* */
 #include <netdb.h>        /* NI_* AI_* gai_strerror(3) getaddrinfo(3) getnameinfo(3) freeaddrinfo(3) */
 
@@ -251,6 +252,10 @@
 #define HAVE_DECL_SYS_GETRANDOM (defined SYS_getrandom)
 #endif
 
+#ifndef HAVE_ACCEPT4
+#define HAVE_ACCEPT4 (defined SOCK_CLOEXEC && !__NetBSD__)
+#endif
+
 #ifndef HAVE_ARC4RANDOM
 #define HAVE_ARC4RANDOM (defined __OpenBSD__ || defined __FreeBSD__ || defined __NetBSD__ || defined __MirBSD__ || defined __APPLE__)
 #endif
@@ -325,6 +330,10 @@
 
 #ifndef HAVE_GETENV_R
 #define HAVE_GETENV_R NETBSD_PREREQ(5,0)
+#endif
+
+#ifndef HAVE_PACCEPT
+#define HAVE_PACCEPT NETBSD_PREREQ(6,0)
 #endif
 
 #ifndef HAVE_POSIX_FADVISE
@@ -1388,6 +1397,14 @@ static u_error_t u_fixflags(int fd, u_flags_t flags) {
 
 	return 0;
 } /* u_fixflags() */
+
+
+static void u_freeaddrinfo(struct addrinfo **res) {
+	if (*res) {
+		freeaddrinfo(*res);
+		*res = NULL;
+	}
+} /* u_freeaddrinfo() */
 
 
 static u_error_t u_open(int *fd, const char *path, u_flags_t flags, mode_t mode) {
@@ -2640,20 +2657,20 @@ static int unixL_newmetatable(lua_State *L, const char *name, const luaL_Reg *me
 	/* add metamethods */
 	for (i = 0; i < nup; i++)
 		lua_pushvalue(L, -1 - nup);
-
 	luaL_setfuncs(L, metamethods, nup);
 
 	/* add methods */
-	for (n = 0; methods[n].name; n++)
-		;;
-	lua_createtable(L, 0, n);
+	if (methods) {
+		for (n = 0; methods[n].name; n++)
+			;;
+		lua_createtable(L, 0, n);
 
-	for (i = 0; i < nup; i++)
-		lua_pushvalue(L, -2 - nup);
+		for (i = 0; i < nup; i++)
+			lua_pushvalue(L, -2 - nup);
+		luaL_setfuncs(L, methods, nup);
 
-	luaL_setfuncs(L, methods, nup);
-
-	lua_setfield(L, -2, "__index");
+		lua_setfield(L, -2, "__index");
+	}
 
 	return 1;
 } /* unixL_newmetatable() */
@@ -2724,6 +2741,11 @@ typedef struct unixL_State {
 	struct {
 		int opterr, optind, optopt, arg0;
 	} opt;
+
+	struct {
+		int fd;
+		struct addrinfo *res;
+	} net;
 } unixL_State;
 
 static const unixL_State unixL_initializer = {
@@ -2734,6 +2756,7 @@ static const unixL_State unixL_initializer = {
 #endif
 #if USE_CLOCK_GET_TIME
 	.tm = { MACH_PORT_NULL, MACH_PORT_NULL },
+	.net = { -1, NULL },
 #endif
 };
 
@@ -2833,6 +2856,9 @@ static int unixL_init(lua_State *L, unixL_State *U) {
 
 
 static void unixL_destroy(unixL_State *U) {
+	u_close(&U->net.fd);
+	u_freeaddrinfo(&U->net.res);
+
 #if USE_CLOCK_GET_TIME
 	/* NOTE: no need to deallocate mach_task_self() port */
 	if (MACH_PORT_NULL != U->tm.clock) {
@@ -2879,6 +2905,26 @@ static void unixL_destroy(unixL_State *U) {
 static unixL_State *unixL_getstate(lua_State *L) {
 	return lua_touserdata(L, lua_upvalueindex(1));
 } /* unixL_getstate() */
+
+static struct sockaddr *unixL_newsockaddr(lua_State *, const void *, size_t);
+
+static u_error_t unixL_getsockname(lua_State *L, int fd, int (*getname)(int, struct sockaddr *, socklen_t *)) {
+	unixL_State *U = unixL_getstate(L);
+	socklen_t salen = sizeof (struct sockaddr);
+	int error;
+
+	do {
+		if (U->bufsiz < salen && (error = u_realloc(&U->buf, &U->bufsiz, salen)))
+			return error;
+		salen = MAX(INT_MAX, U->bufsiz);
+		if (0 != getname(fd, (struct sockaddr *)U->buf, &salen))
+			return errno;
+	} while (salen > U->bufsiz);
+
+	unixL_newsockaddr(L, U->buf, salen);
+
+	return 1;
+} /* unixL_getsockname() */
 
 
 #if !HAVE_ARC4RANDOM
@@ -3204,6 +3250,20 @@ static int unixL_checkint(lua_State *L, int index) {
 	return unixL_checkinteger(L, index, INT_MIN, INT_MAX);
 } /* unixL_checkint() */
 
+static int unixL_optint(lua_State *L, int index, int def) {
+	return unixL_optinteger(L, index, def, INT_MIN, INT_MAX);
+} /* unixL_optint() */
+
+static int unixL_optfint(lua_State *L, int index, const char *name, int def) {
+	int i;
+
+	lua_getfield(L, index, name);
+	i = unixL_optint(L, -1, def);
+	lua_pop(L, 1);
+
+	return i;
+} /* unixL_optfint() */
+
 static size_t unixL_checksize(lua_State *L, int index) {
 	return unixL_checkunsigned(L, index, 0, MIN(UNIXL_UNSIGNED_MAX, SIZE_MAX));
 } /* unixL_checksize() */
@@ -3233,6 +3293,65 @@ static void unixL_pushoff(lua_State *L, off_t off) {
 	unixL_pushunsigned(L, off);
 } /* unixL_pushoff() */
 
+static struct sockaddr *unixL_newsockaddr(lua_State *L, const void *addr, size_t addrlen) {
+	void *ud;
+
+	ud = lua_newuserdata(L, addrlen);
+	memcpy(ud, addr, addrlen);
+	luaL_setmetatable(L, "struct sockaddr");
+
+	return ud;
+} /* unixL_newsockaddr() */
+
+static struct sockaddr *unixL_tosockaddr(lua_State *L, int index, size_t *len) {
+	if (luaL_testudata(L, index, "struct sockaddr")) {
+		*len = lua_rawlen(L, index);
+		return lua_touserdata(L, index);
+	} else if (lua_istable(L, index)) {
+		unixL_State *U = unixL_getstate(L);
+		int otop = lua_gettop(L);
+		struct addrinfo hints = { 0 };
+		struct sockaddr *addr;
+		int error;
+
+		index = lua_absindex(L, index);
+
+		hints.ai_family = unixL_optfint(L, index, "family", AF_UNSPEC);
+		hints.ai_socktype = unixL_optfint(L, index, "socktype", 0);
+		hints.ai_protocol = unixL_optfint(L, index, "protocol", 0);
+
+		lua_getfield(L, index, "addr");
+		lua_getfield(L, index, "port");
+
+		u_freeaddrinfo(&U->net.res);
+		error = getaddrinfo(lua_tostring(L, -2), lua_tostring(L, -1), &hints, &U->net.res);
+		if (error) {
+			U->net.res = NULL;
+			goto null;
+		}
+		addr = unixL_newsockaddr(L, U->net.res->ai_addr, U->net.res->ai_addrlen);
+		*len = U->net.res->ai_addrlen;
+		u_freeaddrinfo(&U->net.res);
+
+		lua_replace(L, index);
+		lua_settop(L, otop);
+
+		return addr;
+	} else {
+null:
+		*len = 0;
+		return NULL;
+	}
+} /* unixL_tosockaddr() */
+
+static struct sockaddr *unixL_checksockaddr(lua_State *L, int index, size_t *len) {
+	struct sockaddr *sa;
+
+	if (!(sa = unixL_tosockaddr(L, index, len)))
+		luaL_error(L, "expected struct sockaddr, got %s", lua_typename(L, lua_type(L, index)));
+
+	return sa;
+} /* unixL_checksockaddr() */
 
 static int unixL_pusherror(lua_State *L, int error, const char *fun NOTUSED, const char *fmt) {
 	int top = lua_gettop(L), fc;
@@ -4134,16 +4253,6 @@ static void unixL_checkflags(lua_State *L, int index, const char **mode, u_flags
 } /* unixL_checkflags() */
 
 
-static int unixL_optfint(lua_State *L, int index, const char *name, int def) {
-	int i;
-
-	lua_getfield(L, index, name);
-	i = (lua_isnil(L, -1))? def : luaL_checkint(L, -1);
-	lua_pop(L, 1);
-
-	return i;
-} /* unixL_optfint() */
-
 static struct tm *unixL_checktm(lua_State *L, int index, struct tm *tm) {
 	luaL_checktype(L, 1, LUA_TTABLE);
 
@@ -4560,6 +4669,47 @@ static const luaL_Reg sighandler_metamethods[] = {
 }; /* sighandler_metamethods[] */
 
 
+static int unix_accept(lua_State *L) {
+	unixL_State *U = unixL_getstate(L);
+	int fd = unixL_checkfileno(L, 1);
+	int flags = unixL_optint(L, 2, 0);
+	socklen_t salen;
+	int error;
+
+	u_close(&U->net.fd);
+
+	if (U->bufsiz < sizeof (struct sockaddr) && (error = u_realloc(&U->buf, &U->bufsiz, sizeof (struct sockaddr))))
+		return unixL_pusherror(L, error, "accept", "~$#");
+
+	salen = MAX(INT_MAX, U->bufsiz);
+#if HAVE_ACCEPT4
+	U->net.fd = accept4(fd, (struct sockaddr *)U->buf, &salen, flags);
+#elif HAVE_PACCEPT
+	U->net.fd = paccept(fd, (struct sockaddr *)U->buf, &salen, NULL, flags);
+#else
+	U->net.fd = accept(fd, (struct sockaddr *)U->buf, &salen);
+#endif
+	if (U->net.fd == -1)
+		goto syerr;
+
+	lua_pushinteger(L, U->net.fd);
+	if (salen <= U->bufsiz) {
+		unixL_newsockaddr(L, U->buf, salen);
+	} else {
+		if ((error = unixL_getsockname(L, U->net.fd, &getpeername)))
+			goto error;
+	}
+	U->net.fd = -1;
+
+	return 2;
+syerr:
+	error = errno;
+error:
+	u_close(&U->net.fd);
+	return unixL_pusherror(L, error, "accept", "~$#");
+} /* unix_accept() */
+
+
 static int unix_alarm(lua_State *L) {
 	unsigned n = unixL_checkunsigned(L, 1, 0, U_TMAX(unsigned));
 
@@ -4650,6 +4800,20 @@ static int unix_arc4random_uniform(lua_State *L) {
 
 	return 1;
 } /* unix_arc4random_uniform() */
+
+
+static int unix_bind(lua_State *L) {
+	int fd = unixL_checkfileno(L, 1);
+	size_t addrlen;
+	struct sockaddr *addr = unixL_checksockaddr(L, 2, &addrlen);
+
+	if (0 != bind(fd, addr, addrlen))
+		return unixL_pusherror(L, errno, "bind", "0$#");
+
+	lua_pushboolean(L, 1);
+
+	return 1;
+} /* unix_bind() */
 
 
 static int unix_bitand(lua_State *L) {
@@ -4863,6 +5027,20 @@ static int unix_compl(lua_State *L) {
 
 	return 1;
 } /* unix_compl() */
+
+
+static int unix_connect(lua_State *L) {
+	int fd = unixL_checkfileno(L, 1);
+	size_t addrlen;
+	struct sockaddr *addr = unixL_checksockaddr(L, 2, &addrlen);
+
+	if (0 != connect(fd, addr, addrlen))
+		return unixL_pusherror(L, errno, "connect", "0$#");
+
+	lua_pushboolean(L, 1);
+
+	return 1;
+} /* unix_connect() */
 
 
 static int unix_close(lua_State *L) {
@@ -5616,6 +5794,25 @@ static int gai_nextai(lua_State *L) {
 	}
 } /* gai_nextai() */
 
+static int gai_pusherror(lua_State *L, int error) {
+	if (error == EAI_SYSTEM) {
+		int syerr = errno;
+
+		lua_pushnil(L);
+		lua_pushstring(L, unixL_strerror(L, syerr));
+		lua_pushinteger(L, error);
+		lua_pushinteger(L, syerr);
+
+		return 4;
+	} else {
+		lua_pushnil(L);
+		lua_pushstring(L, gai_strerror(error));
+		lua_pushinteger(L, error);
+
+		return 3;
+	}
+} /* gai_pusherror() */
+
 static int unix_getaddrinfo(lua_State *L) {
 	const char *host = luaL_optstring(L, 1, NULL);
 	const char *serv = luaL_optstring(L, 2, NULL);
@@ -5641,24 +5838,8 @@ static int unix_getaddrinfo(lua_State *L) {
 	*res = NULL;
 	luaL_setmetatable(L, "struct addrinfo*");
 
-	if ((error = getaddrinfo(host, serv, &hints, res))) {
-		if (error == EAI_SYSTEM) {
-			int syerr = errno;
-
-			lua_pushnil(L);
-			lua_pushstring(L, unixL_strerror(L, syerr));
-			lua_pushinteger(L, error);
-			lua_pushinteger(L, syerr);
-
-			return 4;
-		} else {
-			lua_pushnil(L);
-			lua_pushstring(L, gai_strerror(error));
-			lua_pushinteger(L, error);
-
-			return 3;
-		}
-	}
+	if ((error = getaddrinfo(host, serv, &hints, res)))
+		return gai_pusherror(L, error);
 
 	lua_replace(L, 1);
 
@@ -5674,10 +5855,7 @@ static int unix_getaddrinfo(lua_State *L) {
 static int gai__gc(lua_State *L) {
 	struct addrinfo **res = luaL_checkudata(L, 1, "struct addrinfo*");
 
-	if (*res) {
-		freeaddrinfo(*res);
-		*res = NULL;
-	}
+	u_freeaddrinfo(res);
 
 	return 0;
 } /* gai__gc() */
@@ -6072,6 +6250,24 @@ static const luaL_Reg ifs_metamethods[] = {
 }; /* ifs_metamethods[] */
 
 
+static int unix_getnameinfo(lua_State *L) {
+	size_t salen;
+	const struct sockaddr *sa = unixL_checksockaddr(L, 1, &salen);
+	int flags = luaL_optint(L, 2, 0);
+	char host[NI_MAXHOST];
+	char serv[NI_MAXSERV];
+	int error;
+
+	if ((error = getnameinfo(sa, salen, host, sizeof host, serv, sizeof serv, flags)))
+		return gai_pusherror(L, error);
+
+	lua_pushstring(L, host);
+	lua_pushstring(L, serv);
+
+	return 2;
+} /* unix_getnameinfo() */
+
+
 static void getopt_pushoptc(lua_State *L, int optc) {
 	char ch = (char)(unsigned char)optc;
 	lua_pushlstring(L, &ch, 1);
@@ -6176,6 +6372,17 @@ static int unix_getopt(lua_State *L) {
 
 	return 1;
 } /* unix_getopt() */
+
+
+static int unix_getpeername(lua_State *L) {
+	int fd = unixL_checkfileno(L, 1);
+	int error;
+
+	if ((error = unixL_getsockname(L, fd, &getpeername)))
+		return unixL_pusherror(L, error, "getpeername", "~$#");
+
+	return 1;
+} /* unix_getpeername() */
 
 
 static int unix_getpgid(lua_State *L) {
@@ -6543,6 +6750,17 @@ static int unix_gettimeofday(lua_State *L) {
 } /* unix_gettimeofday() */
 
 
+static int unix_getsockname(lua_State *L) {
+	int fd = unixL_checkfileno(L, 1);
+	int error;
+
+	if ((error = unixL_getsockname(L, fd, &getsockname)))
+		return unixL_pusherror(L, error, "getsockname", "~$#");
+
+	return 1;
+} /* unix_getsockname() */
+
+
 static int unix_getuid(lua_State *L) {
 	lua_pushinteger(L, getuid());
 
@@ -6698,6 +6916,25 @@ static int unix_link(lua_State *L) {
 
 	return 1;
 } /* unix_link() */
+
+
+#if defined SOMAXCONN
+#define U_SOMAXCONN SOMAXCONN
+#else
+#define U_SOMAXCONN 128
+#endif
+
+static int unix_listen(lua_State *L) {
+	int fd = unixL_checkfileno(L, 1);
+	int backlog = unixL_optint(L, 2, U_SOMAXCONN);
+
+	if (0 != listen(fd, backlog))
+		return unixL_pusherror(L, errno, "listen", "0$#");
+
+	lua_pushboolean(L, 1);
+
+	return 1;
+} /* unix_listen() */
 
 
 static int unix_lockf(lua_State *L) {
@@ -7168,7 +7405,7 @@ static int unix_pread(lua_State *L) {
 	ssize_t n;
 	int error;
 
-	if (U->bufsiz < size && ((error = u_realloc(&U->buf, &U->bufsiz, size))))
+	if (U->bufsiz < size && (error = u_realloc(&U->buf, &U->bufsiz, size)))
 		return unixL_pusherror(L, error, "pread", "~$#");
 
 	if (-1 == (n = pread(fd, U->buf, size, offset)))
@@ -7229,7 +7466,7 @@ static int unix_read(lua_State *L) {
 	ssize_t n;
 	int error;
 
-	if (U->bufsiz < size && ((error = u_realloc(&U->buf, &U->bufsiz, size))))
+	if (U->bufsiz < size && (error = u_realloc(&U->buf, &U->bufsiz, size)))
 		return unixL_pusherror(L, error, "read", "~$#");
 
 	if (-1 == (n = read(fd, U->buf, size)))
@@ -7306,13 +7543,89 @@ static int unix_recvfromto(lua_State *L) {
 	return 3;
 } /* unix_recvfromto() */
 
-static int sa_family(lua_State *L) {
-	struct sockaddr *sa = luaL_checkudata(L, 1, "struct sockaddr");
+static int sa__index_in(lua_State *L, const struct sockaddr_in *in, const char *k) {
+	if (!strcmp(k, "addr")) {
+		char addr[INET_ADDRSTRLEN];
 
-	unixL_pushinteger(L, sa->sa_family);
+		if (!inet_ntop(AF_INET, &in->sin_addr, addr, sizeof addr))
+			return 0;
+		lua_pushstring(L, addr);
+		return 1;
+	} else if (!strcmp(k, "port")) {
+		lua_pushinteger(L, ntohs(in->sin_port));
+		return 1;
+	}
 
-	return 1;
-} /* sa_family() */
+	return 0;
+} /* sa__index_in() */
+
+static int sa__index_in6(lua_State *L, const struct sockaddr_in6 *in6, const char *k) {
+	if (!strcmp(k, "addr")) {
+		char addr[INET6_ADDRSTRLEN];
+
+		if (!inet_ntop(AF_INET6, &in6->sin6_addr, addr, sizeof addr))
+			return 0;
+		lua_pushstring(L, addr);
+		return 1;
+	} else if (!strcmp(k, "port")) {
+		lua_pushinteger(L, ntohs(in6->sin6_port));
+		return 1;
+	} else if (!strcmp(k, "flowinfo")) {
+		unixL_pushunsigned(L, in6->sin6_flowinfo);
+		return 1;
+	} else if (!strcmp(k, "scope_id")) {
+		unixL_pushunsigned(L, in6->sin6_scope_id);
+		return 1;
+	}
+
+	return 0;
+} /* sa__index_in6() */
+
+static int sa__index_un(lua_State *L, const struct sockaddr_un *un, size_t unlen, const char *k) {
+	if (!strcmp(k, "path")) {
+		size_t pathsiz, pathlen;
+
+		if (unlen < offsetof(struct sockaddr_un, sun_path))
+			return 0;
+		pathsiz = un->sun_path[unlen - offsetof(struct sockaddr_un, sun_path)];
+		pathlen = strnlen(un->sun_path, pathsiz);
+		if (pathlen == 0) {
+#if __linux__
+			if (pathsiz && (pathlen = strnlen(un->sun_path[1], pathsiz - 1))) {
+				lua_pushlstring(L, un->sun_path, pathlen + 1);
+				return 1;
+			}
+#endif
+			return 0;
+		}
+		lua_pushlstring(L, un->sun_path, pathlen);
+		return 1;
+	}
+
+	return 0;
+} /* sa__index_un() */
+
+static int sa__index(lua_State *L) {
+	struct sockaddr *addr = luaL_checkudata(L, 1, "struct sockaddr");
+	size_t addrlen = lua_rawlen(L, 1);
+	const char *k = luaL_checkstring(L, 2);
+
+	if (addrlen < offsetof(struct sockaddr, sa_family) + sizeof addr->sa_family)
+		return 0;
+
+	if (!strcmp(k, "family")) {
+		lua_pushinteger(L, addr->sa_family);
+		return 0;
+	} else if (addr->sa_family == AF_INET) {
+		return sa__index_in(L, (struct sockaddr_in *)addr, k);
+	} else if (addr->sa_family == AF_INET6) {
+		return sa__index_in6(L, (struct sockaddr_in6 *)addr, k);
+	} else if (addr->sa_family == AF_UNIX) {
+		return sa__index_un(L, (struct sockaddr_un *)addr, addrlen, k);
+	}
+
+	return 0;
+} /* so__index() */
 
 static int sa__tostring(lua_State *L) {
 	struct sockaddr *sa = luaL_checkudata(L, 1, "struct sockaddr");
@@ -7322,12 +7635,8 @@ static int sa__tostring(lua_State *L) {
 	return 1;
 } /* sa__tostring() */
 
-static const luaL_Reg sa_methods[] = {
-	{ "family", &sa_family },
-	{ NULL,     NULL }
-}; /* sa_methods[] */
-
 static const luaL_Reg sa_metamethods[] = {
+	{ "__index",    &sa__index },
 	{ "__tostring", &sa__tostring },
 	{ NULL,         NULL }
 }; /* sa_metamethods[] */
@@ -7428,10 +7737,10 @@ static int unix_sendtofrom(lua_State *L) {
 	size_t size;
 	const char *src = luaL_checklstring(L, 2, &size);
 	int flags = unixL_optinteger(L, 3, 0, 0, INT_MAX);
-	void *to = luaL_checkudata(L, 4, "struct sockaddr");
-	size_t tolen = lua_rawlen(L, 4);
-	void *from = luaL_checkudata(L, 5, "struct sockaddr");
-	size_t fromlen = lua_rawlen(L, 5);
+	size_t tolen;
+	void *to = unixL_checksockaddr(L, 4, &tolen);
+	size_t fromlen;
+	void *from = unixL_checksockaddr(L, 5, &fromlen);
 	ssize_t n;
 	int error;
 
@@ -7769,6 +8078,21 @@ static int unix_sleep(lua_State *L) {
 
 	return 1;
 } /* unix_sleep() */
+
+
+static int unix_socket(lua_State *L) {
+	int family = unixL_checkint(L, 1);
+	int socktype = unixL_checkint(L, 2);
+	int protocol = unixL_optint(L, 3, 0);
+	int fd;
+
+	if (-1 == (fd = socket(family, socktype, protocol)))
+		return unixL_pusherror(L, errno, "socket", "~$#");
+
+	lua_pushinteger(L, fd);
+
+	return 1;
+} /* unix_socket() */
 
 
 enum st_field {
@@ -8309,11 +8633,13 @@ static int unix__newindex(lua_State *L) {
 
 
 static const luaL_Reg unix_routines[] = {
+	{ "accept",             &unix_accept },
 	{ "alarm",              &unix_alarm },
 	{ "arc4random",         &unix_arc4random },
 	{ "arc4random_buf",     &unix_arc4random_buf },
 	{ "arc4random_stir",    &unix_arc4random_stir },
 	{ "arc4random_uniform", &unix_arc4random_uniform },
+	{ "bind",               &unix_bind },
 	{ "bitand",             &unix_bitand },
 	{ "bitor",              &unix_bitor },
 	{ "chdir",              &unix_chdir },
@@ -8324,6 +8650,7 @@ static const luaL_Reg unix_routines[] = {
 	{ "close",              &unix_close },
 	{ "closedir",           &unix_closedir },
 	{ "compl",              &unix_compl },
+	{ "connect",            &unix_connect },
 	{ "dup",                &unix_dup },
 	{ "dup2",               &unix_dup2 },
 	{ "execve",             &unix_execve },
@@ -8364,7 +8691,9 @@ static const luaL_Reg unix_routines[] = {
 	{ "getgroups",          &unix_getgroups },
 	{ "gethostname",        &unix_gethostname },
 	{ "getifaddrs",         &unix_getifaddrs },
+	{ "getnameinfo",        &unix_getnameinfo },
 	{ "getopt",             &unix_getopt },
+	{ "getpeername",        &unix_getpeername },
 	{ "getpgid",            &unix_getpgid },
 	{ "getpgrp",            &unix_getpgrp },
 	{ "getpid",             &unix_getpid },
@@ -8374,6 +8703,7 @@ static const luaL_Reg unix_routines[] = {
 	{ "getpwuid",           &unix_getpwnam },
 	{ "getrlimit",          &unix_getrlimit },
 	{ "getrusage",          &unix_getrusage },
+	{ "getsockname",        &unix_getsockname },
 	{ "gettimeofday",       &unix_gettimeofday },
 	{ "getuid",             &unix_getuid },
 	{ "grantpt",            &unix_grantpt },
@@ -8383,6 +8713,7 @@ static const luaL_Reg unix_routines[] = {
 	{ "kill",               &unix_kill },
 	{ "lchown",             &unix_lchown },
 	{ "link",               &unix_link },
+	{ "listen",             &unix_listen },
 	{ "lockf",              &unix_lockf },
 	{ "lseek",              &unix_lseek },
 	{ "lstat",              &unix_lstat },
@@ -8440,6 +8771,7 @@ static const luaL_Reg unix_routines[] = {
 	{ "sigtimedwait",       &unix_sigtimedwait },
 	{ "sigwait",            &unix_sigwait },
 	{ "sleep",              &unix_sleep },
+	{ "socket",             &unix_socket },
 	{ "stat",               &unix_stat },
 	{ "strerror",           &unix_strerror },
 	{ "strsignal",          &unix_strsignal },
@@ -8481,6 +8813,15 @@ static const struct unix_const const_sock[] = {
 #endif
 #if defined SOCK_SEQPACKET
 	UNIX_CONST(SOCK_SEQPACKET),
+#endif
+#if defined SOCK_CLOEXEC
+	UNIX_CONST(SOCK_CLOEXEC),
+#endif
+#if defined SOCK_NONBLOCK
+	UNIX_CONST(SOCK_NONBLOCK),
+#endif
+#if defined SOCK_NOSIGPIPE
+	UNIX_CONST(SOCK_NOSIGPIPE),
 #endif
 }; /* const_sock[] */
 
@@ -8532,6 +8873,17 @@ static const struct unix_const const_msg[] = {
 	UNIX_CONST(MSG_WAITALL),
 #endif
 }; /* const_msg[] */
+
+static const struct unix_const const_ni[] = {
+	UNIX_CONST(NI_NOFQDN),
+	UNIX_CONST(NI_NUMERICHOST),
+	UNIX_CONST(NI_NAMEREQD),
+	UNIX_CONST(NI_NUMERICSERV),
+#if defined NI_NUMERICSCOPE
+	UNIX_CONST(NI_NUMERICSCOPE),
+#endif
+	UNIX_CONST(NI_DGRAM),
+}; /* const_ni[] */
 
 static const struct unix_const const_clock[] = {
 	{ "CLOCK_MONOTONIC", U_CLOCK_MONOTONIC },
@@ -8994,6 +9346,7 @@ static const struct {
 	{ const_ai,       countof(const_ai) },
 	{ const_eai,      countof(const_eai) },
 	{ const_msg,      countof(const_msg) },
+	{ const_ni,       countof(const_ni) },
 	{ const_clock,    countof(const_clock) },
 	{ const_errno,    countof(const_errno) },
 	{ const_iff,      countof(const_iff) },
@@ -9068,7 +9421,7 @@ int luaopen_unix(lua_State *L) {
 	 * add struct sockaddr class
 	 */
 	lua_pushvalue(L, -1);
-	unixL_newmetatable(L, "struct sockaddr", sa_methods, sa_metamethods, 1);
+	unixL_newmetatable(L, "struct sockaddr", NULL, sa_metamethods, 1);
 	lua_pop(L, 1);
 
 	/*
