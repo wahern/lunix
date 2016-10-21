@@ -147,6 +147,14 @@
 #define HAVE_SYS_SYSCTL_H (defined BSD || GLIBC_PREREQ(0,0) || UCLIBC_PREREQ(0,0,0))
 #endif
 
+#ifndef HAVE_STRUCT_IN_PKTINFO
+#define HAVE_STRUCT_IN_PKTINFO HAVE_DECL_IP_PKTINFO
+#endif
+
+#ifndef HAVE_STRUCT_INV6_PKTINFO
+#define HAVE_STRUCT_INV6_PKTINFO HAVE_DECL_IPV6_PKTINFO
+#endif
+
 #ifndef HAVE_STRUCT_PSINFO
 #define HAVE_STRUCT_PSINFO (defined _AIX)
 #endif
@@ -193,6 +201,42 @@
 
 #ifndef HAVE_STRUCT_STAT_ST_CTIMESPEC
 #define HAVE_STRUCT_STAT_ST_CTIMESPEC HAVE_STRUCT_STAT_ST_ATIMESPEC
+#endif
+
+#ifndef HAVE_DECL_CTL_KERN
+#define HAVE_DECL_CTL_KERN (HAVE_SYS_SYSCTL_H && __linux)
+#endif
+
+#ifndef HAVE_DECL_KERN_RANDOM
+#define HAVE_DECL_KERN_RANDOM (HAVE_SYS_SYSCTL_H && __linux)
+#endif
+
+#ifndef HAVE_DECL_IP_PKTINFO
+#define HAVE_DECL_IP_PKTINFO (defined IP_PKTINFO)
+#endif
+
+#ifndef HAVE_DECL_IP_RECVDSTADDR
+#define HAVE_DECL_IP_RECVDSTADDR (defined IP_RECVDSTADDR)
+#endif
+
+#ifndef HAVE_DECL_IP_SENDSRCADDR
+#define HAVE_DECL_IP_SENDSRCADDR (defined IP_SENDSRCADDR)
+#endif
+
+#ifndef HAVE_DECL_IPV6_PKTINFO
+#define HAVE_DECL_IPV6_PKTINFO (defined IPV6_PKTINFO)
+#endif
+
+#ifndef HAVE_DECL_RANDOM_UUID
+#define HAVE_DECL_RANDOM_UUID (HAVE_SYS_SYSCTL_H && __linux)
+#endif
+
+#ifndef HAVE_DECL_RLIMIT_AS
+#define HAVE_DECL_RLIMIT_AS (defined RLIMIT_AS)
+#endif
+
+#ifndef HAVE_DECL_SYS_GETRANDOM
+#define HAVE_DECL_SYS_GETRANDOM (defined SYS_getrandom)
 #endif
 
 #ifndef HAVE_ARC4RANDOM
@@ -295,10 +339,6 @@
 #define HAVE_DECL_P_XARGV 0
 #endif
 
-#ifndef HAVE_DECL_RLIMIT_AS
-#define HAVE_DECL_RLIMIT_AS (defined RLIMIT_AS)
-#endif
-
 #ifndef HAVE_SIGTIMEDWAIT
 #define HAVE_SIGTIMEDWAIT (!defined __APPLE__ && !defined __OpenBSD__)
 #endif
@@ -312,28 +352,12 @@
 #define HAVE_STATIC_ASSERT (defined static_assert && HAVE_STATIC_ASSERT_)
 #endif
 
-#ifndef HAVE_DECL_SYS_GETRANDOM
-#define HAVE_DECL_SYS_GETRANDOM (defined SYS_getrandom)
-#endif
-
 #ifndef HAVE_SYSCALL
 #define HAVE_SYSCALL HAVE_SYS_SYSCALL_H
 #endif
 
 #ifndef HAVE_SYSCTL
 #define HAVE_SYSCTL HAVE_SYS_SYSCTL_H
-#endif
-
-#ifndef HAVE_DECL_CTL_KERN
-#define HAVE_DECL_CTL_KERN (HAVE_SYS_SYSCTL_H && __linux)
-#endif
-
-#ifndef HAVE_DECL_KERN_RANDOM
-#define HAVE_DECL_KERN_RANDOM (HAVE_SYS_SYSCTL_H && __linux)
-#endif
-
-#ifndef HAVE_DECL_RANDOM_UUID
-#define HAVE_DECL_RANDOM_UUID (HAVE_SYS_SYSCTL_H && __linux)
 #endif
 
 #ifndef HAVE_STRSIGNAL
@@ -1817,7 +1841,8 @@ error:
 
 
 static void *u_sa_copy(struct sockaddr_storage *ss, const struct sockaddr *sa) {
-	return memcpy(ss, sa, u_sa_len(sa));
+	size_t salen = u_sa_len(sa);
+	return memcpy(ss, sa, MIN(sizeof *ss, salen));
 } /* u_sa_copy() */
 
 
@@ -2194,6 +2219,243 @@ static u_error_t u_ptsname_r(int fd, char *buf, size_t buflen) {
 	return 0;
 #endif
 } /* u_ptsname_r() */
+
+#if HAVE_DECL_IP_RECVDSTADDR || HAVE_DECL_IP_PKTINFO || HAVE_DECL_IPV6_PKTINFO
+
+static ssize_t u_recvfromto(int fd, void *buf, size_t lim, int flags, struct sockaddr *from, size_t *fromlen, struct sockaddr *to, size_t *tolen, u_error_t *error) {
+	struct iovec iov;
+	struct msghdr msg;
+	struct cmsghdr *cmsg;
+	struct sockaddr_in in;
+#if HAVE_STRUCT_IN_PKTINFO
+	struct in_pktinfo pkt;
+#endif
+#if HAVE_STRUCT_IN6_PKTINFO
+	struct in6_pktinfo pkt6;
+#endif
+	union {
+		struct cmsghdr hdr;
+#if HAVE_STRUCT_IN_PKTINFO
+		char inbuf[CMSG_SPACE(sizeof pkt)];
+#else
+		char inbuf[CMSG_SPACE(sizeof in)];
+#endif
+#if HAVE_STRUCT_IN6_PKTINFO
+		char in6buf[CMSG_SPACE(sizeof pkt6)];
+#endif
+	} cmsgbuf;
+	ssize_t n;
+
+	memset(&msg, 0, sizeof msg);
+	memset(&cmsgbuf, 0, sizeof cmsgbuf);
+	memset(from, 0, *fromlen);
+	memset(to, 0, *tolen);
+
+	iov.iov_base = buf;
+	iov.iov_len = lim;
+	msg.msg_iov = &iov;
+	msg.msg_iovlen = 1;
+	msg.msg_name = (void *)from;
+	msg.msg_namelen = *fromlen;
+	msg.msg_control = &cmsgbuf;
+	msg.msg_controllen = sizeof cmsgbuf;
+
+	if (-1 == (n = recvmsg(fd, &msg, flags))) {
+		*error = errno;
+		return -1;
+	}
+
+	*fromlen = msg.msg_namelen;
+
+	for (cmsg = CMSG_FIRSTHDR(&msg); cmsg != NULL; cmsg = CMSG_NXTHDR(&msg, cmsg)) {
+#if HAVE_DECL_IP_RECVDSTADDR
+		if (cmsg->cmsg_level == IPPROTO_IP && cmsg->cmsg_type == IP_RECVDSTADDR) {
+			memcpy(&in, CMSG_DATA(cmsg), sizeof in);
+
+			/* XXX: update port? */
+
+			if (*tolen < sizeof in)
+				goto inval;
+			memcpy(to, &in, sizeof in);
+			*tolen = sizeof in;
+		}
+#endif
+
+#if HAVE_DECL_IP_PKTINFO && HAVE_STRUCT_IN_PKTINFO
+		if (cmsg->cmsg_level == IPPROTO_IP && cmsg->cmsg_type == IP_PKTINFO) {
+			memcpy(&pkt, CMSG_DATA(cmsg), sizeof pkt);
+
+			/* XXX: update port? */
+
+			if (*tolen < sizeof pkt.ipi_addr)
+				goto inval;
+			memcpy(to, &pkt.ipi_addr, sizeof pkt.ipi_addr);
+			*tolen = sizeof pkt.ipi_addr;
+		}
+#endif
+
+
+#if HAVE_DECL_IPV6_PKTINFO && HAVE_STRUCT_IN6_PKTINFO
+		if (cmsg->cmsg_level == IPPROTO_IP && cmsg->cmsg_type == IPV6_PKTINFO) {
+			memcpy(&pkt6, CMSG_DATA(cmsg), sizeof pkt6);
+
+			/* XXX: update port? */
+
+			if (*tolen < sizeof pkt6.ipi6_addr)
+				goto inval;
+			memcpy(to, &pkt6.ipi6_addr, sizeof pkt6.ipi6_addr);
+			*tolen = sizeof pkt6.ipi6_addr;
+		}
+#endif
+	}
+
+	return n;
+inval:
+	*error = EINVAL;
+	return -1;
+} /* u_recvfromto() */
+
+#else
+
+static ssize_t u_recvfromto(int fd, const void *src, size_t len, int flags, const struct sockaddr *from, size_t *fromlen, const struct sockaddr *to, size_t *tolen, u_error_t *error) {
+	(void)fd;
+	(void)src;
+	(void)len;
+	(void)flags;
+	(void)from;
+	(void)fromlen;
+	(void)to;
+	(void)tolen;
+
+	*error = ENOTSUP;
+	return -1;
+} /* u_recvfromto() */
+
+#endif
+
+/*
+ * References
+ *	https://www.ietf.org/rfc/rfc3542.txt
+ * 	http://cvsweb.openbsd.org/cgi-bin/cvsweb/src/sbin/iked/util.c?rev=1.32
+ * 	http://www.nerv.org/~ryo/files/netbsd/sendfromto/sockfromto.c
+ * 	https://github.com/FreeRADIUS/freeradius-server/blob/release_3_0_12/src/lib/udpfromto.c
+ */
+#if HAVE_DECL_IP_SENDSRCADDR || HAVE_DECL_IP_PKTINFO || HAVE_DECL_IPV6_PKTINFO
+
+static ssize_t u_sendtofrom(int fd, const void *buf, size_t len, int flags, const struct sockaddr *to, size_t tolen, const struct sockaddr *from, size_t fromlen, u_error_t *error) {
+	struct iovec iov;
+	struct msghdr msg;
+	struct cmsghdr *cmsg;
+	struct sockaddr_in *in;
+#if HAVE_STRUCT_IN_PKTINFO
+	struct in_pktinfo pkt;
+#endif
+#if HAVE_STRUCT_IN6_PKTINFO
+	struct sockaddr_in6 *in6;
+	struct in6_pktinfo pkt6;
+#endif
+	union {
+		struct cmsghdr hdr;
+#if HAVE_STRUCT_IN_PKTINFO
+		char inbuf[CMSG_SPACE(sizeof pkt)];
+#else
+		char inbuf[CMSG_SPACE(sizeof *in)];
+#endif
+#if HAVE_STRUCT_IN6_PKTINFO
+		char in6buf[CMSG_SPACE(sizeof pkt6)];
+#endif
+	} cmsgbuf;
+	ssize_t n;
+
+	memset(&msg, 0, sizeof msg);
+	memset(&cmsgbuf, 0, sizeof cmsgbuf);
+
+	iov.iov_base = (void *)buf;
+	iov.iov_len = len;
+	msg.msg_iov = &iov;
+	msg.msg_iovlen = 1;
+	msg.msg_name = (void *)to;
+	msg.msg_namelen = tolen;
+	msg.msg_control = &cmsgbuf;
+	msg.msg_controllen = sizeof cmsgbuf;
+
+	cmsg = CMSG_FIRSTHDR(&msg);
+
+	switch (from->sa_family) {
+#if HAVE_DECL_IP_SENDSRCADDR
+	case AF_INET:
+		msg.msg_controllen = sizeof cmsgbuf.inbuf;
+		cmsg->cmsg_len = CMSG_LEN(sizeof in->sin_addr);
+		cmsg->cmsg_level = IPPROTO_IP;
+		cmsg->cmsg_type = IP_SENDSRCADDR;
+		if (sizeof *in < fromlen)
+			goto inval;
+		in = (struct sockaddr_in *)from;
+		memcpy(CMSG_DATA(cmsg), &in->sin_addr, sizeof in->sin_addr);
+
+		break;
+#elif HAVE_DECL_IP_PKTINFO && HAVE_STRUCT_IN_PKTINFO
+	case AF_INET:
+		msg.msg_controllen = sizeof cmsgbuf.inbuf;
+		cmsg->cmsg_len = CMSG_LEN(sizeof pkt);
+		cmsg->cmsg_level = IPPROTO_IP;
+		cmsg->cmsg_type = IP_PKTINFO;
+		if (sizeof *in < fromlen)
+			goto inval;
+		in = (struct sockaddr_in *)from;
+		memset(&pkt, 0, sizeof pkt);
+		pkt.ipi_spec_dst = in->sin_addr;
+		memcpy(CMSG_DATA(cmsg), &pkt, sizeof pkt);
+
+		break;
+#endif
+#if HAVE_DECL_IPV6_PKTINFO && HAVE_STRUCT_IN6_PKTINFO
+	case AF_INET6:
+		msg.msg_controllen = sizeof cmsgbuf.in6buf;
+		cmsg->cmsg_len = CMSG_LEN(sizeof pkt6);
+		cmsg->cmsg_level = IPPROTO_IPV6;
+		cmsg->cmsg_type = IPV6_PKTINFO;
+		if (sizeof *in6 < fromlen)
+			goto inval;
+		in6 = (struct sockaddr_in6 *)from;
+		memset(&pkt6, 0, sizeof pkt6);
+		pkt6.ipi6_addr = in6->sin6_addr;
+		memcpy(CMSG_DATA(cmsg), &pkt6, sizeof pkt6);
+
+		break;
+#endif
+	default:
+		*error = EAFNOSUPPORT;
+		return -1;
+	}
+
+	if (-1 == (n = sendmsg(fd, &msg, flags)))
+		*error = errno;
+
+	return n;
+inval:
+	*error = EINVAL;
+	return -1;
+} /* u_sendtofrom() */
+
+#else
+
+static ssize_t u_sendtofrom(int fd, const void *src, size_t len, int flags, const struct sockaddr *to, size_t tolen, const struct sockaddr *from, size_t fromlen, u_error_t *error) {
+	(void)fd;
+	(void)src;
+	(void)len;
+	(void)flags;
+	(void)to;
+	(void)tolen;
+	(void)from;
+	(void)fromlen;
+
+	*error = ENOTSUP;
+	return -1;
+} /* u_sendtofrom() */
+
+#endif
+
 
 #if !HAVE_ARC4RANDOM
 
@@ -6963,38 +7225,60 @@ static int unix_recvfrom(lua_State *L) {
 	int fd = unixL_checkfileno(L, 1);
 	size_t size = unixL_checksize(L, 2);
 	int flags = unixL_optinteger(L, 3, 0, 0, INT_MAX);
-	struct sockaddr_storage frombuf;
-	socklen_t frombuflen, fromlen;
+	struct sockaddr_storage from;
+	socklen_t fromlen;
 	ssize_t n;
-	void *from, *ud;
+	void *ud;
 	int error;
 
 	if (U->bufsiz < size && ((error = u_realloc(&U->buf, &U->bufsiz, size))))
 		return unixL_pusherror(L, error, "recvfrom", "~$#");
 
-	from = &frombuf;
-	frombuflen = sizeof frombuf;
-	fromlen = frombuflen;
-	if (-1 == (n = recvfrom(fd, U->buf, size, flags, from, &fromlen)))
+	fromlen = sizeof from;
+	if (-1 == (n = recvfrom(fd, U->buf, size, flags, (struct sockaddr *)&from, &fromlen)))
 		return unixL_pusherror(L, errno, "recvfrom", "~$#");
 
 	lua_pushlstring(L, U->buf, n);
 
-	/*
-	 * FIXME
-	 *
-	 * 1) What if our buffer is too small? Ideally we check the
-	 * socket family before doing the read.
-	 *
-	 * 2) What if we can't allocate new memory? We should allocate
-	 * a return buffer ahead of time, if necessary.
-	 */
+	/* TODO: What if our buffer is too small? */
 	ud = lua_newuserdata(L, fromlen);
-	memcpy(ud, from, MIN(fromlen, frombuflen));
+	memcpy(ud, &from, MIN(fromlen, sizeof from));
 	luaL_setmetatable(L, "struct sockaddr");
 
 	return 2;
 } /* unix_recvfrom() */
+
+static int unix_recvfromto(lua_State *L) {
+	unixL_State *U = unixL_getstate(L);
+	int fd = unixL_checkfileno(L, 1);
+	size_t size = unixL_checksize(L, 2);
+	int flags = unixL_optinteger(L, 3, 0, 0, INT_MAX);
+	struct sockaddr_storage from, to;
+	size_t fromlen, tolen;
+	ssize_t n;
+	void *ud;
+	int error;
+
+	if (U->bufsiz < size && ((error = u_realloc(&U->buf, &U->bufsiz, size))))
+		return unixL_pusherror(L, error, "recvfrom", "~$#");
+
+	fromlen = sizeof from;
+	tolen = sizeof to;
+	if (-1 == (n = u_recvfromto(fd, U->buf, size, flags, (struct sockaddr *)&from, &fromlen, (struct sockaddr *)&to, &tolen, &error)))
+		return unixL_pusherror(L, error, "recvfrom", "~$#");
+
+	lua_pushlstring(L, U->buf, n);
+
+	ud = lua_newuserdata(L, fromlen);
+	memcpy(ud, &from, MIN(fromlen, sizeof from));
+	luaL_setmetatable(L, "struct sockaddr");
+
+	ud = lua_newuserdata(L, tolen);
+	memcpy(ud, &to, MIN(tolen, sizeof to));
+	luaL_setmetatable(L, "struct sockaddr");
+
+	return 3;
+} /* unix_recvfromto() */
 
 static int sa_family(lua_State *L) {
 	struct sockaddr *sa = luaL_checkudata(L, 1, "struct sockaddr");
@@ -7095,23 +7379,43 @@ static int unix_rmdir(lua_State *L) {
 
 
 static int unix_sendto(lua_State *L) {
-	unixL_State *U = unixL_getstate(L);
 	int fd = unixL_checkfileno(L, 1);
 	size_t size;
 	const char *src = luaL_checklstring(L, 2, &size);
 	int flags = unixL_optinteger(L, 3, 0, 0, INT_MAX);
-	void *from = luaL_checkudata(L, 4, "struct sockaddr");
-	size_t fromlen = lua_rawlen(L, 4);
+	void *to = luaL_checkudata(L, 4, "struct sockaddr");
+	size_t tolen = lua_rawlen(L, 4);
 	ssize_t n;
 	int error;
 
-	if (-1 == (n = sendto(fd, src, size, flags, from, fromlen)))
+	if (-1 == (n = sendto(fd, src, size, flags, to, tolen)))
 		return unixL_pusherror(L, errno, "sendto", "~$#");
 
 	unixL_pushsize(L, n);
 
 	return 1;
 } /* unix_sendto() */
+
+
+static int unix_sendtofrom(lua_State *L) {
+	int fd = unixL_checkfileno(L, 1);
+	size_t size;
+	const char *src = luaL_checklstring(L, 2, &size);
+	int flags = unixL_optinteger(L, 3, 0, 0, INT_MAX);
+	void *to = luaL_checkudata(L, 4, "struct sockaddr");
+	size_t tolen = lua_rawlen(L, 4);
+	void *from = luaL_checkudata(L, 5, "struct sockaddr");
+	size_t fromlen = lua_rawlen(L, 5);
+	ssize_t n;
+	int error;
+
+	if (-1 == (n = u_sendtofrom(fd, src, size, flags, to, tolen, from, fromlen, &error)))
+		return unixL_pusherror(L, error, "sendtofrom", "~$#");
+
+	unixL_pushsize(L, n);
+
+	return 1;
+} /* unix_sendtofrom() */
 
 
 static int unix_setegid(lua_State *L) {
@@ -8077,6 +8381,7 @@ static const luaL_Reg unix_routines[] = {
 	{ "read",               &unix_read },
 	{ "readdir",            &unix_readdir },
 	{ "recvfrom",           &unix_recvfrom },
+	{ "recvfromto",         &unix_recvfromto },
 	{ "rename",             &unix_rename },
 	{ "rewinddir",          &unix_rewinddir },
 	{ "rmdir",              &unix_rmdir },
@@ -8088,6 +8393,7 @@ static const luaL_Reg unix_routines[] = {
 	{ "S_ISLNK",            &unix_S_ISLNK },
 	{ "S_ISSOCK",           &unix_S_ISSOCK },
 	{ "sendto",             &unix_sendto },
+	{ "sendtofrom",         &unix_sendtofrom },
 	{ "setegid",            &unix_setegid },
 	{ "setenv",             &unix_setenv },
 	{ "seteuid",            &unix_seteuid },
