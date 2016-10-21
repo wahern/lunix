@@ -235,6 +235,14 @@
 #define HAVE_DECL_RANDOM_UUID (HAVE_SYS_SYSCTL_H && __linux)
 #endif
 
+#ifndef HAVE_DECL_RLIM_SAVED_CUR
+#define HAVE_DECL_RLIM_SAVED_CUR (defined RLIM_SAVED_CUR)
+#endif
+
+#ifndef HAVE_DECL_RLIM_SAVED_MAX
+#define HAVE_DECL_RLIM_SAVED_MAX (defined RLIM_SAVED_MAX)
+#endif
+
 #ifndef HAVE_DECL_RLIMIT_AS
 #define HAVE_DECL_RLIMIT_AS (defined RLIMIT_AS)
 #endif
@@ -272,7 +280,7 @@
 #endif
 
 #ifndef HAVE_FDATASYNC
-#define HAVE_FDATASYNC (!defined __APPLE__)
+#define HAVE_FDATASYNC (!defined __APPLE__ && !__FreeBSD__)
 #endif
 
 #ifndef HAVE_FDOPENDIR
@@ -6398,9 +6406,23 @@ static int rl_checkrlimit(lua_State *L, int index) {
 	return what_i[i];
 } /* rl_checkrlimit() */
 
-#define U_RLIM_INFINITY INFINITY
-#define U_RLIM_SAVED_CUR -1.0
-#define U_RLIM_SAVED_MAX -2.0
+#define RL_RLIM_INFINITY INFINITY
+#define RL_RLIM_SAVED_CUR -1.0
+#define RL_RLIM_SAVED_MAX -2.0
+
+#define U_RLIM_INFINITY RLIM_INFINITY
+
+#if HAVE_DECL_RLIM_SAVED_CUR
+#define U_RLIM_SAVED_CUR RLIM_SAVED_CUR
+#else
+#define U_RLIM_SAVED_CUR U_RLIM_INFINITY
+#endif
+
+#if HAVE_DECL_RLIM_SAVED_MAX
+#define U_RLIM_SAVED_MAX RLIM_SAVED_MAX
+#else
+#define U_RLIM_SAVED_MAX U_RLIM_INFINITY
+#endif
 
 static _Bool rl_isequal(lua_State *L, int index, lua_Number n) {
 	_Bool eq;
@@ -6427,14 +6449,14 @@ static rlim_t rl_checkrlim(lua_State *L, int index) {
 		 * applications are expected to only echo the RLIM_SAVED_CUR
 		 * and RLIM_SAVED_MAX values; not specify them de novo.
 		 * However, we could call getrlimit() for
-		 * U_RLIM_SAVED_{CUR,MAX} and use that value.
+		 * RL_RLIM_SAVED_{CUR,MAX} and use that value.
 		 */
-		if (rl_isequal(L, index, U_RLIM_INFINITY))
-			return RLIM_INFINITY;
-		if (rl_isequal(L, index, U_RLIM_SAVED_CUR))
-			return RLIM_SAVED_CUR;
-		if (rl_isequal(L, index, U_RLIM_SAVED_MAX))
-			return RLIM_SAVED_MAX;
+		if (rl_isequal(L, index, RL_RLIM_INFINITY))
+			return U_RLIM_INFINITY;
+		if (rl_isequal(L, index, RL_RLIM_SAVED_CUR))
+			return U_RLIM_SAVED_CUR;
+		if (rl_isequal(L, index, RL_RLIM_SAVED_MAX))
+			return U_RLIM_SAVED_MAX;
 	}
 
 	return unixL_checkunsigned(L, index, 0, (rlim_t)-1);
@@ -6448,10 +6470,10 @@ static rlim_t rl_optrlim(lua_State *L, int index, rlim_t def) {
 } /* rl_optrlim() */
 
 static void rl_pushrlim(lua_State *L, rlim_t rlim) {
-	if (rlim == RLIM_SAVED_MAX) {
-		lua_pushnumber(L, U_RLIM_SAVED_MAX);
-	} else if (rlim == RLIM_SAVED_CUR) {
-		lua_pushnumber(L, U_RLIM_SAVED_CUR);
+	if (rlim == U_RLIM_SAVED_MAX) {
+		lua_pushnumber(L, RL_RLIM_SAVED_MAX);
+	} else if (rlim == U_RLIM_SAVED_CUR) {
+		lua_pushnumber(L, RL_RLIM_SAVED_CUR);
 	} else {
 		unixL_pushunsigned(L, rlim);
 	}
@@ -7518,8 +7540,8 @@ static int unix_setrlimit(lua_State *L) {
 	int what = rl_checkrlimit(L, 1);
 	struct rlimit rl;
 
-	rl.rlim_cur = rl_optrlim(L, 2, RLIM_SAVED_CUR);
-	rl.rlim_max = rl_optrlim(L, 3, RLIM_SAVED_MAX);
+	rl.rlim_cur = rl_optrlim(L, 2, U_RLIM_SAVED_CUR);
+	rl.rlim_max = rl_optrlim(L, 3, U_RLIM_SAVED_MAX);
 
 	if (0 != setrlimit(what, &rl))
 		return unixL_pusherror(L, errno, "setrlimit", "~$#");
@@ -9086,11 +9108,11 @@ int luaopen_unix(lua_State *L) {
 	/*
 	 * special RLIM values
 	 */
-	lua_pushnumber(L, U_RLIM_INFINITY);
+	lua_pushnumber(L, RL_RLIM_INFINITY);
 	lua_setfield(L, -2, "RLIM_INFINITY");
-	lua_pushnumber(L, U_RLIM_SAVED_CUR);
+	lua_pushnumber(L, RL_RLIM_SAVED_CUR);
 	lua_setfield(L, -2, "RLIM_SAVED_CUR");
-	lua_pushnumber(L, U_RLIM_SAVED_MAX);
+	lua_pushnumber(L, RL_RLIM_SAVED_MAX);
 	lua_setfield(L, -2, "RLIM_SAVED_MAX");
 
 	/*
