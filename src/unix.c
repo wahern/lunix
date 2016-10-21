@@ -7591,7 +7591,7 @@ static int sa__index_un(lua_State *L, const struct sockaddr_un *un, size_t unlen
 		pathlen = strnlen(un->sun_path, pathsiz);
 		if (pathlen == 0) {
 #if __linux__
-			if (pathsiz && (pathlen = strnlen(un->sun_path[1], pathsiz - 1))) {
+			if (pathsiz && (pathlen = strnlen(&un->sun_path[1], pathsiz - 1))) {
 				lua_pushlstring(L, un->sun_path, pathlen + 1);
 				return 1;
 			}
