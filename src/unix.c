@@ -2355,7 +2355,7 @@ static ssize_t u_recvfromto(int fd, void *buf, size_t lim, int flags, struct soc
 			in = (struct sockaddr_in *)to;
 			in->sin_family = AF_INET;
 #if HAVE_SOCKADDR_SA_LEN
-			in->sin_len = sizeof *in
+			in->sin_len = sizeof *in;
 #endif
 			in->sin_port = to_port;
 			memcpy(&in->sin_addr, CMSG_DATA(cmsg), sizeof in->sin_addr);
@@ -2372,7 +2372,7 @@ static ssize_t u_recvfromto(int fd, void *buf, size_t lim, int flags, struct soc
 			in = (struct sockaddr_in *)to;
 			in->sin_family = AF_INET;
 #if HAVE_SOCKADDR_SA_LEN
-			in->sin_len = sizeof *in
+			in->sin_len = sizeof *in;
 #endif
 			in->sin_port = to_port;
 			in->sin_addr = pkt.ipi_addr;
@@ -2388,7 +2388,7 @@ static ssize_t u_recvfromto(int fd, void *buf, size_t lim, int flags, struct soc
 			in6 = (struct sockaddr_in6 *)to;
 			in6->sin6_family = AF_INET6;
 #if HAVE_SOCKADDR_SA_LEN
-			in6->sin6_len = sizeof *in6
+			in6->sin6_len = sizeof *in6;
 #endif
 			in6->sin6_port = to_port;
 			in6->sin6_addr = pkt6.ipi6_addr;
