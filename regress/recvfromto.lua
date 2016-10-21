@@ -58,8 +58,8 @@ local function do_recvfromto(family, port)
 	end
 end
 
-for _,family in ipairs{ unix.AF_INET, unix.AF_INET6 } do
-	do_recvfromto(family, 8000)
+for i,family in ipairs{ unix.AF_INET, unix.AF_INET6 } do
+	do_recvfromto(family, 8000 + i)
 end
 
 say"OK"
