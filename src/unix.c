@@ -3378,7 +3378,8 @@ static struct sockaddr *unixL_tosockaddr(lua_State *L, int index, size_t *len) {
 		index = lua_absindex(L, index);
 
 		hints.ai_family = unixL_optfint(L, index, "family", AF_UNSPEC);
-		hints.ai_socktype = unixL_optfint(L, index, "socktype", 0);
+		/* Solaris errors with EAI_SERVICE unless we specify a socktype */
+		hints.ai_socktype = unixL_optfint(L, index, "socktype", SOCK_STREAM);
 		hints.ai_protocol = unixL_optfint(L, index, "protocol", 0);
 
 		lua_getfield(L, index, "addr");
