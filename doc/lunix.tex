@@ -247,6 +247,10 @@ Similar to \_\_pairs, but the iterator returns an index integer as the key follo
 Identical to the \_\_pairs metamethod, to be used to create an iterator directly as Lua 5.1 doesn't support \texttt{\_\_pairs}.
 \end{description}
 
+\subsubsection[\fn{accept}]{\fn{accept($file$[,$flags$])}}
+
+FIXME.
+
 \subsubsection[\fn{arc4random}]{\fn{arc4random()}}
 
 Returns a cryptographically strong uniformly random 32-bit integer as a Lua number. On Linux the \const{RANDOM\_UUID} \fn{sysctl} feature is used to seed the generator if available; or on more recent Linux and Solaris kernels the \syscall{getrandom} interface.\footnote{Some Linux distributions, such as Red Hat, disable \syscall{sysctl}.} This avoids fiddling with file descriptors, and also works in a chroot jail. On other platforms without a native \fn{arc4random} interface, such as Solaris 11.2 or earlier, the implementation must resort to /dev/urandom for seeding.
@@ -264,6 +268,10 @@ Stir the arc4random entropy pool using the best available resources. This normal
 \subsubsection[\fn{arc4random\_uniform}]{\fn{arc4random\_uniform([$n$])}}
 
 Returns a cryptographically strong uniform random integer in the interval $[0, n-1]$ where $n \leq 2^{32}$. If $n$ is omitted the interval is $[0, 2^{32}-1]$ and effectively behaves like \fn{arc4random}.
+
+\subsubsection[\fn{bind}]{\fn{bind($file$[,$sockaddr$])}}
+
+FIXME.
 
 \subsubsection[\fn{chdir}]{\fn{chdir($dir$)}}
 
@@ -298,6 +306,10 @@ Returns a time value as a Lua floating point number, otherwise returns \nil, an 
 \subsubsection[\fn{closedir}]{\fn{closedir($dir$)}}
 
 Closes the DIR handle, releasing the underlying file descriptor.
+
+\subsubsection[\fn{connect}]{\fn{connect($file$[,$sockaddr$])}}
+
+FIXME.
 
 \subsubsection[\fn{dup}]{\fn{dup($file$[, $flags$])}}
 
@@ -445,6 +457,10 @@ Integer port.
 
 If fields are specified, the iterator returns a list of fields in the order specified.
 
+\subsubsection[\fn{getnameinfo}]{\fn{getnameinfo($sockaddr$[, $flags$])}}
+
+FIXME.
+
 \subsubsection[\fn{getegid}]{\fn{getegid()}}
 
 Returns the effective process GID as a Lua number.
@@ -531,6 +547,10 @@ Interface broadcast address, or \nil if absent or of an unknown address family.
 
 If arguments are given, each field specified (as named above) is returned as part of the return value list on every invocation of the iterator.
 
+\subsubsection[\fn{getpeername}]{\fn{getpeername($file$)}}
+
+FIXME.
+
 \subsubsection[\fn{getpgid}]{\fn{getpgid()}}
 
 FIXME.
@@ -585,6 +605,10 @@ If a system error occurred, returns \nil, an error string, and an integer system
 FIXME.
 
 \subsubsection[\fn{getrusage}]{\fn{getrusage([$who$])}}
+
+FIXME.
+
+\subsubsection[\fn{getsockname}]{\fn{getsockname($file$)}}
 
 FIXME.
 
@@ -727,6 +751,10 @@ If a system error occurred, returns \nil, an error string, and an integer system
 
 FIXME.
 
+\subsubsection[\fn{recvfromto}]{\fn{recvfrom($file$, $size$[, $flags$])}}
+
+FIXME.
+
 \subsubsection[\fn{rename}]{\fn{rename($path1$, $path2$)}}
 
 Renames the file $path1$ to $path2$. The paths must reside on the same device.
@@ -789,6 +817,10 @@ Returns \true or \false.
 
 FIXME.
 
+\subsubsection[\fn{sendto}]{\fn{sendtofrom($file$, $data$, [$flags$], $addr$, $addr$])}}
+
+FIXME.
+
 \subsubsection[\fn{setegid}]{\fn{setegid($gid$)}}
 
 Set the effective process GID to $gid$. $gid$ must be an integer or symbolic group name.
@@ -842,6 +874,10 @@ FIXME.
 Create a new session and process group.
 
 Returns the new process group ID on success, otherwise \nil, an error string, and an integer system error.
+
+\subsubsection[\fn{setsockopt}]{\fn{setsockopt($file$, $level$, $type$, \ldots)}}
+
+FIXME.
 
 \subsubsection[\fn{setuid}]{\fn{setuid($uid$)}}
 
