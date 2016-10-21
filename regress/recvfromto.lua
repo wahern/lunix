@@ -56,10 +56,13 @@ local function do_recvfromto(family, port)
 			info("recvfromto -> (msg:%s from:%s to:%s)", msg, strname(from), strname(to))
 		end
 	end
+
+	unix.close(fd)
+	unix.close(sd)
 end
 
-for i,family in ipairs{ unix.AF_INET, unix.AF_INET6 } do
-	do_recvfromto(family, 8000 + i)
+for _,family in ipairs{ unix.AF_INET, unix.AF_INET6 } do
+	do_recvfromto(family, 8000)
 end
 
 say"OK"
