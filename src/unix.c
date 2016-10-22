@@ -2253,6 +2253,22 @@ static u_error_t u_ptsname_r(int fd, char *buf, size_t buflen) {
 #endif
 } /* u_ptsname_r() */
 
+
+/*
+ * References for recvfromto and sendtofrom.
+ *
+ *   - IPv6 API
+ *     - https://www.ietf.org/rfc/rfc3542.txt
+ *   - MacOS <= 10.10 kernel panic with IP_SENDSRCADDR and INADDR_ANY binding
+ *     - https://www.irif.fr/~boutier/mac-crash.html
+ *     - https://www.irif.fr/~boutier/progs/kernel-panic.c
+ *   - OpenIKED sendtofrom implementation
+ *     - http://cvsweb.openbsd.org/cgi-bin/cvsweb/src/sbin/iked/util.c?rev=1.32
+ *   - FreeRADIUS recvfromto, sendfromto implementations
+ *     - https://github.com/FreeRADIUS/freeradius-server/blob/release_3_0_12/src/lib/udpfromto.c
+ *   - @ryo recvfromto, sendfromto implementations
+ *     - http://www.nerv.org/~ryo/files/netbsd/sendfromto/sockfromto.c
+ */
 #if HAVE_DECL_IP_RECVDSTADDR || HAVE_DECL_IP_PKTINFO || HAVE_DECL_IPV6_PKTINFO
 
 static u_error_t u_recvfromto_init(int fd, in_port_t *port) {
@@ -2423,13 +2439,6 @@ static ssize_t u_recvfromto(int fd, const void *src, size_t len, int flags, cons
 
 #endif
 
-/*
- * References
- *	https://www.ietf.org/rfc/rfc3542.txt
- * 	http://cvsweb.openbsd.org/cgi-bin/cvsweb/src/sbin/iked/util.c?rev=1.32
- * 	http://www.nerv.org/~ryo/files/netbsd/sendfromto/sockfromto.c
- * 	https://github.com/FreeRADIUS/freeradius-server/blob/release_3_0_12/src/lib/udpfromto.c
- */
 #if HAVE_DECL_IP_SENDSRCADDR || HAVE_DECL_IP_PKTINFO || HAVE_DECL_IPV6_PKTINFO
 
 static ssize_t u_sendtofrom(int fd, const void *buf, size_t len, int flags, const struct sockaddr *to, size_t tolen, const struct sockaddr *from, size_t fromlen, u_error_t *error) {
