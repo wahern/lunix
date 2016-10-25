@@ -7600,6 +7600,26 @@ static int unix_readdir(lua_State *L) {
 } /* unix_readdir() */
 
 
+static int unix_recv(lua_State *L) {
+	unixL_State *U = unixL_getstate(L);
+	int fd = unixL_checkfileno(L, 1);
+	size_t size = unixL_checksize(L, 2);
+	int flags = unixL_optinteger(L, 3, 0, 0, INT_MAX);
+	ssize_t n;
+	int error;
+
+	if (U->bufsiz < size && ((error = u_realloc(&U->buf, &U->bufsiz, size))))
+		return unixL_pusherror(L, error, "recv", "~$#");
+
+	if (-1 == (n = recv(fd, U->buf, size, flags)))
+		return unixL_pusherror(L, errno, "recv", "~$#");
+
+	lua_pushlstring(L, U->buf, n);
+
+	return 1;
+} /* unix_recv() */
+
+
 static int unix_recvfrom(lua_State *L) {
 	unixL_State *U = unixL_getstate(L);
 	int fd = unixL_checkfileno(L, 1);
@@ -7628,6 +7648,7 @@ static int unix_recvfrom(lua_State *L) {
 	return 2;
 } /* unix_recvfrom() */
 
+
 static int unix_recvfromto(lua_State *L) {
 	unixL_State *U = unixL_getstate(L);
 	int fd = unixL_checkfileno(L, 1);
@@ -7640,12 +7661,12 @@ static int unix_recvfromto(lua_State *L) {
 	int error;
 
 	if (U->bufsiz < size && ((error = u_realloc(&U->buf, &U->bufsiz, size))))
-		return unixL_pusherror(L, error, "recvfrom", "~$#");
+		return unixL_pusherror(L, error, "recvfromto", "~$#");
 
 	fromlen = sizeof from;
 	tolen = sizeof to;
 	if (-1 == (n = u_recvfromto(fd, U->buf, size, flags, (struct sockaddr *)&from, &fromlen, (struct sockaddr *)&to, &tolen, &error)))
-		return unixL_pusherror(L, error, "recvfrom", "~$#");
+		return unixL_pusherror(L, error, "recvfromto", "~$#");
 
 	lua_pushlstring(L, U->buf, n);
 	unixL_newsockaddr(L, &from, fromlen);
@@ -7822,6 +7843,23 @@ static int unix_rmdir(lua_State *L) {
 
 	return 1;
 } /* unix_rmdir() */
+
+
+static int unix_send(lua_State *L) {
+	int fd = unixL_checkfileno(L, 1);
+	size_t size;
+	const char *src = luaL_checklstring(L, 2, &size);
+	int flags = unixL_optinteger(L, 3, 0, 0, INT_MAX);
+	ssize_t n;
+	int error;
+
+	if (-1 == (n = send(fd, src, size, flags)))
+		return unixL_pusherror(L, errno, "send", "~$#");
+
+	unixL_pushsize(L, n);
+
+	return 1;
+} /* unix_send() */
 
 
 static int unix_sendto(lua_State *L) {
@@ -8914,6 +8952,7 @@ static const luaL_Reg unix_routines[] = {
 	{ "raise",              &unix_raise },
 	{ "read",               &unix_read },
 	{ "readdir",            &unix_readdir },
+	{ "recv",               &unix_recv },
 	{ "recvfrom",           &unix_recvfrom },
 	{ "recvfromto",         &unix_recvfromto },
 	{ "rename",             &unix_rename },
@@ -8926,6 +8965,7 @@ static const luaL_Reg unix_routines[] = {
 	{ "S_ISREG",            &unix_S_ISREG },
 	{ "S_ISLNK",            &unix_S_ISLNK },
 	{ "S_ISSOCK",           &unix_S_ISSOCK },
+	{ "send",               &unix_send },
 	{ "sendto",             &unix_sendto },
 	{ "sendtofrom",         &unix_sendtofrom },
 	{ "setegid",            &unix_setegid },
