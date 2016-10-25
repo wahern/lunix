@@ -1261,6 +1261,8 @@ static u_error_t u_strerror_r(int error, char *dst, size_t lim) {
 #define U_FDFLAGS  (U_CLOEXEC)  /* file descriptor flags */
 #define U_FLFLAGS  (~U_FDFLAGS) /* file status flags */
 
+#define U_FLAGS_MIN LLONG_MIN
+#define U_FLAGS_MAX LLONG_MAX
 #define u_flags_t long long
 
 
@@ -5230,6 +5232,23 @@ static int unix_dup2(lua_State *L) {
 } /* unix_dup2() */
 
 
+#if HAVE_DUP3
+static int unix_dup3(lua_State *L) {
+	int ofd = unixL_checkfileno(L, 1);
+	int nfd = unixL_checkfileno(L, 2);
+	u_flags_t flags = unixL_checkinteger(L, 3, U_FLAGS_MIN, U_FLAGS_MAX);
+	int error;
+
+	if ((error = u_dup2(ofd, nfd, flags)))
+		return unixL_pusherror(L, error, "dup2", "~$#");
+
+	lua_pushinteger(L, nfd);
+
+	return 1;
+} /* unix_dup3() */
+#endif
+
+
 static u_error_t exec_addarg(unixL_State *U, size_t *arrp, const char *s) {
 	int error;
 
@@ -8868,6 +8887,9 @@ static const luaL_Reg unix_routines[] = {
 	{ "connect",            &unix_connect },
 	{ "dup",                &unix_dup },
 	{ "dup2",               &unix_dup2 },
+#if HAVE_DUP3
+	{ "dup3",               &unix_dup3 },
+#endif
 	{ "execve",             &unix_execve },
 	{ "execl",              &unix_execl },
 	{ "execlp",             &unix_execlp },
