@@ -36,9 +36,9 @@ end
 
 local function do_recvfromto(family, port)
 	local sd = assert(unix.socket(family, unix.SOCK_DGRAM))
+	setrecvaddr(sd, family)
 	assert(unix.bind(sd, { family = family, addr = in_addr_any(family), port = port }))
 	setnonblock(sd)
-	setrecvaddr(sd, family)
 
 	local fd = assert(unix.socket(family, unix.SOCK_DGRAM))
 	-- NB: FreeBSD requires binding to IN_ADDR_ANY

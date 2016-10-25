@@ -2271,6 +2271,51 @@ static u_error_t u_ptsname_r(int fd, char *buf, size_t buflen) {
  */
 #if HAVE_DECL_IP_RECVDSTADDR || HAVE_DECL_IP_PKTINFO || HAVE_DECL_IPV6_PKTINFO
 
+static u_error_t u_getsockport(int fd, in_port_t *port, int (*getname)(int, struct sockaddr *, socklen_t *)) {
+	union {
+		struct sockaddr_in in;
+		struct sockaddr_in6 in6;
+	} addr;
+	socklen_t addrlen = sizeof addr;
+
+	if (0 != getname(fd, (struct sockaddr *)&addr, &addrlen))
+		return errno;
+
+	switch (addr.in.sin_family) {
+	case AF_INET:
+		*port = addr.in.sin_port;
+		return 0;
+	case AF_INET6:
+		*port = addr.in6.sin6_port;
+		return 0;
+	default:
+		return EAFNOSUPPORT;
+	}
+} /* u_getsockport() */
+
+/*
+ * NOTE: Initialization is better done by the application code, because
+ *
+ *   1) setsockopt should happen before binding. On FreeBSD (confirmed 10.1)
+ *      packets received in the kernel before the option has been set will
+ *      not be tagged with the reception address when dequeued with recvmsg.
+ *
+ *   2) For sendtofrom to work on FreeBSD (confirmed 10.1) the sending
+ *      socket must also be explicitly bound to INADDR_ANY. This means that
+ *      we cannot make recvfromto/sendtofrom magically work without the
+ *      caller performing some initializations peculiar to this interface.
+ *      See also #3.
+ *
+ *   3) OS X <= 10.10 (confirmed 10.10) has a bug that causes a kernel panic
+ *      when using IP_SENDSRCADDR on a socket bound to INADDR_ANY. But
+ *      FreeBSD requires binding to INADDR_ANY. See #2. Handling this issue
+ *      is too messy and brittle to do outside the caller's control.
+ *
+ *   4) It invokes a superfluous setsockopt for every call. We still do a
+ *      getsockname on every call, but this can be optimized in the future
+ *      by allowing the Lua caller to provide a preinitialized structure.
+ */
+#if 0
 static u_error_t u_recvfromto_init(int fd, in_port_t *port) {
 	union {
 		struct sockaddr_in in;
@@ -2312,6 +2357,7 @@ static u_error_t u_recvfromto_init(int fd, in_port_t *port) {
 
 	return 0;
 }
+#endif
 
 static ssize_t u_recvfromto(int fd, void *buf, size_t lim, int flags, struct sockaddr *from, size_t *fromlen, struct sockaddr *to, size_t *tolen, u_error_t *error) {
 	in_port_t to_port = 0;
@@ -2339,7 +2385,7 @@ static ssize_t u_recvfromto(int fd, void *buf, size_t lim, int flags, struct soc
 	} cmsgbuf;
 	ssize_t n;
 
-	if ((*error = u_recvfromto_init(fd, &to_port)))
+	if ((*error = u_getsockport(fd, &to_port, &getsockname)))
 		return -1;
 
 	memset(&msg, 0, sizeof msg);
@@ -2408,7 +2454,7 @@ static ssize_t u_recvfromto(int fd, void *buf, size_t lim, int flags, struct soc
 #endif
 			in6->sin6_port = to_port;
 			in6->sin6_addr = pkt6.ipi6_addr;
-			/* TODO: set .sin6_scope_id fromm .ipi6_ifindex? */
+			/* TODO: set .sin6_scope_id from .ipi6_ifindex? */
 			*tolen = sizeof *in6;
 			break;
 		}
