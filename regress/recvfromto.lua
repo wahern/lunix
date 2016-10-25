@@ -30,19 +30,19 @@ local function setrecvaddr(fd, family)
 	assert(unix.setsockopt(fd, level, type, true))
 end
 
-local function in_addr_any(family)
+local function inaddr_any(family)
 	return family == unix.AF_INET6 and "::" or "0.0.0.0"
 end
 
 local function do_recvfromto(family, port)
 	local sd = assert(unix.socket(family, unix.SOCK_DGRAM))
 	setrecvaddr(sd, family)
-	assert(unix.bind(sd, { family = family, addr = in_addr_any(family), port = port }))
+	assert(unix.bind(sd, { family = family, addr = inaddr_any(family), port = port }))
 	setnonblock(sd)
 
 	local fd = assert(unix.socket(family, unix.SOCK_DGRAM))
-	-- NB: FreeBSD requires binding to IN_ADDR_ANY
-	assert(unix.bind(fd, { family = family, addr = in_addr_any(family), port = 0 }))
+	-- NB: FreeBSD requires binding to INADDR_ANY
+	assert(unix.bind(fd, { family = family, addr = inaddr_any(family), port = 0 }))
 	setnonblock(fd)
 
 	for ifa in unix.getifaddrs() do
