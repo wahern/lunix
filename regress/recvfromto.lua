@@ -7,6 +7,16 @@ _=[[
 local unix = require"unix"
 local regress = require"regress".export".*"
 
+local function strfamily(af)
+	for k,v in pairs(unix) do
+		if v == af and type(k) == "string" and k:match"^AF_" then
+			return k
+		end
+	end
+
+	return string.format("AF_%d", assert(tonumber(af)))
+end
+
 local function strname(addr)
 	local ip, port = assert(unix.getnameinfo(addr, unix.NI_NUMERICHOST + unix.NI_NUMERICSERV))
 	return string.format("[%s]:%d", ip, tonumber(port))
@@ -27,7 +37,12 @@ local function setrecvaddr(fd, family)
 		type = unix.IP_RECVDSTADDR or unix.IP_PKTINFO
 	end
 
-	assert(unix.setsockopt(fd, level, type, true))
+	if type and level then
+		return unix.setsockopt(fd, level, type, true)
+	else
+		local errno = unix.EAFNOSUPPORT
+		return false, unix.strerror(errno), errno
+	end
 end
 
 local function inaddr_any(family)
@@ -36,12 +51,17 @@ end
 
 local function do_recvfromto(family, port)
 	local sd = assert(unix.socket(family, unix.SOCK_DGRAM))
-	setrecvaddr(sd, family)
+	local ok, why = setrecvaddr(sd, family)
+	if not ok then
+		info("address family not supported (%s) (%s)", strfamily(family), tostring(why))
+		return
+	end
 	assert(unix.bind(sd, { family = family, addr = inaddr_any(family), port = port }))
 	setnonblock(sd)
 
 	local fd = assert(unix.socket(family, unix.SOCK_DGRAM))
-	-- NB: FreeBSD requires binding to INADDR_ANY
+	-- NB: FreeBSD and macOS requires binding to INADDR_ANY. macOS 10.10
+	-- and earlier will actually kernel panic otherwise.
 	assert(unix.bind(fd, { family = family, addr = inaddr_any(family), port = 0 }))
 	setnonblock(fd)
 

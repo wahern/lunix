@@ -2261,7 +2261,7 @@ static u_error_t u_ptsname_r(int fd, char *buf, size_t buflen) {
  *
  *   - IPv6 API
  *     - https://www.ietf.org/rfc/rfc3542.txt
- *   - MacOS <= 10.10 kernel panic with IP_SENDSRCADDR and INADDR_ANY binding
+ *   - macOS <= 10.10 kernel panic with IP_SENDSRCADDR unless socket bound
  *     - https://www.irif.fr/~boutier/mac-crash.html
  *     - https://www.irif.fr/~boutier/progs/kernel-panic.c
  *   - OpenIKED sendtofrom implementation
@@ -2305,12 +2305,10 @@ static u_error_t u_getsockport(int fd, in_port_t *port, int (*getname)(int, stru
  *   2) For sendtofrom to work on FreeBSD (confirmed 10.1) the sending
  *      socket must also be explicitly bound to INADDR_ANY. This means that
  *      we cannot make recvfromto/sendtofrom magically work without the
- *      caller performing some initializations peculiar to this interface.
- *      See also #3.
+ *      caller performing some initializations peculiar to this API.
  *
- *   3) OS X <= 10.10 (confirmed 10.10) has a bug that causes a kernel panic
- *      when using IP_SENDSRCADDR on a socket bound to INADDR_ANY. But
- *      FreeBSD requires binding to INADDR_ANY. See #2. Handling this issue
+ *   3) macOS <= 10.10 (confirmed 10.10) has a bug that causes a kernel panic
+ *      when using IP_SENDSRCADDR on an unbound socket. Handling this issue
  *      is too messy and brittle to do outside the caller's control.
  *
  *   4) It invokes a superfluous setsockopt for every call. We still do a
