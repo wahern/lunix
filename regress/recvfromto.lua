@@ -69,7 +69,12 @@ local function do_recvfromto(family, port)
 		if ifa.family == family then
 			local to = { family = family, addr = ifa.addr, port = port }
 			local from = { family = family, addr = ifa.addr, port = port + 1 }
-			assert(unix.sendtofrom(fd, "hello world", 0, to, from))
+			local ok, why, errno = unix.sendtofrom(fd, "hello world", 0, to, from)
+			if not ok then
+				local log = errno == unix.EAFNOSUPPORT and info or panic
+				log("sendtofrom (%s) (%s)", strfamily(family), why)
+				return
+			end
 			info("sendtofrom (to:%s from:%s)", strname(to), strname(from))
 
 			local msg, from, to = assert(unix.recvfromto(sd, 512, 0))
