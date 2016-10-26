@@ -7888,8 +7888,8 @@ static int unix_sendto(lua_State *L) {
 	size_t size;
 	const char *src = luaL_checklstring(L, 2, &size);
 	int flags = unixL_optinteger(L, 3, 0, 0, INT_MAX);
-	void *to = luaL_checkudata(L, 4, "struct sockaddr");
-	size_t tolen = lua_rawlen(L, 4);
+	size_t tolen;
+	void *to = unixL_checksockaddr(L, 4, &tolen);
 	ssize_t n;
 	int error;
 
