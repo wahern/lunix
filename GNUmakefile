@@ -113,6 +113,7 @@ CFLAGS_$(d) += -g
 endif
 
 ifeq ($(VENDOR_OS_$(d)), Darwin)
+CPPFLAGS_$(d) += -D__APPLE_USE_RFC_3542
 SOFLAGS_$(d) += -bundle -undefined dynamic_lookup
 else
 SOFLAGS_$(d) += -shared
