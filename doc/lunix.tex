@@ -36,6 +36,9 @@
 \newcommand*{\errno}[1]{\texttt{#1}\xspace}
 \newcommand*{\crlf}[0]{$\backslash$r$\backslash$n\xspace}
 \newcommand*{\lf}[0]{$\backslash$n\xspace}
+\newcommand*{\otherwise}[1]{otherwise #1, an error string, and an integer system error}
+\newcommand*{\sockaddr}[0]{\texttt{sockaddr}\xspace}
+\newcommand*{\mustbe}[0]{\texttt{must be}\xspace}
 
 %
 % ENVIRONMENTS
@@ -281,13 +284,13 @@ Returns \true on success, otherwise returns \false, an error string, and an inte
 
 \subsubsection[\fn{chmod}]{\fn{chmod($file$, $mode$)}}
 
-$file$ may either be a string path for use with \syscall{chmod}, or a FILE handle or integer file descriptor for use with \syscall{fchmod}. $mode$ may be an integer value or symbolic string.
+$file$ may be either be a string path for use with \syscall{chmod}, or a FILE handle or integer file descriptor for use with \syscall{fchmod}. $mode$ may be an integer value or symbolic string.
 
 Returns \true on success, otherwise returns \false, an error string, and an integer system error.
 
 \subsubsection[\fn{chown}]{\fn{chown($file$[, $uid$][, $gid$])}}
 
-$file$ may either be a string path for use with \syscall{chown}, or a FILE handle or integer file descriptor for use with \syscall{fchown}. $uid$ and $gid$ may be integer values or symbolic string names.
+$file$ may be either be a string path for use with \syscall{chown}, or a FILE handle or integer file descriptor for use with \syscall{fchown}. $uid$ and $gid$ may be integer values or symbolic string names.
 
 Returns \true on success, otherwise returns \false, an error string, and an integer system error.
 
@@ -313,15 +316,19 @@ FIXME.
 
 \subsubsection[\fn{dup}]{\fn{dup($file$[, $flags$])}}
 
-$file$ may either a FILE handle or integer file descriptor. $flags$ is an optional integer value.
+$file$ may be either a FILE handle or integer file descriptor. $flags$ is an optional file status flags integer. If available, \syscall{F\_DUPFD\_CLOEXEC} is used to ensure atomic setting of any \syscall{O\_CLOEXEC} flag.
 
-Returns an integer descriptor on success, otherwise returns \nil, an error string, and an integer system error.
+Returns an integer descriptor on success, \otherwise{\nil}, an error string, and an integer system error.
 
-\subsubsection[\fn{dup2}]{\fn{dup2($file$, $file$, [, $flags$])}}
+\subsubsection[\fn{dup2}]{\fn{dup2($file$, $file$[, $flags$])}}
 
-$file$ may either a FILE handle or integer file descriptor. $flags$ is an optional integer value.
+$file$ may be either a FILE handle or integer file descriptor. $flags$ is an optional file status flags integer. If available, either \syscall{dup3} or \syscall{F\_DUP2FD\_CLOEXEC} is used to ensure atomic setting of any \syscall{O\_CLOEXEC} flag.
 
-Returns an integer descriptor on success, otherwise returns \nil, an error string, and an integer system error.
+Returns an integer descriptor on success, \otherwise{\nil}.
+
+\subsubsection[\fn{dup3}]{\fn{dup3($file$, $file$, $flags$)}}
+
+Like \syscall{dup2}, except $flags$ is not optional. This binding will not exist if \syscall{dup3} was not available at compile-time, whereas the \syscall{dup2} binding is best-effort regarding atomically setting \syscall{O\_CLOEXEC}.
 
 \subsubsection[\fn{execve}]{\fn{execve($path$[, $argv$][, $env$])}}
 
@@ -373,7 +380,7 @@ FIXME
 
 \subsubsection[\fn{fdup}]{\fn{fdup($file$[, $flags$])}}
 
-$file$ may either a FILE handle or integer file descriptor. $flags$ is an optional integer or symbolic mode.
+$file$ may be either a FILE handle or integer file descriptor. $flags$ is an optional integer or symbolic mode.
 
 Returns a FILE handle on success, otherwise returns \nil, an error string, and an integer system error.
 
@@ -747,13 +754,47 @@ If the end of directory entries has been reached, returns \nil.
 
 If a system error occurred, returns \nil, an error string, and an integer system error.
 
+\subsubsection[\fn{recv}]{\fn{recv($file$, $size$[, $flags$])}}
+
+Receives up to $size$ bytes of data from the socket $file$. $file$ may be either a FILE handle or integer file descriptor. $flags$ is an optional integer containing bitwise socket receive flags (e.g. \texttt{MSG\_WAITALL}).
+
+Returns a string on success, \otherwise{\nil}.
+
 \subsubsection[\fn{recvfrom}]{\fn{recvfrom($file$, $size$[, $flags$])}}
 
-FIXME.
+Like \syscall{recv}. Returns a string and \sockaddr on success; \otherwise{\nil}.
 
-\subsubsection[\fn{recvfromto}]{\fn{recvfrom($file$, $size$[, $flags$])}}
+\subsubsection[\fn{recvfromto}]{\fn{recvfromto($file$, $size$[, $flags$])}}
 
-FIXME.
+Like \syscall{recvfrom}. Returns a string, source \sockaddr, and destination \sockaddr on success; \otherwise{\nil}.
+
+This interface is useful for replying to UDP packets with the same source address received on, without having to enumerate, bind, and listen on multiple interfaces. Because interfaces can go down and come up dynamically, binding on multiple interfaces is complex and difficult. See also the reciprocal interface, \syscall{sendtofrom}.
+
+NOTES:
+\begin{itemize}
+\item Not all platforms support this interface. AIX (confirmed 7.1) supports IPv6 but not IPv4; and macOS (confirmed 10.10) supports IPv4 but not IPv6.
+\item The descriptor \mustbe initialized by enabling a specialized socket option. The option varies by platform and socket protocol family. Example code:
+\begin{example}{lua}
+local function setrecvaddr(fd, family)
+  local type, level
+
+  if family == unix.AF_INET6 then
+    level = unix.IPPROTO_IPV6
+    type = unix.IPV6_RECVPKTINFO or unix.IPV6_PKTINFO
+  else
+    level = unix.IPPROTO_IP
+    type = unix.IP_RECVDSTADDR or unix.IP_PKTINFO
+  end
+
+  if level and type then
+    return unix.setsockopt(fd, level, type, true)
+  else
+    local errno = unix.EAFNOSUPPORT
+    return false, unix.strerror(errno), errno
+  end
+end
+\end{example}
+\end{itemize}
 
 \subsubsection[\fn{rename}]{\fn{rename($path1$, $path2$)}}
 
@@ -813,13 +854,26 @@ Tests whether the specified $mode$ value---as returned by, e.g., \syscall{stat} 
 
 Returns \true or \false.
 
-\subsubsection[\fn{sendto}]{\fn{sendto($file$, $data$[, $flags$][, $addr$])}}
+\subsubsection[\fn{send}]{\fn{send($file$, $data$[, $flags$])}}
 
-FIXME.
+Sends $data$ to the peer on the socket, $file$. $file$ may be either a FILE handle or integer file descriptor. $flags$ is an optional integer containing bitwise socket send flags (e.g. \texttt{MSG\_NOSIGNAL}).
 
-\subsubsection[\fn{sendto}]{\fn{sendtofrom($file$, $data$, [$flags$], $addr$, $addr$])}}
+Returns an integer representing the number of bytes sent (which may be less than \texttt{\#data}) on success, \otherwise{\nil}.
 
-FIXME.
+\subsubsection[\fn{sendto}]{\fn{sendto($file$, $data$, $flags$, $to\_addr$}}
+
+Like \syscall{send}. $to\_addr$ is a \sockaddr destination address or table convertible to a \sockaddr
+
+\subsubsection[\fn{sendtofrom}]{\fn{sendtofrom($file$, $data$, $flags$, $to\_addr$, $from\_addr$)}}
+
+Like \syscall{send}. $to\_addr$ is a \sockaddr destination address or table convertible to a \sockaddr, and $from\_addr$ a \sockaddr source address or table convertible to a \sockaddr. See also the reciprocal interface, \syscall{recvfromto}.
+
+NOTES:
+\begin{itemize}
+\item Not all platforms support this interface. See \syscall{recvfromto}.
+\item FreeBSD (confirmed 10.1) requires the socket to be bound to the wildcard address, ``0.0.0.0'' or ``::''.
+\item macOS 10.10 and several prior releases contain a kernel bug which causes a kernel panic if the socket address is not bound as required by FreeBSD. (Oddly macOS copied Linux's IP\_PKTINFO interface, not FreeBSD's IP\_SENDSRCADDR; but Linux doesn't have the requirement to bind).
+\end{itemize}
 
 \subsubsection[\fn{setegid}]{\fn{setegid($gid$)}}
 
