@@ -772,7 +772,7 @@ This interface is useful for replying to UDP packets with the same source addres
 
 NOTES:
 \begin{itemize}
-\item Not all platforms support this interface. AIX (confirmed 7.1) supports IPv6 but not IPv4; and macOS (confirmed 10.10) supports IPv4 but not IPv6.
+\item Not all platforms support this interface. AIX (confirmed 7.1) supports IPv6 but not IPv4.
 \item The descriptor \mustbe initialized by enabling a specialized socket option. The option varies by platform and socket protocol family. Example code:
 \begin{example}{lua}
 local function setrecvaddr(fd, family)
@@ -870,7 +870,7 @@ Like \syscall{send}. $to\_addr$ is a \sockaddr destination address or table conv
 
 NOTES:
 \begin{itemize}
-\item Not all platforms support this interface. See \syscall{recvfromto}.
+\item Not all platforms support this interface. AIX (confirmed 7.1), NetBSD (confirmed 7.0), and OpenBSD <= 6.0 (confirmed 6.0) support IPv6 but not IPv4.
 \item FreeBSD (confirmed 10.1) requires the socket to be bound to the wildcard address, ``0.0.0.0'' or ``::''.
 \item macOS 10.10 and several prior releases contain a kernel bug which causes a kernel panic if the socket address is not bound as required by FreeBSD. (Oddly macOS copied Linux's IP\_PKTINFO interface, not FreeBSD's IP\_SENDSRCADDR; but Linux doesn't have the requirement to bind).
 \end{itemize}
