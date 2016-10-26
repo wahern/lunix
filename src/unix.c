@@ -2454,7 +2454,8 @@ static ssize_t u_recvfromto(int fd, void *buf, size_t lim, int flags, struct soc
 #endif
 			in6->sin6_port = to_port;
 			in6->sin6_addr = pkt6.ipi6_addr;
-			/* TODO: set .sin6_scope_id from .ipi6_ifindex? */
+			if (IN6_IS_SCOPE_LINKLOCAL(&pkt6.ipi6_addr))
+				in6->sin6_scope_id = pkt6.ipi6_ifindex;
 			*tolen = sizeof *in6;
 			break;
 		}
@@ -2565,6 +2566,8 @@ static ssize_t u_sendtofrom(int fd, const void *buf, size_t len, int flags, cons
 		in6 = (struct sockaddr_in6 *)from;
 		memset(&pkt6, 0, sizeof pkt6);
 		pkt6.ipi6_addr = in6->sin6_addr;
+		if (IN6_IS_SCOPE_LINKLOCAL(&in6->sin6_addr))
+			pkt6.ipi6_ifindex = in6->sin6_scope_id;
 		memcpy(CMSG_DATA(cmsg), &pkt6, sizeof pkt6);
 
 		break;
