@@ -2445,6 +2445,7 @@ static ssize_t u_recvfromto(int fd, void *buf, size_t lim, int flags, struct soc
 
 #if HAVE_DECL_IPV6_PKTINFO && HAVE_STRUCT_IN6_PKTINFO
 		if (cmsg->cmsg_level == IPPROTO_IPV6 && cmsg->cmsg_type == IPV6_PKTINFO) {
+			memcpy(&pkt6, CMSG_DATA(cmsg), sizeof pkt6);
 			if (*tolen < sizeof *in6)
 				goto inval;
 			in6 = (struct sockaddr_in6 *)to;
