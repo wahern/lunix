@@ -159,6 +159,8 @@ Returns a cryptographically strong uniform random integer in the interval
 $[0, n-1]$ where $n \leq 2^{32}$. If $n$ is omitted the interval is
 $[0, 2^{32}-1]$ and effectively behaves like `arc4random`.
 
+### bind
+
 ### bitand
 
 ### bitor
@@ -216,6 +218,7 @@ Returns a time value as a Lua floating point number, otherwise returns `nil`,
 an error string, and an integer system error.
 
 ### close
+
 ### closedir
 
 ```
@@ -226,9 +229,13 @@ Closes the DIR handle, releasing the underlying file descriptor.
 
 ### compl
 
+### connect
+
 ### dup
 
 ### dup2
+
+### dup3
 
 ### execve
 
@@ -314,6 +321,7 @@ Like `_exit`, but first flushes and closes open streams and calls
 ### fchmod
 ### fchown
 ### fcntl
+### fdatasync
 ### fdopen
 ### fdopendir
 ### fdup
@@ -339,6 +347,7 @@ This function only works on FILE handles and not DIR handles or integer
 descriptors.
 
 ### fstat
+### fsync
 ### ftrylockfile
 
 ```
@@ -381,6 +390,7 @@ string, and an integer system error.
 ### gethostname
 ### getifaddrs
 ### getopt
+### getpeername
 ### getpgid
 ### getpgrp
 ### getpid
@@ -388,6 +398,8 @@ string, and an integer system error.
 ### getprogname
 ### getpwnam
 ### getpwuid
+### getrlimit
+### getrusage
 ### gettimeofday
 ### getuid
 ### grantpt
@@ -397,6 +409,7 @@ string, and an integer system error.
 ### kill
 ### lchown
 ### link
+### listen
 ### lockf
 ### lseek
 ### lstat
@@ -406,6 +419,7 @@ string, and an integer system error.
 ### open
 ### opendir
 ### pipe
+### poll
 ### posix_fadvise
 ### posix_fallocate
 ### posix_openpt
@@ -416,6 +430,9 @@ string, and an integer system error.
 ### raise
 ### read
 ### readdir
+### recv
+### recvfrom
+### recvfromto
 ### rename
 ### rewinddir
 ### rmdir
@@ -426,6 +443,9 @@ string, and an integer system error.
 ### S_ISREG
 ### S_ISLNK
 ### S_ISSOCK
+### send
+### sendto
+### sendtofrom
 ### setegid
 ### setenv
 ### seteuid
@@ -433,6 +453,8 @@ string, and an integer system error.
 ### setgroups
 ### setlocale
 ### setpgid
+### setrlimit
+### setsockopt
 ### setsid
 ### setuid
 ### sigaction
@@ -445,6 +467,7 @@ string, and an integer system error.
 ### sigtimedwait
 ### sigwait
 ### sleep
+### socket
 ### stat
 ### strerror
 ### strsignal
