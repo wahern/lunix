@@ -71,7 +71,7 @@ local function do_recvfromto(family, port)
 			local from = { family = family, addr = ifa.addr, port = port + 1 }
 			local ok, why, errno = unix.sendtofrom(fd, "hello world", 0, to, from)
 			if ok then
-				info("sendtofrom (to:%s from:%s)", strname(to), strname(from))
+				info("sendtofrom (to:%s from:%s) -> OK", strname(to), strname(from))
 			else
 				local log = errno == unix.EAFNOSUPPORT and info or panic
 				log("sendtofrom (%s) (%s)", strfamily(family), why)
@@ -79,9 +79,11 @@ local function do_recvfromto(family, port)
 				if not unix.sendto(fd, "hello world", 0, to) then
 					return
 				end
-				info("sendto (to:%s)", strname(to))
+				info("sendto (to:%s) -> OK", strname(to))
 			end
 
+			local nr = assert(unix.poll({ [sd] = { events = unix.POLLIN } }, 3))
+			info("unix.poll -> (nr:%d)", nr)
 			local msg, from, to = assert(unix.recvfromto(sd, 512, 0))
 			info("recvfromto -> (msg:%s from:%s to:%s)", msg, strname(from), strname(to))
 		end
