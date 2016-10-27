@@ -7333,99 +7333,6 @@ error:
 } /* unix_open() */
 
 
-static int unix_pipe(lua_State *L) {
-	int fd[2] = { -1, -1 }, error;
-	u_flags_t flags;
-	const char *mode;
-
-	lua_settop(L, 1);
-	unixL_checkflags(L, 1, &mode, &flags, NULL);
-
-	if ((error = u_pipe(fd, flags)))
-		goto error;
-
-	lua_pushinteger(L, fd[0]);
-	lua_pushinteger(L, fd[1]);
-
-	return 2;
-error:
-	u_close(&fd[0]);
-	u_close(&fd[1]);
-
-	return unixL_pusherror(L, error, "pipe", "~$#");
-} /* unix_pipe() */
-
-
-#if HAVE_POSIX_FADVISE
-static int unix_posix_fadvise(lua_State *L) {
-	int fd = unixL_checkfileno(L, 1);
-	off_t offset = unixL_checkoff(L, 2);
-	off_t len = unixL_checkoff(L, 3);
-	int advice = unixL_checkint(L, 4);
-	int error;
-
-	if ((error = posix_fadvise(fd, offset, len, advice)))
-		return unixL_pusherror(L, error, "posix_fadvise", "0$#");
-
-	lua_pushboolean(L, 1);
-
-	return 1;
-} /* unix_posix_fadvise() */
-#endif
-
-
-#if HAVE_POSIX_FALLOCATE
-static int unix_posix_fallocate(lua_State *L) {
-	int fd = unixL_checkfileno(L, 1);
-	off_t offset = unixL_checkoff(L, 2);
-	off_t len = unixL_checkoff(L, 3);
-	int error;
-
-	if ((error = posix_fallocate(fd, offset, len)))
-		return unixL_pusherror(L, error, "posix_fallocate", "0$#");
-
-	lua_pushboolean(L, 1);
-
-	return 1;
-} /* unix_posix_fallocate() */
-#endif
-
-
-static int unix_posix_openpt(lua_State *L) {
-	u_flags_t flags = unixL_optinteger(L, 1, O_RDWR, 0, U_TMAX(u_flags_t));
-	int fd;
-
-	if (-1 == (fd = posix_openpt(flags)))
-		return unixL_pusherror(L, errno, "posix_openpt", "~$#");
-
-	lua_pushinteger(L, fd);
-
-	return 1;
-} /* unix_posix_openpt() */
-
-static int unix_posix_fopenpt(lua_State *L) {
-	u_flags_t flags = unixL_optinteger(L, 1, O_RDWR, 0, U_TMAX(u_flags_t));
-	luaL_Stream *fh;
-	int fd, error;
-
-	fh = unixL_prepfile(L);
-
-	if (-1 == (fd = posix_openpt(flags)))
-		goto syerr;
-
-	if ((error = u_fdopen(&fh->f, &fd, NULL, flags)))
-		goto error;
-
-	return 1;
-syerr:
-	error = errno;
-error:
-	u_close(&fd);
-
-	return unixL_pusherror(L, error, "posix_openpt", "~$#");
-} /* unix_posix_fopenpt() */
-
-
 static DIR *dir_checkself(lua_State *L, int index) {
 	DIR **dp = luaL_checkudata(L, index, "DIR*");
 
@@ -7618,6 +7525,29 @@ error:
 } /* unix_opendir() */
 
 
+static int unix_pipe(lua_State *L) {
+	int fd[2] = { -1, -1 }, error;
+	u_flags_t flags;
+	const char *mode;
+
+	lua_settop(L, 1);
+	unixL_checkflags(L, 1, &mode, &flags, NULL);
+
+	if ((error = u_pipe(fd, flags)))
+		goto error;
+
+	lua_pushinteger(L, fd[0]);
+	lua_pushinteger(L, fd[1]);
+
+	return 2;
+error:
+	u_close(&fd[0]);
+	u_close(&fd[1]);
+
+	return unixL_pusherror(L, error, "pipe", "~$#");
+} /* unix_pipe() */
+
+
 static u_error_t poll_add(unixL_State *U, int fd, short events, size_t *nfds, size_t *mfds) {
 	int error;
 
@@ -7677,6 +7607,76 @@ static int unix_poll(lua_State *L) {
 
 	return 1;
 } /* unix_poll() */
+
+
+#if HAVE_POSIX_FADVISE
+static int unix_posix_fadvise(lua_State *L) {
+	int fd = unixL_checkfileno(L, 1);
+	off_t offset = unixL_checkoff(L, 2);
+	off_t len = unixL_checkoff(L, 3);
+	int advice = unixL_checkint(L, 4);
+	int error;
+
+	if ((error = posix_fadvise(fd, offset, len, advice)))
+		return unixL_pusherror(L, error, "posix_fadvise", "0$#");
+
+	lua_pushboolean(L, 1);
+
+	return 1;
+} /* unix_posix_fadvise() */
+#endif
+
+
+#if HAVE_POSIX_FALLOCATE
+static int unix_posix_fallocate(lua_State *L) {
+	int fd = unixL_checkfileno(L, 1);
+	off_t offset = unixL_checkoff(L, 2);
+	off_t len = unixL_checkoff(L, 3);
+	int error;
+
+	if ((error = posix_fallocate(fd, offset, len)))
+		return unixL_pusherror(L, error, "posix_fallocate", "0$#");
+
+	lua_pushboolean(L, 1);
+
+	return 1;
+} /* unix_posix_fallocate() */
+#endif
+
+
+static int unix_posix_openpt(lua_State *L) {
+	u_flags_t flags = unixL_optinteger(L, 1, O_RDWR, 0, U_TMAX(u_flags_t));
+	int fd;
+
+	if (-1 == (fd = posix_openpt(flags)))
+		return unixL_pusherror(L, errno, "posix_openpt", "~$#");
+
+	lua_pushinteger(L, fd);
+
+	return 1;
+} /* unix_posix_openpt() */
+
+static int unix_posix_fopenpt(lua_State *L) {
+	u_flags_t flags = unixL_optinteger(L, 1, O_RDWR, 0, U_TMAX(u_flags_t));
+	luaL_Stream *fh;
+	int fd, error;
+
+	fh = unixL_prepfile(L);
+
+	if (-1 == (fd = posix_openpt(flags)))
+		goto syerr;
+
+	if ((error = u_fdopen(&fh->f, &fd, NULL, flags)))
+		goto error;
+
+	return 1;
+syerr:
+	error = errno;
+error:
+	u_close(&fd);
+
+	return unixL_pusherror(L, error, "posix_openpt", "~$#");
+} /* unix_posix_fopenpt() */
 
 
 static int unix_pread(lua_State *L) {
@@ -9106,6 +9106,7 @@ static const luaL_Reg unix_routines[] = {
 	{ "open",               &unix_open },
 	{ "opendir",            &unix_opendir },
 	{ "pipe",               &unix_pipe },
+	{ "poll",               &unix_poll },
 #if HAVE_POSIX_FADVISE
 	{ "posix_fadvise",      &unix_posix_fadvise },
 #endif
@@ -9114,7 +9115,6 @@ static const luaL_Reg unix_routines[] = {
 #endif
 	{ "posix_openpt",       &unix_posix_openpt },
 	{ "posix_fopenpt",      &unix_posix_fopenpt },
-	{ "poll",               &unix_poll },
 	{ "pread",              &unix_pread },
 	{ "ptsname",            &unix_ptsname },
 	{ "pwrite",             &unix_pwrite },
