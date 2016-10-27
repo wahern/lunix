@@ -118,18 +118,19 @@ arc4random : () -> (integer)
 ```
 
 Returns a cryptographically strong, uniformly random 32-bit integer as a Lua
-number.
+number. On Linux the `RANDOM_UUID` `sysctl` feature is used to seed the
+generator if available; or on more recent Linux and Solaris kernels the
+`getrandom` interface.[^sysctl_uuid] This avoids fiddling with file
+descriptors, and also works in a chroot jail. On other platforms without a
+native `arc4random` interface, such as Solaris 11.2 or earlier, the
+implementation must resort to /dev/urandom for seeding.
 
-On Linux the `RANDOM_UUID` `sysctl` feature is used to seed the generator if
-available.[^sysctl_uuid] This avoids fiddling with file descriptors, and
-also works in a chroot jail. On other platforms without a native
-`arc4random` interface, such as Solaris, the implementation must resort to
-/dev/urandom for seeding. Similarly, unlike the original implementation on
-OpenBSD, `arc4random` on OS X and FreeBSD (prior to 10.0) seeds itself from
+Note that unlike the original implementation on OpenBSD, arc4random on some
+older platforms (e.g. FreeBSD prior to 10.10) seeds itself from
 /dev/urandom. This could cause problems in chroot jails.
 
 [^sysctl_uuid]: Some Linux distributions, such as Red Hat, disable
-`sysctl(2)`. In the future support for `getrandom(2)` will be added.
+`sysctl(2)`.
 
 ### arc4random_buf
 
