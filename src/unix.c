@@ -25,7 +25,7 @@
 #include <time.h>         /* struct tm struct timespec gmtime_r(3) clock_gettime(3) tzset(3) */
 #include <errno.h>        /* E* errno program_invocation_short_name */
 #include <assert.h>       /* assert(3) static_assert */
-#include <math.h>         /* INFINITY NAN isnormal(3) signbit(3) */
+#include <math.h>         /* INFINITY NAN ceil(3) fpclassify(3) modf(3) signbit(3) */
 #include <float.h>        /* DBL_HUGE DBL_MANT_DIG FLT_HUGE FLT_MANT_DIG FLT_RADIX LDBL_HUGE LDBL_MANT_DIG */
 #include <locale.h>       /* LC_* setlocale(3) */
 
@@ -47,6 +47,7 @@
 #include <arpa/inet.h>    /* inet_ntop(3) ntohs(3) ntohl(3) */
 #include <netinet/in.h>   /* __KAME__ IPPROTO_* */
 #include <netdb.h>        /* NI_* AI_* gai_strerror(3) getaddrinfo(3) getnameinfo(3) freeaddrinfo(3) */
+#include <poll.h>         /* struct pollfd poll(2) */
 
 #define LUA_COMPAT_5_2 1
 #include <lua.h>
@@ -656,6 +657,8 @@ static void luaL_setfuncs(lua_State *L, const luaL_Reg *l, int nup) {
 #define U_NAN NAN
 #endif
 
+#define u_ispower2(i) (((i) != 0) && (0 == (((i) - 1) & (i))))
+
 static size_t u_power2(size_t i) {
 #if defined SIZE_MAX
 	i--;
@@ -725,7 +728,7 @@ static u_error_t u_appendc(char **buf, size_t *size, size_t *p, int c) {
 } /* u_appendc() */
 
 
-static u_error_t u_reallocarray(char ***arr, size_t *arrsiz, size_t count, size_t size) {
+static u_error_t u_reallocarray(void **arr, size_t *arrsiz, size_t count, size_t size) {
 	void *tmp;
 	size_t tmpsiz;
 
@@ -754,6 +757,19 @@ static u_error_t u_reallocarray(char ***arr, size_t *arrsiz, size_t count, size_
 
 	return 0;
 } /* u_reallocarray() */
+
+#define U_REALLOCARRAY_GENERATE(type, name) \
+static u_error_t name(type *arr, size_t *arrsiz, size_t count) { \
+	void *tmp = *arr; \
+	int error; \
+	if ((error = u_reallocarray(&tmp, arrsiz, count, sizeof **arr))) \
+		return error; \
+	*arr = tmp; \
+	return 0; \
+}
+
+U_REALLOCARRAY_GENERATE(char **, u_reallocarray_char_pp)
+U_REALLOCARRAY_GENERATE(struct pollfd *, u_reallocarray_pollfd)
 
 
 static void *u_memjunk(void *buf, size_t bufsiz) {
@@ -902,23 +918,82 @@ MAYBEUSED static int u_in6_clearscope(struct in6_addr *in6) {
 } /* u_in6_clearscope() */
 
 
+static int u_f2ms(const double f) {
+	double ms;
+
+	switch (fpclassify(f)) {
+	case FP_NORMAL:
+		/* if negative, assume arithmetic underflow occured */
+		if (signbit(f))
+			return 0;
+
+		ms = ceil(f * 1000); /* round up so we don't busy poll */
+
+		/* check that INT_MAX + 1 precisely representable by double */
+		u_static_assert(FLT_RADIX == 2, "FLT_RADIX value unsupported");
+		u_static_assert(u_ispower2((unsigned)INT_MAX + 1), "INT_MAX + 1 not a power of 2");
+
+		if (ms >= (unsigned)INT_MAX + 1)
+			return INT_MAX;
+
+		return ms;
+	case FP_SUBNORMAL:
+		return 1;
+	case FP_ZERO:
+		return 0;
+	case FP_INFINITE:
+	case FP_NAN:
+	default:
+		return -1;
+	}
+} /* u_f2ms() */
+
 static struct timespec *u_f2ts(struct timespec *ts, const double f) {
-	if ((isnormal(f) && !signbit(f)) || f == 0.0) {
-		if (f > INT_MAX) {
-			ts->tv_sec = INT_MAX;
+	double s, ns;
+
+	switch (fpclassify(f)) {
+	case FP_NORMAL:
+		/* if negative, assume arithmetic underflow occured */
+		if (signbit(f))
+			return ts;
+
+		ns = modf(f, &s);
+		ns = ceil(ns * 1000000000);
+
+		if (ns >= 1000000000) {
+			s++;
+			ns = 0;
+		}
+
+		/* check that LONG_MAX + 1 precisely representable by double */
+		u_static_assert(FLT_RADIX == 2, "FLT_RADIX value unsupported");
+		u_static_assert(u_ispower2((unsigned long)LONG_MAX + 1), "LONG_MAX + 1 not a power of 2");
+
+		if (s >= (unsigned long)LONG_MAX + 1) {
+			ts->tv_sec = LONG_MAX;
 			ts->tv_nsec = 0;
 		} else {
-			ts->tv_sec = (time_t)f;
-			/* SunPRO chokes on modulo here unless unsigned. */
-			ts->tv_nsec = (unsigned long)(f * 1000000000.0) % 1000000000UL;
+			ts->tv_sec = s;
+			ts->tv_nsec = ns;
 		}
 
 		return ts;
-	} else {
+	case FP_SUBNORMAL:
+		ts->tv_sec = 0;
+		ts->tv_nsec = 1;
+
+		return ts;
+	case FP_ZERO:
+		ts->tv_sec = 0;
+		ts->tv_nsec = 0;
+
+		return ts;
+	case FP_INFINITE:
+	case FP_NAN:
+	default:
 		return NULL;
 	}
 } /* u_f2ts() */
-
 
 static double u_ts2f(const struct timespec *ts) {
 	return ts->tv_sec + (ts->tv_nsec / 1000000000.0);
@@ -2865,6 +2940,11 @@ typedef struct unixL_State {
 	struct {
 		int fd;
 		struct addrinfo *res;
+		struct {
+			struct pollfd *buf;
+			size_t bufsiz;
+		} fds;
+		size_t nfds;
 	} net;
 } unixL_State;
 
@@ -2976,6 +3056,9 @@ static int unixL_init(lua_State *L, unixL_State *U) {
 
 
 static void unixL_destroy(unixL_State *U) {
+	free(U->net.fds.buf);
+	U->net.fds.buf = NULL;
+	U->net.fds.bufsiz = 0;
 	u_close(&U->net.fd);
 	u_freeaddrinfo(&U->net.res);
 
@@ -5254,7 +5337,7 @@ static int unix_dup3(lua_State *L) {
 static u_error_t exec_addarg(unixL_State *U, size_t *arrp, const char *s) {
 	int error;
 
-	if ((error = u_reallocarray(&U->exec.arr, &U->exec.arrsiz, (*arrp)+1, sizeof *U->exec.arr)))
+	if ((error = u_reallocarray_char_pp(&U->exec.arr, &U->exec.arrsiz, (*arrp)+1)))
 		return error;
 
 	U->exec.arr[(*arrp)++] = (char *)(s);
@@ -7535,6 +7618,67 @@ error:
 } /* unix_opendir() */
 
 
+static u_error_t poll_add(unixL_State *U, int fd, short events, size_t *nfds, size_t *mfds) {
+	int error;
+
+	if (*nfds >= INT_MAX)
+		return ERANGE;
+
+	if (*mfds <= *nfds) {
+		if ((error = u_reallocarray_pollfd(&U->net.fds.buf, &U->net.fds.bufsiz, *nfds + 1)))
+			return error;
+		*mfds = U->net.fds.bufsiz / sizeof *U->net.fds.buf;
+	}
+
+	assert(*mfds > *nfds);
+	U->net.fds.buf[*nfds].fd = fd;
+	U->net.fds.buf[*nfds].events = events;
+	U->net.fds.buf[*nfds].revents = 0;
+	++*nfds;
+
+	return 0;
+}
+
+static int unix_poll(lua_State *L) {
+	unixL_State *U = unixL_getstate(L);
+	int timeout = u_f2ms(luaL_optnumber(L, 2, U_NAN));
+	size_t mfds = 0, nfds = 0, i;
+	int error, nr;
+
+	luaL_checktype(L, 1, LUA_TTABLE);
+	lua_pushnil(L);
+	while (lua_next(L, 1) != 0) {
+		int fd;
+		short events;
+
+		fd = unixL_checkint(L, -2);
+		lua_getfield(L, -1, "events");
+		events = unixL_checkinteger(L, -1, 0, SHRT_MAX);
+		lua_pop(L, 1);
+
+		if ((error = poll_add(U, fd, events, &nfds, &mfds)))
+			return unixL_pusherror(L, error, "poll", "~$#");
+
+		lua_pop(L, 1);
+	}
+
+	if (-1 == (nr = poll(U->net.fds.buf, nfds, timeout)))
+		return unixL_pusherror(L, errno, "poll", "~$#");
+
+	for (i = 0; i < nfds; i++) {
+		struct pollfd *pfd = &U->net.fds.buf[i];
+
+		lua_rawgeti(L, 1, pfd->fd);
+		lua_pushinteger(L, pfd->revents);
+		lua_setfield(L, -2, "revents");
+	}
+
+	lua_pushinteger(L, nr);
+
+	return 1;
+} /* unix_poll() */
+
+
 static int unix_pread(lua_State *L) {
 	unixL_State *U = unixL_getstate(L);
 	int fd = unixL_checkfileno(L, 1);
@@ -8970,6 +9114,7 @@ static const luaL_Reg unix_routines[] = {
 #endif
 	{ "posix_openpt",       &unix_posix_openpt },
 	{ "posix_fopenpt",      &unix_posix_fopenpt },
+	{ "poll",               &unix_poll },
 	{ "pread",              &unix_pread },
 	{ "ptsname",            &unix_ptsname },
 	{ "pwrite",             &unix_pwrite },
@@ -9156,6 +9301,19 @@ static const struct unix_const const_ni[] = {
 #endif
 	UNIX_CONST(NI_DGRAM),
 }; /* const_ni[] */
+
+static const struct unix_const const_poll[] = {
+	UNIX_CONST(POLLERR), 
+	UNIX_CONST(POLLHUP),
+	UNIX_CONST(POLLIN),
+	UNIX_CONST(POLLOUT),
+	UNIX_CONST(POLLNVAL),
+	UNIX_CONST(POLLPRI),
+	UNIX_CONST(POLLRDBAND),
+	UNIX_CONST(POLLRDNORM),
+	UNIX_CONST(POLLWRBAND),
+	UNIX_CONST(POLLWRNORM),
+}; /* const_poll[] */
 
 static const struct unix_const const_clock[] = {
 	{ "CLOCK_MONOTONIC", U_CLOCK_MONOTONIC },
@@ -9621,6 +9779,7 @@ static const struct {
 	{ const_eai,      countof(const_eai) },
 	{ const_msg,      countof(const_msg) },
 	{ const_ni,       countof(const_ni) },
+	{ const_poll,     countof(const_poll) },
 	{ const_clock,    countof(const_clock) },
 	{ const_errno,    countof(const_errno) },
 	{ const_iff,      countof(const_iff) },
