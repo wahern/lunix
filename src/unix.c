@@ -311,7 +311,7 @@
 #endif
 
 #ifndef HAVE_FDOPENDIR
-#define HAVE_FDOPENDIR ((!defined __APPLE__ || MACOS_PREREQ(10,10,0) || MACOS_PREREQ(8,0)) && (!defined __NetBSD__ || NETBSD_PREREQ(6,0)))
+#define HAVE_FDOPENDIR ((!defined __APPLE__ || MACOS_PREREQ(10,10,0) || IPHONE_PREREQ(8,0)) && (!defined __NetBSD__ || NETBSD_PREREQ(6,0)))
 #endif
 
 #ifndef HAVE_ISSETUGID
