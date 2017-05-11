@@ -354,6 +354,14 @@
 #define HAVE_GETENV_R NETBSD_PREREQ(5,0)
 #endif
 
+#ifndef HAVE_MKDIRAT
+#define HAVE_MKDIRAT HAVE_OPENAT
+#endif
+
+#ifndef HAVE_MKFIFOAT
+#define HAVE_MKFIFOAT (!__APPLE__ && (!__NetBSD__ || NETBSD_PREREQ(7,0)))
+#endif
+
 #ifndef HAVE_OPENAT
 #define HAVE_OPENAT ((!__APPLE__ || MACOS_PREREQ(10,10,0) || IPHONE_PREREQ(8,0)) && (!__NetBSD__ || NETBSD_PREREQ(7,0)))
 #endif
@@ -384,6 +392,10 @@
 
 #ifndef HAVE_DECL_P_XARGV
 #define HAVE_DECL_P_XARGV 0
+#endif
+
+#ifndef HAVE_RENAMEAT
+#define HAVE_RENAMEAT HAVE_OPENAT
 #endif
 
 #ifndef HAVE_SIGTIMEDWAIT
@@ -7259,6 +7271,8 @@ static int unix_lstat(lua_State *L) {
 /*
  * Emulate mkdir except with well-defined SUID, SGID, SVTIX behavior. If you
  * want to set bits restricted by the umask you must manually use chmod.
+ *
+ * FIXME: Remove mode magic. See unix_mkdirat(), below.
  */
 static int unix_mkdir(lua_State *L) {
 	const char *path = luaL_checkstring(L, 1);
@@ -7277,6 +7291,27 @@ static int unix_mkdir(lua_State *L) {
 } /* unix_mkdir() */
 
 
+#if HAVE_MKDIRAT
+/*
+ * XXX: Intentionally excluding the supression of SUID, SGID, and SVTIX bits
+ * as done by unix_mkdir() above. Forking might fail in sandboxed processes
+ * (seccomp, pledge) and the mkdir() + chmod() sequence is not atomic.
+ */
+static int unix_mkdirat(lua_State *L) {
+	int at = unixL_checkfileno(L, 1);
+	const char *path = luaL_checkstring(L, 2);
+	mode_t mode = unixL_optmode(L, 3, 0777, 0777);
+
+	if (0 != mkdirat(at, path, mode))
+		return unixL_pusherror(L, errno, "mkdirat", "0$#");
+
+	lua_pushboolean(L, 1);
+
+	return 1;
+} /* unix_mkdirat() */
+#endif
+
+
 static int unix_mkfifo(lua_State *L) {
 	const char *path = luaL_checkstring(L, 1);
 	mode_t mode = unixL_optmode(L, 2, 0666, 0666);
@@ -7288,6 +7323,22 @@ static int unix_mkfifo(lua_State *L) {
 
 	return 1;
 } /* unix_mkfifo() */
+
+
+#if HAVE_MKFIFOAT
+static int unix_mkfifoat(lua_State *L) {
+	int at = unixL_checkfileno(L, 1);
+	const char *path = luaL_checkstring(L, 2);
+	mode_t mode = unixL_optmode(L, 3, 0666, 0666);
+
+	if (0 != mkfifoat(at, path, mode))
+		return unixL_pusherror(L, errno, "mkfifoat", "0$#");
+
+	lua_pushboolean(L, 1);
+
+	return 1;
+} /* unix_mkfifoat() */
+#endif
 
 
 /*
@@ -8036,6 +8087,23 @@ static int unix_rename(lua_State *L) {
 
 	return 1;
 } /* unix_rename() */
+
+
+#if HAVE_RENAMEAT
+static int unix_renameat(lua_State *L) {
+	int fromfd = unixL_checkfileno(L, 1);
+	const char *from = luaL_checkstring(L, 2);
+	int tofd = unixL_checkfileno(L, 3);
+	const char *to = luaL_checkstring(L, 4);
+
+	if (0 != renameat(fromfd, from, tofd, to))
+		return unixL_pusherror(L, errno, "renameat", "0$#");
+
+	lua_pushboolean(L, 1);
+
+	return 1;
+} /* unix_renameat() */
+#endif
 
 
 static int unix_rewinddir(lua_State *L) {
@@ -9206,7 +9274,13 @@ static const luaL_Reg unix_routines[] = {
 	{ "lseek",              &unix_lseek },
 	{ "lstat",              &unix_lstat },
 	{ "mkdir",              &unix_mkdir },
+#if HAVE_MKDIRAT
+	{ "mkdirat",            &unix_mkdirat },
+#endif
 	{ "mkfifo",             &unix_mkfifo },
+#if HAVE_MKFIFOAT
+	{ "mkfifoat",           &unix_mkfifoat },
+#endif
 	{ "mkpath",             &unix_mkpath },
 	{ "open",               &unix_open },
 #if HAVE_OPENAT
@@ -9233,6 +9307,9 @@ static const luaL_Reg unix_routines[] = {
 	{ "recvfrom",           &unix_recvfrom },
 	{ "recvfromto",         &unix_recvfromto },
 	{ "rename",             &unix_rename },
+#if HAVE_RENAMEAT
+	{ "renameat",           &unix_renameat },
+#endif
 	{ "rewinddir",          &unix_rewinddir },
 	{ "rmdir",              &unix_rmdir },
 	{ "S_ISBLK",            &unix_S_ISBLK },
