@@ -483,6 +483,7 @@ string, and an integer system error.
 ### umask
 ### uname
 ### unlink
+### unlinkat
 ### unlockpt
 ### unsetenv
 ### wait

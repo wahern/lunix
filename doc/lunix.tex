@@ -1146,7 +1146,13 @@ On failure returns \nil, an error string, and an integer system error.
 
 Deletes the file entry at $path$.
 
-Returns \true on success, otherwise \false, an error string, and an integer system error. 
+Returns \true on success, otherwise \false, an error string, and an integer system error.
+
+\subsubsection[\fn{unlinkat}]{\fn{unlinkat($file$|$dir$|$fd$, $path$[, $flags$])}}
+
+Deletes the file entry at $path$ relative to the specified open directory file descriptor, $fd$, or a FILE handle or DIR handle that wraps such a descriptor.
+
+Returns \true on success, otherwise \false, an error string, and an integer system error.
 
 \subsubsection[\fn{unlockpt}]{\fn{unlockpt($file$)}}
 
