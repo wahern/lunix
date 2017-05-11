@@ -354,6 +354,10 @@
 #define HAVE_GETENV_R NETBSD_PREREQ(5,0)
 #endif
 
+#ifndef HAVE_OPENAT
+#define HAVE_OPENAT ((!__APPLE__ || MACOS_PREREQ(10,10,0) || IPHONE_PREREQ(8,0)) && (!__NetBSD__ || NETBSD_PREREQ(7,0)))
+#endif
+
 #ifndef HAVE_PACCEPT
 #define HAVE_PACCEPT NETBSD_PREREQ(6,0)
 #endif
@@ -5863,6 +5867,37 @@ error:
 } /* unix_fopen() */
 
 
+#if HAVE_OPENAT
+static int unix_fopenat(lua_State *L) {
+	int fd = -1, at, error;
+	const char *path, *mode;
+	u_flags_t flags;
+	mode_t perm;
+	luaL_Stream *fh;
+
+	lua_settop(L, 4);
+	at = unixL_checkfileno(L, 1);
+	path = luaL_checkstring(L, 2);
+	unixL_checkflags(L, 3, &mode, &flags, &perm);
+
+	fh = unixL_prepfile(L);
+	if (-1 == (fd = openat(at, path, flags, perm)))
+		goto syerr;
+	/* should we use string mode if specified? */
+	if (!(fh->f = fdopen(fd, u_strmode(flags))))
+		goto syerr;
+	fd = -1;
+
+	return 1;
+syerr:
+	error = errno;
+	u_close(&fd);
+
+	return unixL_pusherror(L, error, "fopenat", "~$#");
+} /* unix_fopenat() */
+#endif
+
+
 static int unix_fpipe(lua_State *L) {
 	int fd[2] = { -1, -1 }, error;
 	luaL_Stream *fh[2] = { NULL, NULL };
@@ -7348,6 +7383,36 @@ error:
 
 	return unixL_pusherror(L, error, "open", "~$#");
 } /* unix_open() */
+
+
+/*
+ * TODO: Emulate openat() with fork+chdir+open+sendmsg.
+ */
+#if HAVE_OPENAT
+static int unix_openat(lua_State *L) {
+	int fd = -1, at, error;
+	const char *path, *mode;
+	u_flags_t flags;
+	mode_t perm;
+
+	lua_settop(L, 4);
+	at = unixL_checkfileno(L, 1);
+	path = luaL_checkstring(L, 2);
+	unixL_checkflags(L, 3, &mode, &flags, &perm);
+
+	if (-1 == (fd = openat(at, path, flags, perm)))
+		goto syerr;
+
+	lua_pushinteger(L, fd);
+
+	return 1;
+syerr:
+	error = errno;
+	u_close(&fd);
+
+	return unixL_pusherror(L, error, "openat", "~$#");
+} /* unix_openat() */
+#endif
 
 
 static DIR *dir_checkself(lua_State *L, int index) {
@@ -9077,6 +9142,9 @@ static const luaL_Reg unix_routines[] = {
 	{ "ftrylockfile",       &unix_ftrylockfile },
 	{ "funlockfile",        &unix_funlockfile },
 	{ "fopen",              &unix_fopen },
+#if HAVE_OPENAT
+	{ "fopenat",            &unix_fopenat },
+#endif
 	{ "fpipe",              &unix_fpipe },
 	{ "fork",               &unix_fork },
 	{ "gai_strerror",       &unix_gai_strerror },
@@ -9121,6 +9189,9 @@ static const luaL_Reg unix_routines[] = {
 	{ "mkfifo",             &unix_mkfifo },
 	{ "mkpath",             &unix_mkpath },
 	{ "open",               &unix_open },
+#if HAVE_OPENAT
+	{ "openat",             &unix_openat },
+#endif
 	{ "opendir",            &unix_opendir },
 	{ "pipe",               &unix_pipe },
 	{ "poll",               &unix_poll },
