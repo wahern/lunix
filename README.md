@@ -367,6 +367,7 @@ funlockfile : (fd:FILE) -> (true)
 Unlocks the FILE handle $fh$. Returns `true`.
 
 ### fopen
+### fopenat
 ### fpipe
 ### fork
 
@@ -418,6 +419,7 @@ string, and an integer system error.
 ### mkfifo
 ### mkpath
 ### open
+### openat
 ### opendir
 ### pipe
 ### poll

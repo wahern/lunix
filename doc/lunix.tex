@@ -411,9 +411,20 @@ Attempts to lock the FILE handle $fh$. Returns \true on success or \false if $fh
 
 Unlocks the FILE handle $fh$. Returns \true.
 
-\subsubsection[\fn{fopen}]{\fn{fopen($path$|$file$|$dir$|$fd$,[$mode$][,$perm$])}}
+\subsubsection[\fn{fopen}]{\fn{fopen($path$|$file$|$dir$|$fd$[, $mode$][, $perm$])}}
 
-FIXME.
+Similar to the \syscall{open} binding except returns a FILE handle. Unlike Lua's \texttt{io.open} routine,
+any string $mode$ is passed directly to the \syscall{fopen} interface and thus supports all local extensions. One consequence of this is that if $mode$ is a string then $perm$ is ignored. To ensure that \syscall{fopen} is invoked both $path$ and $mode$ should be strings, otherwise the semantics are emulated by translating $mode$ to an integer bitfield and invoking \syscall{open}.
+
+Returns a FILE handle on success, otherwise \nil, an error string, and an integer system error.
+
+The difference between calling \syscall{fopen} versus \syscall{open}+\syscall{fdopen} is that the \syscall{fopen} binding ensures that a descriptor is not leaked if \syscall{fdopen} fails or throws an exception.
+
+\subsubsection[\fn{fopenat}]{\fn{fopenat($path$[, $mode$][, $perm$])}}
+
+See \syscall{openat} and \syscall{fopen}.
+
+Returns a FILE handle on success, otherwise \nil, an error string, and an integer system error.
 
 \subsubsection[\fn{fpipe}]{\fn{fpipe([$mode$])}}
 
@@ -684,9 +695,21 @@ Like \fn{mkdir}, but also creates intermediate directories if missing. $imode$ i
 
 Returns \true on success, otherwise \false, an error string, and an integer system error.
 
-\subsubsection[\fn{open}]{\fn{open($path$|$file$[, $mode$][, $perm$])}}
+\subsubsection[\fn{open}]{\fn{open($path$|$file$|$dir$|$fd$[, $mode$][, $perm$])}}
 
-FIXME.
+Open the specified file. Normally a string path is specified. If a FILE handle, DIR handle, or file descriptor are specified the library will attempt to use system extensions to create a new file descriptor. Unlike \syscall{dup} this descriptor will not share status flags or file position cursors. (This will only work on Linux, NetBSD, and Solaris with procfs support; or on macOS using the special ``/.vol'' namespace. macOS and Solaris only support re-opening file system objects this way, not pipes or sockets. The BSD ``/dev/fd'' namespace has semantics equivalent to \syscall{dup}, except on Linux where ``/dev/fd'' is a symlink to ``/proc/self/fd''.)
+
+$mode$ specifies the open flags as an integer bitfield (e.g. \texttt{O\_CREAT|O\_RDWR}, \texttt{O\_RDONLY|O\_CLOEXEC}, etc) or a symbolic string (e.g. ``w+x''). If unspecified defaults to \texttt{0}, which normally equals \texttt{O\_RDONLY}.
+
+$perm$ specifies the file creation mode bits as an integer bitfield or a symbolic string (e.g. ``ug+rw,o+r'', equivalent to \texttt{0644}). If unspecified defaults to \texttt{0666}.\footnote{Note that the kernel will apply the process-global file mode creation mask to the permission bits. See \syscall{umask}.}
+
+Returns an integer file descriptor on success, otherwise \nil, an error string, and an integer system error.
+
+\subsubsection[\fn{openat}]{\fn{openat($file$|$dir$|$fd$, $path$[, $mode$][, $perm$])}}
+
+Similar to \syscall{open} except the first parameter should resolve to an open directory file descriptor.
+
+Returns an integer file descriptor on success, otherwise \nil, an error string, and an integer system error.
 
 \subsubsection[\fn{opendir}]{\fn{opendir($path$|$file$|$dir$|$fd$)}}
 
