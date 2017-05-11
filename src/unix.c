@@ -95,6 +95,23 @@
 #define SUNOS_PREREQ_5_11 (defined __sun && defined F_DUPFD_CLOEXEC)
 #define SUNOS_PREREQ(M, m) SUNOS_PREREQ_ ## M ## _ ## m
 
+#define IPHONE_2VER(M, m) (((M) * 10000) + ((m) * 100))
+#if defined __IPHONE_OS_VERSION_MIN_REQUIRED
+#define IPHONE_PREREQ(M, m) (IPHONE_2VER((M), (m)) <= __IPHONE_OS_VERSION_MIN_REQUIRED)
+#else
+#define IPHONE_PREREQ(M, m) 0
+#endif
+
+#define MACOS_2VER_10_9(M, m, p) (((M) * 100) + ((m) * 10))
+#define MACOS_2VER_10_10(M, m, p) (((M) * 10000) + ((m) * 100) + (p))
+#define MACOS_PREREQ_10_10(M, m, p) (((M) > 10 || ((M) == 10 && (m) >= 10)) && MACOS_2VER_10_10((M), (m), (p)) <= __MAC_OS_X_VERSION_MIN_REQUIRED)
+#define MACOS_PREREQ_10_9(M, m, p) (((M) == 10 && (m) < 10) && MACOS_2VER_10_9((M), (m), (p)) <= __MAC_OS_X_VERSION_MIN_REQUIRED)
+#if defined __MAC_OS_X_VERSION_MIN_REQUIRED
+#define MACOS_PREREQ(M, m, p) (MACOS_PREREQ_10_10((M), (m), (p)) || MACOS_PREREQ_10_9((M), (m), (p)))
+#else
+#define MACOS_PREREQ(M, m, p) 0
+#endif
+
 #if !HAVE_CONFIG_H
 
 #ifndef HAVE_C___EXTENSION__
@@ -294,7 +311,7 @@
 #endif
 
 #ifndef HAVE_FDOPENDIR
-#define HAVE_FDOPENDIR (!defined __APPLE__ && (!defined __NetBSD__ || NETBSD_PREREQ(6,0)))
+#define HAVE_FDOPENDIR ((!defined __APPLE__ || MACOS_PREREQ(10,10,0) || MACOS_PREREQ(8,0)) && (!defined __NetBSD__ || NETBSD_PREREQ(6,0)))
 #endif
 
 #ifndef HAVE_ISSETUGID
