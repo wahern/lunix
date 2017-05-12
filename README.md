@@ -416,7 +416,9 @@ string, and an integer system error.
 ### lseek
 ### lstat
 ### mkdir
+### mkdirat
 ### mkfifo
+### mkfifoat
 ### mkpath
 ### open
 ### openat
@@ -437,6 +439,7 @@ string, and an integer system error.
 ### recvfrom
 ### recvfromto
 ### rename
+### renameat
 ### rewinddir
 ### rmdir
 ### S_ISBLK

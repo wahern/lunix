@@ -689,6 +689,24 @@ Create a new directory at $path$. $mode$, if specified, should be a symbolic mod
 
 Returns \true on success, otherwise \false, an error string, and an integer system error.
 
+\subsubsection[\fn{mkdirat}]{\fn{mkdirat($fd$|$file$|$dir$, $path$[, $mode$])}}
+
+Similar to \syscall{mkdir} except interprets $path$ relative to the specified open directory file descriptor, $fd$, or a FILE handle or DIR handle that wraps such a descriptor.
+
+Returns \true on success, otherwise \false, an error string, and an integer system error.
+
+\subsubsection[\fn{mkfifo}]{\fn{mkfifo($path$[, $mode$])}}
+
+Create a FIFO at $path$. $mode$, if specified, should be an integer bitfield or symbolic string following the POSIX syntax as described by the \texttt{chmod(1)} utility man page. Otherwise, $mode$ defaults to 0666.
+
+Returns \true on success, otherwise \false, an error string, and an integer system error.
+
+\subsubsection[\fn{mkfifoat}]{\fn{mkfifoat($fd$|$file$|$dir$, $path$[, $mode$])}}
+
+Similar to \syscall{mkfifo} except interprets $path$ relative to the specified open directory file descriptor, $fd$, or a FILE handle or DIR handle that wraps such a descriptor.
+
+Returns \true on success, otherwise \false, an error string, and an integer system error.
+
 \subsubsection[\fn{mkpath}]{\fn{mkpath($path$[, $mode$][, $imode$])}}
 
 Like \fn{mkdir}, but also creates intermediate directories if missing. $imode$ is the mode for intermediate directories. Like $mode$ it is restricted by the process umask, but unlike $mode$ the user write bit is unconditionally set to ensure the full path can be created.
@@ -823,9 +841,15 @@ NOTES:
 \item The descriptor \mustbe initialized by enabling a specialized socket option. The option varies by platform and socket protocol family. See \seefn{setrecvaddr} example in Appendix.
 \end{itemize}
 
-\subsubsection[\fn{rename}]{\fn{rename($path1$, $path2$)}}
+\subsubsection[\fn{rename}]{\fn{rename($from$, $to$)}}
 
-Renames the file $path1$ to $path2$. The paths must reside on the same device.
+Renames the file $from$ to $to$. The paths must reside on the same device.
+
+Returns \true on success, otherwise \false, an error string, and an integer system error.
+
+\subsubsection[\fn{renameat}]{\fn{renameat($fromfd$, $from$, $tofd$, $to$)}}
+
+Similar to \syscall{rename} except interprets the string paths $from$ and $to$ relative to the respective open directory file descriptor, $fromfd$ and $tofd$, respectively. $fromfd$ and $tofd$ should be integer file descriptors to an open directory, or FILE handles or DIR handles that wrap such descriptors.
 
 Returns \true on success, otherwise \false, an error string, and an integer system error.
 
