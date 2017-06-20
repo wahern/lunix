@@ -427,6 +427,10 @@
 #define HAVE_STRSIGNAL 1
 #endif
 
+#ifndef HAVE_SYMLINKAT
+#define HAVE_SYMLINKAT HAVE_OPENAT
+#endif
+
 #ifndef HAVE_SYS_SIGLIST
 #define HAVE_SYS_SIGLIST (!MUSL_MAYBE && !__sun && !_AIX)
 #endif
@@ -8884,6 +8888,22 @@ static int unix_symlink(lua_State *L) {
 } /* unix_symlink() */
 
 
+#if HAVE_SYMLINKAT
+static int unix_symlinkat(lua_State *L) {
+	const char *src = luaL_checkstring(L, 1);
+	int fd = unixL_checkfileno(L, 2);
+	const char *dst = luaL_checkstring(L, 3);
+
+	if (0 != symlinkat(src, fd, dst))
+		return unixL_pusherror(L, errno, "symlinkat", "0$#");
+
+	lua_pushboolean(L, 1);
+
+	return 1;
+} /* unix_symlinkat() */
+#endif
+
+
 static int unix_tcgetpgrp(lua_State *L) {
 	int fd = unixL_checkfileno(L, 1);
 	pid_t pgid;
@@ -9399,6 +9419,9 @@ static const luaL_Reg unix_routines[] = {
 	{ "strerror",           &unix_strerror },
 	{ "strsignal",          &unix_strsignal },
 	{ "symlink",            &unix_symlink },
+#if HAVE_SYMLINKAT
+	{ "symlinkat",          &unix_symlinkat },
+#endif
 	{ "tcgetpgrp",          &unix_tcgetpgrp },
 	{ "tcsetpgrp",          &unix_tcsetpgrp },
 	{ "timegm",             &unix_timegm },
