@@ -394,6 +394,10 @@
 #define HAVE_DECL_P_XARGV 0
 #endif
 
+#ifndef HAVE_READLINKAT
+#define HAVE_READLINKAT HAVE_OPENAT
+#endif
+
 #ifndef HAVE_RENAMEAT
 #define HAVE_RENAMEAT HAVE_OPENAT
 #endif
@@ -7922,6 +7926,29 @@ static int unix_readlink(lua_State *L) {
 } /* unix_readlink() */
 
 
+#if HAVE_READLINKAT
+static int unix_readlinkat(lua_State *L) {
+	unixL_State *U = unixL_getstate(L);
+	int fd = unixL_checkfileno(L, 1);
+	const char *path = luaL_checkstring(L, 2);
+	ssize_t n = 0;
+	int error;
+
+	do {
+		if (U->bufsiz <= (size_t)n && (error = u_realloc(&U->buf, &U->bufsiz, n + 1)))
+			return unixL_pusherror(L, error, "readlink", "~$#");
+
+		if (-1 == (n = readlinkat(fd, path, U->buf, U->bufsiz)))
+			return unixL_pusherror(L, errno, "readlinkat", "~$#");
+	} while ((size_t)n == U->bufsiz);
+
+	lua_pushlstring(L, U->buf, n);
+
+	return 1;
+} /* unix_readlinkat() */
+#endif
+
+
 static int unix_recv(lua_State *L) {
 	unixL_State *U = unixL_getstate(L);
 	int fd = unixL_checkfileno(L, 1);
@@ -9324,6 +9351,9 @@ static const luaL_Reg unix_routines[] = {
 	{ "read",               &unix_read },
 	{ "readdir",            &unix_readdir },
 	{ "readlink",           &unix_readlink },
+#if HAVE_READLINKAT
+	{ "readlinkat",         &unix_readlinkat },
+#endif
 	{ "recv",               &unix_recv },
 	{ "recvfrom",           &unix_recvfrom },
 	{ "recvfromto",         &unix_recvfromto },
