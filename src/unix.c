@@ -7902,6 +7902,26 @@ static int unix_readdir(lua_State *L) {
 } /* unix_readdir() */
 
 
+static int unix_readlink(lua_State *L) {
+	unixL_State *U = unixL_getstate(L);
+	const char *path = luaL_checkstring(L, 1);
+	ssize_t n = 0;
+	int error;
+
+	do {
+		if (U->bufsiz <= (size_t)n && (error = u_realloc(&U->buf, &U->bufsiz, n + 1)))
+			return unixL_pusherror(L, error, "readlink", "~$#");
+
+		if (-1 == (n = readlink(path, U->buf, U->bufsiz)))
+			return unixL_pusherror(L, errno, "readlink", "~$#");
+	} while ((size_t)n == U->bufsiz);
+
+	lua_pushlstring(L, U->buf, n);
+
+	return 1;
+} /* unix_readlink() */
+
+
 static int unix_recv(lua_State *L) {
 	unixL_State *U = unixL_getstate(L);
 	int fd = unixL_checkfileno(L, 1);
@@ -9303,6 +9323,7 @@ static const luaL_Reg unix_routines[] = {
 	{ "raise",              &unix_raise },
 	{ "read",               &unix_read },
 	{ "readdir",            &unix_readdir },
+	{ "readlink",           &unix_readlink },
 	{ "recv",               &unix_recv },
 	{ "recvfrom",           &unix_recvfrom },
 	{ "recvfromto",         &unix_recvfromto },
