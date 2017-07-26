@@ -37,7 +37,8 @@
 #include <sys/un.h>       /* struct sockaddr_un */
 #include <sys/utsname.h>  /* uname(2) */
 #include <sys/wait.h>     /* WNOHANG waitpid(2) */
-#include <sys/ioctl.h>    /* SIOCGIFCONF SIOCGIFFLAGS SIOCGIFNETMASK SIOCGIFDSTADDR SIOCGIFBRDADDR SIOCGLIFADDR ioctl(2) */
+#include <sys/ioctl.h>    /* SIOCGIFCONF SIOCGIFFLAGS SIOCGIFNETMASK SIOCGIFDSTADDR SIOCGIFBRDADDR SIOCGLIFADDR TIOCNOTTY TIOCSCTTY ioctl(2) */
+#include <termios.h>      /* tcgetsid(3) */
 #include <net/if.h>       /* IF_NAMESIZE struct ifconf struct ifreq */
 #include <unistd.h>       /* _PC_NAME_MAX alarm(3) chdir(2) chroot(2) close(2) chdir(2) chown(2) chroot(2) dup2(2) execve(2) execl(2) execlp(2) execvp(2) fork(2) fpathconf(3) getegid(2) geteuid(2) getgid(2) getgroups(2) gethostname(3) getpgid(2) getpgrp(2) getpid(2) getppid(2) getuid(2) isatty(3) issetugid(2) lchown(2) lockf(3) link(2) pread(2) pwrite(2) rename(2) rmdir(2) setegid(2) seteuid(2) setgid(2) setgroups(2) setpgid(2) setuid(2) setsid(2) symlink(2) tcgetpgrp(3) tcsetpgrp(3) truncate(2) umask(2) unlink(2) unlinkat(2) */
 #include <fcntl.h>        /* AT_* F_* O_* fcntl(2) open(2) openat(2) */
@@ -7092,6 +7093,15 @@ static int unix_ioctl(lua_State *L) {
 
 		return 1;
 #endif
+#if defined TIOCNOTTY
+	case TIOCNOTTY:
+		if (-1 == ioctl(fd, cmd, (char *)NULL))
+			goto syerr;
+
+		lua_pushvalue(L, 1);
+
+		return 1;
+#endif
 #if defined TIOCSCTTY
 	case TIOCSCTTY:
 		if (-1 == ioctl(fd, cmd, (char *)NULL))
@@ -8917,6 +8927,19 @@ static int unix_tcgetpgrp(lua_State *L) {
 } /* unix_tcgetpgrp() */
 
 
+static int unix_tcgetsid(lua_State *L) {
+	int fd = unixL_checkfileno(L, 1);
+	pid_t sid;
+
+	if (-1 == (sid = tcgetsid(fd)))
+		return unixL_pusherror(L, errno, "tcgetsid", "~$#");
+
+	lua_pushinteger(L, sid);
+
+	return 1;
+} /* unix_tcgetsid() */
+
+
 static int unix_tcsetpgrp(lua_State *L) {
 	int fd = unixL_checkfileno(L, 1);
 	pid_t pgid = unixL_checkpid(L, 2);
@@ -9423,6 +9446,7 @@ static const luaL_Reg unix_routines[] = {
 	{ "symlinkat",          &unix_symlinkat },
 #endif
 	{ "tcgetpgrp",          &unix_tcgetpgrp },
+	{ "tcgetsid",           &unix_tcgetsid },
 	{ "tcsetpgrp",          &unix_tcsetpgrp },
 	{ "timegm",             &unix_timegm },
 	{ "truncate",           &unix_truncate },
@@ -10024,6 +10048,9 @@ static const struct unix_const const_ioctl[] = {
 #endif
 #if defined TIOCSWINSZ
 	UNIX_CONST(TIOCSWINSZ),
+#endif
+#if defined TIOCNOTTY
+	UNIX_CONST(TIOCNOTTY),
 #endif
 #if defined TIOCSCTTY
 	UNIX_CONST(TIOCSCTTY),
