@@ -11,7 +11,7 @@ local function files_fnmatch(rootdir, patt)
 	return coroutine.wrap(function ()
 		local dir = assert(unix.opendir(rootdir))
 		for name, type in dir:files("name", "type") do
-			type = type or assert(unix.fstatat(dir, name, 0, "type"))
+			type = type or assert(unix.fstatat(dir, name, unix.AT_SYMLINK_NOFOLLOW, "mode"))
 			local _, matched = assert(unix.fnmatch(patt, name))
 			if matched and unix.S_ISREG(type) then
 				coroutine.yield(name)
@@ -25,10 +25,10 @@ local function files_shfind(rootdir, patt)
 		return string.format("'%s'", s:gsub("'", "'\"'\"'"))
 	end
 	return coroutine.wrap(function ()
-		local fh = io.popen(string.format("cd %s && find . -maxdepth 1 -name %s -type f", quote(rootdir), quote(patt)), "r")
+		local fh = io.popen(string.format("cd %s && find . -name . -o -type d -prune -o \\( -name %s -type f \\) -print 2>/dev/null", quote(rootdir), quote(patt)), "r")
 		for ln in fh:lines() do
 			local name = ln:match("([^/]+)$")
-			if name then
+			if name and name ~= "." then
 				coroutine.yield(name)
 			end
 		end
