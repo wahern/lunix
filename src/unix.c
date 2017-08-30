@@ -42,6 +42,7 @@
 #include <net/if.h>       /* IF_NAMESIZE struct ifconf struct ifreq */
 #include <unistd.h>       /* _PC_NAME_MAX alarm(3) chdir(2) chroot(2) close(2) chdir(2) chown(2) chroot(2) dup2(2) execve(2) execl(2) execlp(2) execvp(2) fork(2) fpathconf(3) getegid(2) geteuid(2) getgid(2) getgroups(2) gethostname(3) getpgid(2) getpgrp(2) getpid(2) getppid(2) getuid(2) isatty(3) issetugid(2) lchown(2) lockf(3) link(2) pread(2) pwrite(2) rename(2) rmdir(2) setegid(2) seteuid(2) setgid(2) setgroups(2) setpgid(2) setuid(2) setsid(2) symlink(2) tcgetpgrp(3) tcsetpgrp(3) truncate(2) umask(2) unlink(2) unlinkat(2) */
 #include <fcntl.h>        /* AT_* F_* O_* fcntl(2) open(2) openat(2) */
+#include <fnmatch.h>      /* FNM_* fnmatch(3) */
 #include <pwd.h>          /* struct passwd getpwnam_r(3) */
 #include <grp.h>          /* struct group getgrnam_r(3) */
 #include <dirent.h>       /* closedir(3) fdopendir(3) opendir(3) readdir_r(3) rewinddir(3) */
@@ -5819,6 +5820,26 @@ static int unix_flockfile(lua_State *L) {
 } /* unix_flockfile() */
 
 
+static int unix_fnmatch(lua_State *L) {
+	const char *patt = luaL_checkstring(L, 1);
+	const char *subject = luaL_checkstring(L, 2);
+	int flags = luaL_optint(L, 3, 0);
+
+	switch (fnmatch(patt, subject, flags)) {
+	case 0:
+		lua_pushboolean(L, 1);
+		lua_pushboolean(L, 1);
+		return 2;
+	case FNM_NOMATCH:
+		lua_pushboolean(L, 1);
+		lua_pushboolean(L, 0);
+		return 2;
+	default:
+		return unixL_pusherror(L, errno, "fnmatch", "~$#");
+	}
+} /* unix_fnmatch() */
+
+
 static int unix_fsync(lua_State *L) {
 	int fd = unixL_checkfileno(L, 1);
 
@@ -9315,6 +9336,7 @@ static const luaL_Reg unix_routines[] = {
 	{ "fdup",               &unix_fdup },
 	{ "fileno",             &unix_fileno },
 	{ "flockfile",          &unix_flockfile },
+	{ "fnmatch",            &unix_fnmatch },
 	{ "fstat",              &unix_stat },
 	{ "fsync",              &unix_fsync },
 	{ "ftrylockfile",       &unix_ftrylockfile },
@@ -9847,6 +9869,13 @@ static const struct unix_const const_errno[] = {
 #endif
 }; /* const_errno[] */
 
+static const struct unix_const const_fnmatch[] = {
+	UNIX_CONST(FNM_NOMATCH),
+	UNIX_CONST(FNM_PATHNAME),
+	UNIX_CONST(FNM_PERIOD),
+	UNIX_CONST(FNM_NOESCAPE),
+}; /* const_fnmatch[] */
+
 static const struct unix_const const_iff[] = {
 #if defined IFF_UP
 	UNIX_CONST(IFF_UP),
@@ -10087,6 +10116,7 @@ static const struct {
 	{ const_poll,     countof(const_poll) },
 	{ const_clock,    countof(const_clock) },
 	{ const_errno,    countof(const_errno) },
+	{ const_fnmatch,  countof(const_fnmatch) },
 	{ const_iff,      countof(const_iff) },
 	{ const_wait,     countof(const_wait) },
 	{ const_signal,   countof(const_signal) },
