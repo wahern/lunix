@@ -10058,6 +10058,7 @@ static const struct unix_const const_fcntl[] = {
 
 	UNIX_CONST(SEEK_SET), UNIX_CONST(SEEK_CUR), UNIX_CONST(SEEK_END),
 
+	UNIX_CONST(O_ACCMODE),
 	{ "O_CLOEXEC", U_CLOEXEC }, /* not natively supported on NetBSD 5.1 */
 	UNIX_CONST(O_CREAT),
 #if defined O_DIRECTORY
