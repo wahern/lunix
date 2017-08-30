@@ -969,6 +969,15 @@ MAYBEUSED static int u_in6_clearscope(struct in6_addr *in6) {
 } /* u_in6_clearscope() */
 
 
+static _Bool u_isatfd(int fd) {
+#if defined AT_FDCWD
+	if (fd == AT_FDCWD)
+		return 1;
+#endif
+	return 0;
+} /* u_isatfd() */
+
+
 static int u_f2ms(const double f) {
 	double ms;
 
@@ -4377,7 +4386,7 @@ static FILE *unixL_checkfile(lua_State *L, int index) {
 } /* unixL_checkfile() */
 
 
-static int unixL_optfileno(lua_State *L, int index, int def) {
+static int unixL_xoptfileno(lua_State *L, int index, int def, _Bool atok) {
 	luaL_Stream *fh;
 	DIR **dp;
 	int fd;
@@ -4406,14 +4415,24 @@ static int unixL_optfileno(lua_State *L, int index, int def) {
 	if (lua_type(L, index) == LUA_TNUMBER) {
 		fd = lua_tointeger(L, index);
 
-		if (fd < 0)
+		if (fd < 0 && !(atok && u_isatfd(fd)))
 			luaL_argcheck(L, 0, index, lua_pushfstring(L, "bad file descriptor (%d)", fd));
 
 		return fd;
 	}
 
 	return def;
+} /* unixL_xoptfileno() */
+
+
+static int unixL_optfileno(lua_State *L, int index, int def) {
+	return unixL_xoptfileno(L, index, def, 0);
 } /* unixL_optfileno() */
+
+
+static int unixL_optatfileno(lua_State *L, int index, int def) {
+	return unixL_xoptfileno(L, index, def, 1);
+} /* unixL_optatfileno() */
 
 
 static int unixL_checkfileno(lua_State *L, int index) {
@@ -4423,6 +4442,15 @@ static int unixL_checkfileno(lua_State *L, int index) {
 
 	return fd;
 } /* unixL_checkfileno() */
+
+
+static int unixL_checkatfileno(lua_State *L, int index) {
+	int fd = unixL_optatfileno(L, index, -1);
+
+	luaL_argcheck(L, fd >= 0 || u_isatfd(fd), index, "no file descriptor specified");
+
+	return fd;
+} /* unixL_checkatfileno() */
 
 
 static int unixL_closef(lua_State *L) {
@@ -5848,7 +5876,7 @@ static int unix_fnmatch(lua_State *L) {
 static int st_pushstat(lua_State *L, const struct stat *, int);
 
 static int unix_fstatat(lua_State *L) {
-	int at = unixL_checkfileno(L, 1);
+	int at = unixL_checkatfileno(L, 1);
 	const char *path = luaL_checkstring(L, 2);
 	int flags = unixL_optint(L, 3, 0);
 	struct stat st;
@@ -5943,7 +5971,7 @@ static int unix_fopenat(lua_State *L) {
 	luaL_Stream *fh;
 
 	lua_settop(L, 4);
-	at = unixL_checkfileno(L, 1);
+	at = unixL_checkatfileno(L, 1);
 	path = luaL_checkstring(L, 2);
 	unixL_checkflags(L, 3, &mode, &flags, &perm);
 
@@ -7358,7 +7386,7 @@ static int unix_mkdir(lua_State *L) {
  * (seccomp, pledge) and the mkdir() + chmod() sequence is not atomic.
  */
 static int unix_mkdirat(lua_State *L) {
-	int at = unixL_checkfileno(L, 1);
+	int at = unixL_checkatfileno(L, 1);
 	const char *path = luaL_checkstring(L, 2);
 	mode_t mode = unixL_optmode(L, 3, 0777, 0777);
 
@@ -7387,7 +7415,7 @@ static int unix_mkfifo(lua_State *L) {
 
 #if HAVE_MKFIFOAT
 static int unix_mkfifoat(lua_State *L) {
-	int at = unixL_checkfileno(L, 1);
+	int at = unixL_checkatfileno(L, 1);
 	const char *path = luaL_checkstring(L, 2);
 	mode_t mode = unixL_optmode(L, 3, 0666, 0666);
 
@@ -7511,7 +7539,7 @@ static int unix_openat(lua_State *L) {
 	mode_t perm;
 
 	lua_settop(L, 4);
-	at = unixL_checkfileno(L, 1);
+	at = unixL_checkatfileno(L, 1);
 	path = luaL_checkstring(L, 2);
 	unixL_checkflags(L, 3, &mode, &flags, &perm);
 
@@ -7985,7 +8013,7 @@ static int unix_readlink(lua_State *L) {
 #if HAVE_READLINKAT
 static int unix_readlinkat(lua_State *L) {
 	unixL_State *U = unixL_getstate(L);
-	int fd = unixL_checkfileno(L, 1);
+	int fd = unixL_checkatfileno(L, 1);
 	const char *path = luaL_checkstring(L, 2);
 	ssize_t n = 0;
 	int error;
@@ -8194,9 +8222,9 @@ static int unix_rename(lua_State *L) {
 
 #if HAVE_RENAMEAT
 static int unix_renameat(lua_State *L) {
-	int fromfd = unixL_checkfileno(L, 1);
+	int fromfd = unixL_checkatfileno(L, 1);
 	const char *from = luaL_checkstring(L, 2);
-	int tofd = unixL_checkfileno(L, 3);
+	int tofd = unixL_checkatfileno(L, 3);
 	const char *to = luaL_checkstring(L, 4);
 
 	if (0 != renameat(fromfd, from, tofd, to))
@@ -8943,7 +8971,7 @@ static int unix_symlink(lua_State *L) {
 #if HAVE_SYMLINKAT
 static int unix_symlinkat(lua_State *L) {
 	const char *src = luaL_checkstring(L, 1);
-	int fd = unixL_checkfileno(L, 2);
+	int fd = unixL_checkatfileno(L, 2);
 	const char *dst = luaL_checkstring(L, 3);
 
 	if (0 != symlinkat(src, fd, dst))
@@ -9176,7 +9204,7 @@ static int unix_unlink(lua_State *L) {
 
 #if HAVE_UNLINKAT
 static int unix_unlinkat(lua_State *L) {
-	int at = unixL_checkfileno(L, 1);
+	int at = unixL_checkatfileno(L, 1);
 	const char *path = luaL_checkstring(L, 2);
 	int flags = luaL_optint(L, 3, 0);
 
