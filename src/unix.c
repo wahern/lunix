@@ -316,6 +316,10 @@
 #define HAVE_FDOPENDIR ((!defined __APPLE__ || MACOS_PREREQ(10,10,0) || IPHONE_PREREQ(8,0)) && (!defined __NetBSD__ || NETBSD_PREREQ(6,0)))
 #endif
 
+#ifndef HAVE_FSTATAT
+#define HAVE_FSTATAT HAVE_OPENAT
+#endif
+
 #ifndef HAVE_ISSETUGID
 #define HAVE_ISSETUGID (!defined __linux && !defined _AIX)
 #endif
@@ -5840,6 +5844,23 @@ static int unix_fnmatch(lua_State *L) {
 } /* unix_fnmatch() */
 
 
+#if HAVE_FSTATAT
+static int st_pushstat(lua_State *L, const struct stat *, int);
+
+static int unix_fstatat(lua_State *L) {
+	int at = unixL_checkfileno(L, 1);
+	const char *path = luaL_checkstring(L, 2);
+	int flags = unixL_optint(L, 3, 0);
+	struct stat st;
+
+	if (0 != fstatat(at, path, &st, flags))
+		return unixL_pusherror(L, errno, "fstatat", "~$#");
+
+	return st_pushstat(L, &st, 4);
+} /* unix_fstatat() */
+#endif
+
+
 static int unix_fsync(lua_State *L) {
 	int fd = unixL_checkfileno(L, 1);
 
@@ -9338,6 +9359,9 @@ static const luaL_Reg unix_routines[] = {
 	{ "flockfile",          &unix_flockfile },
 	{ "fnmatch",            &unix_fnmatch },
 	{ "fstat",              &unix_stat },
+#if HAVE_FSTATAT
+	{ "fstatat",            &unix_fstatat },
+#endif
 	{ "fsync",              &unix_fsync },
 	{ "ftrylockfile",       &unix_ftrylockfile },
 	{ "funlockfile",        &unix_funlockfile },
