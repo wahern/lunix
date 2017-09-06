@@ -103,7 +103,7 @@ u_getopt_r(int argc, char *const argv[], const char *shortopts, struct u_getopt_
 				GETOPT_YIELD(K->optopt);
 				break;
 			} else {
-				getopt_err(argc, argv, shortopts, K, "option requires an argument -- %c", K->optopt);
+				getopt_err(argc, argv, shortopts, K, "option requires an argument -- %c\n", K->optopt);
 				K->optind++;
 				GETOPT_YIELD((*shortopts == ':')? ':' : '?');
 				break;
