@@ -519,7 +519,6 @@
 #define LUA_FILEHANDLE "FILE*"
 #endif
 
-
 /*
  * Lua 5.1 userdata is a simple FILE *, while LuaJIT is a struct with the
  * first member a FILE *, similar to Lua 5.2.
@@ -528,13 +527,14 @@ typedef struct luaL_Stream {
 	FILE *f;
 } luaL_Stream;
 
-
 static int lua_absindex(lua_State *L, int index) {
 	return (index > 0 || index <= LUA_REGISTRYINDEX)? index : lua_gettop(L) + index + 1;
 } /* lua_absindex() */
 
+#define lua_rawlen lua_objlen
 
-static void *luaL_testudata(lua_State *L, int index, const char *tname) {
+#define luaL_testudata(...) compatL_testudata(__VA_ARGS__)
+static void *compatL_testudata(lua_State *L, int index, const char *tname) {
 	void *p = lua_touserdata(L, index);
 	int eq;
 
@@ -546,16 +546,16 @@ static void *luaL_testudata(lua_State *L, int index, const char *tname) {
 	lua_pop(L, 2);
 
 	return (eq)? p : 0;
-} /* luaL_testudate() */
+}
 
-
-static void luaL_setmetatable(lua_State *L, const char *tname) {
+#define luaL_setmetatable(...) compatL_setmetatable(__VA_ARGS__)
+static void compatL_setmetatable(lua_State *L, const char *tname) {
 	luaL_getmetatable(L, tname);
 	lua_setmetatable(L, -2);
-} /* luaL_setmetatable() */
+}
 
-
-static void luaL_setfuncs(lua_State *L, const luaL_Reg *l, int nup) {
+#define luaL_setfuncs(...) compatL_setfuncs(__VA_ARGS__)
+static void compatL_setfuncs(lua_State *L, const luaL_Reg *l, int nup) {
 	int i, t = lua_absindex(L, -1 - nup);
 
 	for (; l->name; l++) {
@@ -566,17 +566,17 @@ static void luaL_setfuncs(lua_State *L, const luaL_Reg *l, int nup) {
 	}
 
 	lua_pop(L, nup);
-} /* luaL_setfuncs() */
+}
 
-
+#ifndef luaL_newlibtable
 #define luaL_newlibtable(L, l) \
 	lua_createtable(L, 0, (sizeof (l) / sizeof *(l)) - 1)
+#endif
 
+#ifndef luaL_newlib
 #define luaL_newlib(L, l) \
 	(luaL_newlibtable((L), (l)), luaL_setfuncs((L), (l), 0))
-
-
-#define lua_rawlen lua_objlen
+#endif
 
 #endif /* LUA_VERSION_NUM < 502 */
 
