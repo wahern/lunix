@@ -5737,6 +5737,23 @@ static int unix_fcntl(lua_State *L) {
 		return 1;
 	}
 #endif
+#if defined F_GETPATH
+	case F_GETPATH: {
+		unixL_State *U = unixL_getstate(L);
+
+		if (U->bufsiz < MAXPATHLEN + 1) {
+			if ((error = u_realloc(&U->buf, &U->bufsiz, MAXPATHLEN + 1)))
+				goto error;
+		}
+
+		if (-1 == fcntl(fd, cmd, U->buf))
+			goto syerr;
+
+		lua_pushstring(L, U->buf);
+
+		return 1;
+	}
+#endif
 	default:
 		/*
 		 * NOTE: We don't allow unsupported operations because we
@@ -10046,6 +10063,9 @@ static const struct unix_const const_fcntl[] = {
 	UNIX_CONST(F_GETFL), UNIX_CONST(F_SETFL),
 	UNIX_CONST(F_GETLK), UNIX_CONST(F_SETLK), UNIX_CONST(F_SETLKW),
 	UNIX_CONST(F_GETOWN), UNIX_CONST(F_SETOWN),
+#if defined F_GETPATH
+	UNIX_CONST(F_GETPATH),
+#endif
 #if defined F_CLOSEM
 	UNIX_CONST(F_CLOSEM),
 #endif
