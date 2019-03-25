@@ -714,14 +714,17 @@ static void compatL_setfuncs(lua_State *L, const luaL_Reg *l, int nup) {
 
 #if defined __clang__
 #define U_WARN_PUSH _Pragma("clang diagnostic push")
+#define U_WARN_NO_DEPRECATED_DECLARATIONS _Pragma("clang diagnostic ignored \"-Wdeprecated-declarations\"")
 #define U_WARN_NO_SIGN_COMPARE _Pragma("clang diagnostic ignored \"-Wsign-compare\"")
 #define U_WARN_POP _Pragma("clang diagnostic pop")
 #elif GNUC_PREREQ(4, 6)
 #define U_WARN_PUSH _Pragma("GCC diagnostic push")
+#define U_WARN_NO_DEPRECATED_DECLARATIONS _Pragma("GCC diagnostic ignored \"-Wdeprecated-declarations\"")
 #define U_WARN_NO_SIGN_COMPARE _Pragma("GCC diagnostic ignored \"-Wsign-compare\"")
 #define U_WARN_POP _Pragma("GCC diagnostic pop")
 #else
 #define U_WARN_PUSH
+#define U_WARN_NO_DEPRECATED_DECLARATIONS
 #define U_WARN_NO_SIGN_COMPARE
 #define U_WARN_POP
 #endif
@@ -2356,7 +2359,15 @@ static int u_readdir_r(DIR *dp, struct dirent *ent, struct dirent **res) {
 
 	return error;
 #else
+	/*
+	 * NOTE: glibc deprecated readdir_r but not worth refactoring our
+	 * code unless and until the next POSIX specification is released
+	 * which makes readdir_r thread-safe.
+	 */
+	U_WARN_PUSH;
+	U_WARN_NO_DEPRECATED_DECLARATIONS;
 	return readdir_r(dp, ent, res);
+	U_WARN_POP;
 #endif
 } /* u_readdir_r() */
 
