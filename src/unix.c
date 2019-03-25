@@ -3307,10 +3307,13 @@ static void unixL_random_buf(lua_State *L, void *buf, size_t bufsiz, const unsig
 		switch ((size_t)(pe - p)) {
 		default:
 			*p++ = r_char(charmap, mapsiz, (r >> 0));
+			/* FALL THROUGH */
 		case 3:
 			*p++ = r_char(charmap, mapsiz, (r >> 8));
+			/* FALL THROUGH */
 		case 2:
 			*p++ = r_char(charmap, mapsiz, (r >> 16));
+			/* FALL THROUGH */
 		case 1:
 			*p++ = r_char(charmap, mapsiz, (r >> 24));
 		}
