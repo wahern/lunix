@@ -132,6 +132,15 @@
 #define HAVE_C_STATEMENT_EXPRESSION GNUC_PREREQ(1, 0)
 #endif
 
+/* __KAME__ often defined to empty string */
+#ifndef HAVE_DECL___KAME__
+#if defined __KAME__
+#define HAVE_DECL___KAME__ 1
+#else
+#define HAVE_DECL___KAME__ 0
+#endif
+#endif
+
 #ifndef HAVE_MACH_MACH_H
 #define HAVE_MACH_MACH_H (defined __APPLE__)
 #endif
@@ -353,7 +362,7 @@
  * other dependencies.
  */
 #ifndef HAVE_NETINET6_IN6_VAR_H
-#define HAVE_NETINET6_IN6_VAR_H (defined __KAME__ && !HAVE_IFADDRS_H)
+#define HAVE_NETINET6_IN6_VAR_H (HAVE_DECL___KAME__ && !HAVE_IFADDRS_H)
 #endif
 
 #ifndef HAVE_GETENV_R
