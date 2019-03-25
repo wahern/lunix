@@ -8107,7 +8107,6 @@ static int unix_recvfromto(lua_State *L) {
 	struct sockaddr_storage from, to;
 	size_t fromlen, tolen;
 	ssize_t n;
-	void *ud;
 	int error;
 
 	if (U->bufsiz < size && ((error = u_realloc(&U->buf, &U->bufsiz, size))))
@@ -8318,7 +8317,6 @@ static int unix_send(lua_State *L) {
 	const char *src = luaL_checklstring(L, 2, &size);
 	int flags = unixL_optinteger(L, 3, 0, 0, INT_MAX);
 	ssize_t n;
-	int error;
 
 	if (-1 == (n = send(fd, src, size, flags)))
 		return unixL_pusherror(L, errno, "send", "~$#");
@@ -8337,7 +8335,6 @@ static int unix_sendto(lua_State *L) {
 	size_t tolen;
 	void *to = unixL_checksockaddr(L, 4, &tolen);
 	ssize_t n;
-	int error;
 
 	if (-1 == (n = sendto(fd, src, size, flags, to, tolen)))
 		return unixL_pusherror(L, errno, "sendto", "~$#");
