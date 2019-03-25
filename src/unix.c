@@ -76,25 +76,25 @@
 #define __NetBSD_Prereq__(M, m, p) 0
 #endif
 
-#define GNUC_PREREQ(M, m) (defined __GNUC__ && ((__GNUC__ > M) || (__GNUC__ == M && __GNUC_MINOR__ >= m)))
+#define GNUC_PREREQ(M, m) (__GNUC__ && ((__GNUC__ > M) || (__GNUC__ == M && __GNUC_MINOR__ >= m)))
 
 #if defined __GLIBC_PREREQ
-#define GLIBC_PREREQ(M, m) (defined __GLIBC__ && __GLIBC_PREREQ(M, m) && !__UCLIBC__)
+#define GLIBC_PREREQ(M, m) (__GLIBC__ && __GLIBC_PREREQ(M, m) && !__UCLIBC__)
 #else
 #define GLIBC_PREREQ(M, m) 0
 #endif
 
-#define UCLIBC_PREREQ(M, m, p) (defined __UCLIBC__ && (__UCLIBC_MAJOR__ > M || (__UCLIBC_MAJOR__ == M && __UCLIBC_MINOR__ > m) || (__UCLIBC_MAJOR__ == M && __UCLIBC_MINOR__ == m && __UCLIBC_SUBLEVEL__ >= p)))
+#define UCLIBC_PREREQ(M, m, p) (__UCLIBC__ && (__UCLIBC_MAJOR__ > M || (__UCLIBC_MAJOR__ == M && __UCLIBC_MINOR__ > m) || (__UCLIBC_MAJOR__ == M && __UCLIBC_MINOR__ == m && __UCLIBC_SUBLEVEL__ >= p)))
 
 /* NB: uClibc defines __GLIBC__ */
 #define MUSL_MAYBE (__linux && !__BIONIC__ && !__GLIBC__ && !__UCLIBC__)
 
 #define NETBSD_PREREQ(M, m) __NetBSD_Prereq__(M, m, 0)
 
-#define FREEBSD_PREREQ(M, m) (defined __FreeBSD_version && __FreeBSD_version >= ((M) * 100000) + ((m) * 1000))
+#define FREEBSD_PREREQ(M, m) (__FreeBSD_version && __FreeBSD_version >= ((M) * 100000) + ((m) * 1000))
 
-#define SUNOS_PREREQ_5_10 (defined __sun && defined _DTRACE_VERSION)
-#define SUNOS_PREREQ_5_11 (defined __sun && defined F_DUPFD_CLOEXEC)
+#define SUNOS_PREREQ_5_10 (__sun && _DTRACE_VERSION)
+#define SUNOS_PREREQ_5_11 (__sun && F_DUPFD_CLOEXEC)
 #define SUNOS_PREREQ(M, m) SUNOS_PREREQ_ ## M ## _ ## m
 
 #define IPHONE_2VER(M, m) (((M) * 10000) + ((m) * 100))
@@ -141,40 +141,73 @@
 #endif
 #endif
 
+/* NOTE: <sys/stat.h> MUST already be included */
+#ifndef HAVE_DECL_ST_ATIME
+#if defined st_atime
+#define HAVE_DECL_ST_ATIME 1
+#else
+#define HAVE_DECL_ST_ATIME 0
+#endif
+#endif
+
+#ifndef HAVE_DECL_ST_ATIMENSEC
+#if defined st_atimensec
+#define HAVE_DECL_ST_ATIMENSEC 1
+#else
+#define HAVE_DECL_ST_ATIMENSEC 0
+#endif
+#endif
+
+#ifndef HAVE_DECL_ST_ATIMESPEC
+#if defined st_atimespec
+#define HAVE_DECL_ST_ATIMESPEC 1
+#else
+#define HAVE_DECL_ST_ATIMESPEC 0
+#endif
+#endif
+
+#ifndef HAVE_DECL_STATIC_ASSERT
+#if defined static_assert
+#define HAVE_DECL_STATIC_ASSERT 1
+#else
+#define HAVE_DECL_STATIC_ASSERT 0
+#endif
+#endif
+
 #ifndef HAVE_MACH_MACH_H
-#define HAVE_MACH_MACH_H (defined __APPLE__)
+#define HAVE_MACH_MACH_H (__APPLE__)
 #endif
 
 #ifndef HAVE_MACH_CLOCK_H
-#define HAVE_MACH_CLOCK_H (defined __APPLE__)
+#define HAVE_MACH_CLOCK_H (__APPLE__)
 #endif
 
 #ifndef HAVE_MACH_MACH_TIME_H
-#define HAVE_MACH_MACH_TIME_H (defined __APPLE__)
+#define HAVE_MACH_MACH_TIME_H (__APPLE__)
 #endif
 
 #ifndef HAVE_SYS_FEATURE_TESTS_H
-#define HAVE_SYS_FEATURE_TESTS_H (defined __sun)
+#define HAVE_SYS_FEATURE_TESTS_H (__sun)
 #endif
 
 #ifndef HAVE_SYS_PARAM_H
-#define HAVE_SYS_PARAM_H (defined __OpenBSD__ || defined __NetBSD__ || defined __FreeBSD__ || defined __APPLE__)
+#define HAVE_SYS_PARAM_H (__OpenBSD__ || __NetBSD__ || __FreeBSD__ || __APPLE__)
 #endif
 
 #ifndef HAVE_SYS_PROCFS_H
-#define HAVE_SYS_PROCFS_H (defined _AIX)
+#define HAVE_SYS_PROCFS_H (_AIX)
 #endif
 
 #ifndef HAVE_SYS_SOCKIO_H
-#define HAVE_SYS_SOCKIO_H (defined __sun)
+#define HAVE_SYS_SOCKIO_H (__sun)
 #endif
 
 #ifndef HAVE_SYS_SYSCALL_H
-#define HAVE_SYS_SYSCALL_H (defined BSD || __linux__ || __sun)
+#define HAVE_SYS_SYSCALL_H (BSD || __linux__ || __sun)
 #endif
 
 #ifndef HAVE_SYS_SYSCTL_H /* missing on musl libc */
-#define HAVE_SYS_SYSCTL_H (defined BSD || GLIBC_PREREQ(0,0) || UCLIBC_PREREQ(0,0,0))
+#define HAVE_SYS_SYSCTL_H (BSD || GLIBC_PREREQ(0,0) || UCLIBC_PREREQ(0,0,0))
 #endif
 
 #ifndef HAVE_STRUCT_IN_PKTINFO
@@ -190,7 +223,7 @@
 #endif
 
 #ifndef HAVE_STRUCT_PSINFO
-#define HAVE_STRUCT_PSINFO (defined _AIX)
+#define HAVE_STRUCT_PSINFO (_AIX)
 #endif
 
 #ifndef HAVE_STRUCT_PSINFO_PR_FNAME
@@ -214,7 +247,7 @@
 #endif
 
 #ifndef HAVE_STRUCT_STAT_ST_ATIM
-#define HAVE_STRUCT_STAT_ST_ATIM (defined st_atime)
+#define HAVE_STRUCT_STAT_ST_ATIM HAVE_DECL_ST_ATIME
 #endif
 
 #ifndef HAVE_STRUCT_STAT_ST_MTIM
@@ -226,7 +259,7 @@
 #endif
 
 #ifndef HAVE_STRUCT_STAT_ST_ATIMESPEC
-#define HAVE_STRUCT_STAT_ST_ATIMESPEC (defined __APPLE__ || defined st_atimespec || defined st_atimensec)
+#define HAVE_STRUCT_STAT_ST_ATIMESPEC (__APPLE__ || HAVE_DECL_ST_ATIMESPEC || HAVE_DECL_ST_ATIMENSEC)
 #endif
 
 #ifndef HAVE_STRUCT_STAT_ST_MTIMESPEC
@@ -246,23 +279,43 @@
 #endif
 
 #ifndef HAVE_DECL_IP_PKTINFO
-#define HAVE_DECL_IP_PKTINFO (defined IP_PKTINFO)
+#if defined IP_PKTINFO
+#define HAVE_DECL_IP_PKTINFO 1
+#else
+#define HAVE_DECL_IP_PKTINFO 0
+#endif
 #endif
 
 #ifndef HAVE_DECL_IP_RECVDSTADDR
-#define HAVE_DECL_IP_RECVDSTADDR (defined IP_RECVDSTADDR)
+#if defined IP_RECVDSTADDR
+#define HAVE_DECL_IP_RECVDSTADDR 1
+#else
+#define HAVE_DECL_IP_RECVDSTADDR 0
+#endif
 #endif
 
 #ifndef HAVE_DECL_IP_SENDSRCADDR
-#define HAVE_DECL_IP_SENDSRCADDR (defined IP_SENDSRCADDR)
+#if defined IP_SENDSRCADDR
+#define HAVE_DECL_IP_SENDSRCADDR 1
+#else
+#define HAVE_DECL_IP_SENDSRCADDR 0
+#endif
 #endif
 
 #ifndef HAVE_DECL_IPV6_PKTINFO
-#define HAVE_DECL_IPV6_PKTINFO (defined IPV6_PKTINFO)
+#if defined IPV6_PKTINFO
+#define HAVE_DECL_IPV6_PKTINFO 1
+#else
+#define HAVE_DECL_IPV6_PKTINFO 0
+#endif
 #endif
 
 #ifndef HAVE_DECL_IPV6_RECVPKTINFO
-#define HAVE_DECL_IPV6_RECVPKTINFO (defined IPV6_RECVPKTINFO)
+#if defined IPV6_RECVPKTINFO
+#define HAVE_DECL_IPV6_RECVPKTINFO 1
+#else
+#define HAVE_DECL_IPV6_RECVPKTINFO 0
+#endif
 #endif
 
 #ifndef HAVE_DECL_RANDOM_UUID
@@ -270,31 +323,47 @@
 #endif
 
 #ifndef HAVE_DECL_RLIM_SAVED_CUR
-#define HAVE_DECL_RLIM_SAVED_CUR (defined RLIM_SAVED_CUR)
+#if defined RLIM_SAVED_CUR
+#define HAVE_DECL_RLIM_SAVED_CUR 1
+#else
+#define HAVE_DECL_RLIM_SAVED_CUR 0
+#endif
 #endif
 
 #ifndef HAVE_DECL_RLIM_SAVED_MAX
-#define HAVE_DECL_RLIM_SAVED_MAX (defined RLIM_SAVED_MAX)
+#if defined RLIM_SAVED_MAX
+#define HAVE_DECL_RLIM_SAVED_MAX 1
+#else
+#define HAVE_DECL_RLIM_SAVED_MAX 0
+#endif
 #endif
 
-#ifndef HAVE_DECL_RLIMIT_AS
-#define HAVE_DECL_RLIMIT_AS (defined RLIMIT_AS)
+#ifndef HAVE_DECL_RLIM_AS
+#if defined RLIM_AS
+#define HAVE_DECL_RLIM_AS 1
+#else
+#define HAVE_DECL_RLIM_AS 0
+#endif
 #endif
 
-#ifndef HAVE_DECL_SYS_GETRANDOM
-#define HAVE_DECL_SYS_GETRANDOM (defined SYS_getrandom)
+#ifndef HAVE_DECL_SOCK_CLOEXEC
+#if defined SOCK_CLOEXEC
+#define HAVE_DECL_SOCK_CLOEXEC 1
+#else
+#define HAVE_DECL_SOCK_CLOEXEC 0
+#endif
 #endif
 
 #ifndef HAVE_ACCEPT4
-#define HAVE_ACCEPT4 (defined SOCK_CLOEXEC && !__NetBSD__)
+#define HAVE_ACCEPT4 (HAVE_DECL_SOCK_CLOEXEC && !__NetBSD__)
 #endif
 
 #ifndef HAVE_ARC4RANDOM
-#define HAVE_ARC4RANDOM (defined __OpenBSD__ || defined __FreeBSD__ || defined __NetBSD__ || defined __MirBSD__ || defined __APPLE__)
+#define HAVE_ARC4RANDOM (__OpenBSD__ || __FreeBSD__ || __NetBSD__ || __MirBSD__ || __APPLE__)
 #endif
 
 #ifndef HAVE_ARC4RANDOM_STIR
-#define HAVE_ARC4RANDOM_STIR (HAVE_ARC4RANDOM && (!defined OpenBSD || OpenBSD < 201405))
+#define HAVE_ARC4RANDOM_STIR (HAVE_ARC4RANDOM && (!OpenBSD || OpenBSD < 201405))
 #endif
 
 #ifndef HAVE_ARC4RANDOM_ADDRANDOM
@@ -302,11 +371,11 @@
 #endif
 
 #ifndef HAVE_GETEXECNAME
-#define HAVE_GETEXECNAME (defined __sun)
+#define HAVE_GETEXECNAME (__sun)
 #endif
 
 #ifndef HAVE_GETPROGNAME
-#define HAVE_GETPROGNAME (defined __OpenBSD__ || defined __FreeBSD__ || defined __NetBSD__ || defined __MirBSD__ || defined __APPLE__)
+#define HAVE_GETPROGNAME (__OpenBSD__ || __FreeBSD__ || __NetBSD__ || __MirBSD__ || __APPLE__)
 #endif
 
 #ifndef HAVE_PIPE2
@@ -318,11 +387,11 @@
 #endif
 
 #ifndef HAVE_FDATASYNC
-#define HAVE_FDATASYNC (!defined __APPLE__ && !__FreeBSD__)
+#define HAVE_FDATASYNC (!__APPLE__ && !__FreeBSD__)
 #endif
 
 #ifndef HAVE_FDOPENDIR
-#define HAVE_FDOPENDIR ((!defined __APPLE__ || MACOS_PREREQ(10,10,0) || IPHONE_PREREQ(8,0)) && (!defined __NetBSD__ || NETBSD_PREREQ(6,0)))
+#define HAVE_FDOPENDIR ((!__APPLE__ || MACOS_PREREQ(10,10,0) || IPHONE_PREREQ(8,0)) && (!__NetBSD__ || NETBSD_PREREQ(6,0)))
 #endif
 
 #ifndef HAVE_FSTATAT
@@ -330,7 +399,7 @@
 #endif
 
 #ifndef HAVE_ISSETUGID
-#define HAVE_ISSETUGID (!defined __linux && !defined _AIX)
+#define HAVE_ISSETUGID (!__linux && !_AIX)
 #endif
 
 #ifndef HAVE_GETAUXVAL
@@ -342,7 +411,7 @@
 #endif
 
 #ifndef HAVE_IFADDRS_H
-#define HAVE_IFADDRS_H (!defined _AIX && (!defined __sun || SUNOS_PREREQ(5,11)))
+#define HAVE_IFADDRS_H (!_AIX && (!__sun || SUNOS_PREREQ(5,11)))
 #endif
 
 #ifndef HAVE_GETIFADDRS
@@ -350,11 +419,11 @@
 #endif
 
 #ifndef HAVE_SOCKADDR_SA_LEN
-#define HAVE_SOCKADDR_SA_LEN (!defined __linux && !defined __sun)
+#define HAVE_SOCKADDR_SA_LEN (!__linux && !__sun)
 #endif
 
 #ifndef HAVE_NETINET_IN6_VAR_H
-#define HAVE_NETINET_IN6_VAR_H (defined _AIX)
+#define HAVE_NETINET_IN6_VAR_H (_AIX)
 #endif
 
 /*
@@ -394,7 +463,7 @@
 #endif
 
 #ifndef HAVE_PROGRAM_INVOCATION_SHORT_NAME
-#define HAVE_PROGRAM_INVOCATION_SHORT_NAME (defined __linux)
+#define HAVE_PROGRAM_INVOCATION_SHORT_NAME (__linux)
 #endif
 
 #ifndef HAVE_PTSNAME_R
@@ -402,7 +471,7 @@
 #endif
 
 #ifndef HAVE_P_XARGV
-#define HAVE_P_XARGV (defined _AIX)
+#define HAVE_P_XARGV (_AIX)
 #endif
 
 #ifndef HAVE_DECL_P_XARGV
@@ -418,16 +487,16 @@
 #endif
 
 #ifndef HAVE_SIGTIMEDWAIT
-#define HAVE_SIGTIMEDWAIT (!defined __APPLE__ && !defined __OpenBSD__)
+#define HAVE_SIGTIMEDWAIT (!__APPLE__ && !__OpenBSD__)
 #endif
 
 #ifndef HAVE_SIGWAIT
-#define HAVE_SIGWAIT (!defined __minix)
+#define HAVE_SIGWAIT (!__minix)
 #endif
 
 #ifndef HAVE_STATIC_ASSERT
 #define HAVE_STATIC_ASSERT_ (!GLIBC_PREREQ(0,0) || HAVE__STATIC_ASSERT) /* glibc doesn't check GCC version */
-#define HAVE_STATIC_ASSERT (defined static_assert && HAVE_STATIC_ASSERT_)
+#define HAVE_STATIC_ASSERT (HAVE_DECL_STATIC_ASSERT && HAVE_STATIC_ASSERT_)
 #endif
 
 #ifndef HAVE_SYSCALL
@@ -517,6 +586,22 @@
 #include <mach/mach_time.h> /* mach_timebase_info() mach_absolute_time() */
 #endif
 
+/*
+ * F E A T U R E  D E T E C T I O N  (S T A G E  2)
+ *
+ * Macros which may require non-portable headers to be pre-included and
+ * cannot dely on lazy evluation (e.g. cannot utilize defined statement
+ * in macro expansion).
+ *
+ * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
+
+#ifndef HAVE_DECL_SYS_GETRANDOM
+#if defined SYS_getrandom
+#define HAVE_DECL_SYS_GETRANDOM 1
+#else
+#define HAVE_DECL_SYS_GETRANDOM 0
+#endif
+#endif
 
 /*
  * L U A  C O M P A T A B I L I T Y
@@ -3258,7 +3343,7 @@ static void unixL_random_buf(lua_State *L, void *buf, size_t bufsiz, const unsig
 #ifndef HAVE_MTSAFE_STRSIGNAL
 #define HAVE_MTSAFE_STRSIGNAL_ \
 	(__sun || GLIBC_PREREQ(0,0) || MUSL_MAYBE || \
-	 FREEBSD_PREREQ(8,1) || defined __APPLE__ || defined _AIX)
+	 FREEBSD_PREREQ(8,1) || __APPLE__ || _AIX)
 #define HAVE_MTSAFE_STRSIGNAL (HAVE_STRSIGNAL && HAVE_MTSAFE_STRSIGNAL_)
 #endif
 
