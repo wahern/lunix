@@ -7951,6 +7951,7 @@ static int unix_poll(lua_State *L) {
 		lua_rawgeti(L, 1, pfd->fd);
 		lua_pushinteger(L, pfd->revents);
 		lua_setfield(L, -2, "revents");
+		lua_pop(L, 1);
 	}
 
 	lua_pushinteger(L, nr);
