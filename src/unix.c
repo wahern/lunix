@@ -10460,6 +10460,7 @@ static const struct {
 	{ const_iff,      countof(const_iff) },
 	{ const_wait,     countof(const_wait) },
 	{ const_signal,   countof(const_signal) },
+	{ const_syslog,   countof(const_syslog) },
 	{ const_resource, countof(const_resource) },
 	{ const_fcntl,    countof(const_fcntl) },
 	{ const_ioctl,    countof(const_ioctl) },
