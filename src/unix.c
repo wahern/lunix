@@ -3126,8 +3126,8 @@ static const unixL_State unixL_initializer = {
 #endif
 #if USE_CLOCK_GET_TIME
 	.tm = { MACH_PORT_NULL, MACH_PORT_NULL },
-	.net = { -1, NULL },
 #endif
+	.net = { -1, NULL },
 	.log = { .ident = LUA_NOREF },
 };
 
