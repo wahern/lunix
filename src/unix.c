@@ -9427,7 +9427,10 @@ static int unix__index(lua_State *L) {
 	unixL_State *U = unixL_getstate(L);
 	const char *k = luaL_checkstring(L, 2);
 
-	if (!strcmp(k, "opterr")) {
+	if (!strcmp(k, "errno")) {
+		lua_pushinteger(L, U->error);
+		return 1;
+	} else if (!strcmp(k, "opterr")) {
 		lua_pushboolean(L, !!U->opt.opterr);
 		return 1;
 	} else if (!strcmp(k, "optind")) {
