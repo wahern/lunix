@@ -38,6 +38,7 @@
 #include <sys/utsname.h>  /* uname(2) */
 #include <sys/wait.h>     /* WNOHANG waitpid(2) */
 #include <sys/ioctl.h>    /* SIOCGIFCONF SIOCGIFFLAGS SIOCGIFNETMASK SIOCGIFDSTADDR SIOCGIFBRDADDR SIOCGLIFADDR TIOCNOTTY TIOCSCTTY ioctl(2) */
+#include <syslog.h>       /* LOG_* closelog(3) openlog(3) setlogmask(3) syslog(3) */
 #include <termios.h>      /* tcgetsid(3) */
 #include <net/if.h>       /* IF_NAMESIZE struct ifconf struct ifreq */
 #include <unistd.h>       /* _PC_NAME_MAX alarm(3) chdir(2) chroot(2) close(2) chdir(2) chown(2) chroot(2) dup2(2) execve(2) execl(2) execlp(2) execvp(2) fork(2) fpathconf(3) getegid(2) geteuid(2) getgid(2) getgroups(2) gethostname(3) getpgid(2) getpgrp(2) getpid(2) getppid(2) getuid(2) isatty(3) issetugid(2) lchown(2) lockf(3) link(2) pread(2) pwrite(2) rename(2) rmdir(2) setegid(2) seteuid(2) setgid(2) setgroups(2) setpgid(2) setuid(2) setsid(2) symlink(2) tcgetpgrp(3) tcsetpgrp(3) truncate(2) umask(2) unlink(2) unlinkat(2) */
@@ -3111,6 +3112,10 @@ typedef struct unixL_State {
 		} fds;
 		size_t nfds;
 	} net;
+
+	struct {
+		int ident; /* registry reference to ident string */
+	} log;
 } unixL_State;
 
 static const unixL_State unixL_initializer = {
@@ -3123,6 +3128,7 @@ static const unixL_State unixL_initializer = {
 	.tm = { MACH_PORT_NULL, MACH_PORT_NULL },
 	.net = { -1, NULL },
 #endif
+	.log = { .ident = LUA_NOREF },
 };
 
 #define UNIXL_MAGIC_INITIALIZER { 0, { 0 } }
@@ -5475,6 +5481,13 @@ static int unix_closedir(lua_State *L) {
 } /* unix_closedir() */
 
 
+static int unix_closelog(lua_State *L) {
+	(void)L;
+	closelog();
+	return 0;
+} /* unix_closelog() */
+
+
 static int unix_dup(lua_State *L) {
 	int ofd = unixL_checkfileno(L, 1);
 	u_flags_t flags = luaL_optinteger(L, 2, 0);
@@ -7453,6 +7466,20 @@ static int unix_lockf(lua_State *L) {
 } /* unix_lockf() */
 
 
+static int unix_LOG_MASK(lua_State *L) {
+	int priority = unixL_checkint(L, 1);
+	lua_pushinteger(L, LOG_MASK(priority));
+	return 1;
+} /* unix_LOG_MASK() */
+
+
+static int unix_LOG_UPTO(lua_State *L) {
+	int priority = unixL_checkint(L, 1);
+	lua_pushinteger(L, LOG_UPTO(priority));
+	return 1;
+} /* unix_LOG_UPTO() */
+
+
 static int unix_lseek(lua_State *L) {
 	int fd = unixL_checkfileno(L, 1);
 	off_t offset = unixL_checkoff(L, 2);
@@ -7873,6 +7900,40 @@ error:
 
 	return unixL_pusherror(L, error, "opendir", "~$#");
 } /* unix_opendir() */
+
+
+/*
+ * same defaults as luaposix and as POSIX specifies for syslog in the
+ * absence of an explicit openlog
+ */
+static int unix_openlog(lua_State *L) {
+	unixL_State *U = unixL_getstate(L);
+	const char *ident = luaL_checkstring(L, 1);
+	int logopt = unixL_optint(L, 2, 0);
+	int facility = unixL_optint(L, 3, LOG_USER);
+	int ref;
+
+	/*
+	 * FIXME: What if the Lua state is destroyed? Should we use strdup
+	 * instead, only free the old reference if openlog is called again
+	 * and permit a possible memory leak?
+	 *
+	 * Note that POSIX (2018) doesn't say anything about the lifetime of
+	 * the ident string. Some implementations use the string directly
+	 * (e.g. glibc 2.29, OpenBSD 6.4, Solaris 11.4 per syslog(3C)),
+	 * while some make a copy (e.g. musl libc 1.1.21).
+	 *
+	 */
+	lua_pushvalue(L, 1);
+	ref = luaL_ref(L, LUA_REGISTRYINDEX);
+
+	openlog(ident, logopt, facility);
+
+	luaL_unref(L, LUA_REGISTRYINDEX, U->log.ident);
+	U->log.ident = ref;
+
+	return 0;
+} /* unix_openlog() */
 
 
 static int unix_pipe(lua_State *L) {
@@ -8554,6 +8615,15 @@ static int unix_setlocale(lua_State *L) {
 } /* unix_setlocale() */
 
 
+static int unix_setlogmask(lua_State *L) {
+	int mask = unixL_optint(L, 1, 0); /* same default as luaposix */
+
+	lua_pushinteger(L, setlogmask(mask));
+
+	return 1;
+} /* unix_setlogmask() */
+
+
 static int unix_setpgid(lua_State *L) {
 	pid_t pid = unixL_checkpid(L, 1);
 	pid_t pgid = unixL_checkpid(L, 2);
@@ -9107,6 +9177,25 @@ static int unix_symlinkat(lua_State *L) {
 #endif
 
 
+static int unix_syslog(lua_State *L) {
+	int priority = unixL_checkint(L, 1);
+	const char *msg = luaL_checkstring(L, 2);
+
+	/*
+	 * TODO: Transparently behave like string.format, but with
+	 * additional support for %m. To help preserve this possibility
+	 * enforce the 2-argument form for now, which is how luaposix
+	 * behaves, anyhow.
+	 */
+	if (lua_gettop(L) > 2)
+		return luaL_error(L, "expected 2 arguments, got %d", lua_gettop(L));
+
+	syslog(priority, "%s", msg);
+
+	return 0;
+} /* unix_syslog() */
+
+
 static int unix_tcgetpgrp(lua_State *L) {
 	int fd = unixL_checkfileno(L, 1);
 	pid_t pgid;
@@ -9485,6 +9574,7 @@ static const luaL_Reg unix_routines[] = {
 	{ "clock_gettime",      &unix_clock_gettime },
 	{ "close",              &unix_close },
 	{ "closedir",           &unix_closedir },
+	{ "closelog",           &unix_closelog },
 	{ "compl",              &unix_compl },
 	{ "connect",            &unix_connect },
 	{ "dup",                &unix_dup },
@@ -9561,6 +9651,8 @@ static const luaL_Reg unix_routines[] = {
 	{ "link",               &unix_link },
 	{ "listen",             &unix_listen },
 	{ "lockf",              &unix_lockf },
+	{ "LOG_MASK",           &unix_LOG_MASK },
+	{ "LOG_UPTO",           &unix_LOG_UPTO },
 	{ "lseek",              &unix_lseek },
 	{ "lstat",              &unix_lstat },
 	{ "mkdir",              &unix_mkdir },
@@ -9577,6 +9669,7 @@ static const luaL_Reg unix_routines[] = {
 	{ "openat",             &unix_openat },
 #endif
 	{ "opendir",            &unix_opendir },
+	{ "openlog",            &unix_openlog },
 	{ "pipe",               &unix_pipe },
 	{ "poll",               &unix_poll },
 #if HAVE_POSIX_FADVISE
@@ -9622,6 +9715,7 @@ static const luaL_Reg unix_routines[] = {
 	{ "setgid",             &unix_setgid },
 	{ "setgroups",          &unix_setgroups },
 	{ "setlocale",          &unix_setlocale },
+	{ "setlogmask",         &unix_setlogmask },
 	{ "setpgid",            &unix_setpgid },
 	{ "setrlimit",          &unix_setrlimit },
 	{ "setsockopt",         &unix_setsockopt },
@@ -9645,6 +9739,7 @@ static const luaL_Reg unix_routines[] = {
 #if HAVE_SYMLINKAT
 	{ "symlinkat",          &unix_symlinkat },
 #endif
+	{ "syslog",             &unix_syslog },
 	{ "tcgetpgrp",          &unix_tcgetpgrp },
 	{ "tcgetsid",           &unix_tcgetsid },
 	{ "tcsetpgrp",          &unix_tcsetpgrp },
@@ -10140,6 +10235,69 @@ static const struct {
 	{ "SIG_ERR", (u_sighandler_t *)SIG_ERR },
 	{ "SIG_IGN", (u_sighandler_t *)SIG_IGN },
 }; /* unix_sighandler[] */
+
+static const struct unix_const const_syslog[] = {
+	/* severity levels */
+	UNIX_CONST(LOG_EMERG),
+	UNIX_CONST(LOG_ALERT),
+	UNIX_CONST(LOG_CRIT),
+	UNIX_CONST(LOG_ERR),
+	UNIX_CONST(LOG_WARNING),
+	UNIX_CONST(LOG_NOTICE),
+	UNIX_CONST(LOG_INFO),
+	UNIX_CONST(LOG_DEBUG),
+
+	/* facilities */
+	UNIX_CONST(LOG_USER),
+	UNIX_CONST(LOG_LOCAL0),
+	UNIX_CONST(LOG_LOCAL1),
+	UNIX_CONST(LOG_LOCAL2),
+	UNIX_CONST(LOG_LOCAL3),
+	UNIX_CONST(LOG_LOCAL4),
+	UNIX_CONST(LOG_LOCAL5),
+	UNIX_CONST(LOG_LOCAL6),
+	UNIX_CONST(LOG_LOCAL7),
+#if defined LOG_AUDIT
+	UNIX_CONST(LOG_AUDIT),
+#endif
+#if defined LOG_AUTH
+	UNIX_CONST(LOG_AUTH),
+#endif
+#if defined LOG_AUTHPRIV
+	UNIX_CONST(LOG_AUTHPRIV),
+#endif
+#if defined LOG_CRON
+	UNIX_CONST(LOG_CRON),
+#endif
+#if defined LOG_DAEMON
+	UNIX_CONST(LOG_DAEMON),
+#endif
+#if defined LOG_FTP
+	UNIX_CONST(LOG_FTP),
+#endif
+#if defined LOG_LPR
+	UNIX_CONST(LOG_LPR),
+#endif
+#if defined LOG_MAIL
+	UNIX_CONST(LOG_MAIL),
+#endif
+#if defined LOG_NEWS
+	UNIX_CONST(LOG_NEWS),
+#endif
+#if defined LOG_UUCP
+	UNIX_CONST(LOG_UUCP),
+#endif
+
+	/* options */
+	UNIX_CONST(LOG_PID),
+	UNIX_CONST(LOG_CONS),
+	UNIX_CONST(LOG_NDELAY),
+	UNIX_CONST(LOG_ODELAY),
+	UNIX_CONST(LOG_NOWAIT),
+#if defined LOG_PERROR
+	UNIX_CONST(LOG_PERROR),
+#endif
+}; /* const_syslog[] */
 
 static const struct unix_const const_fcntl[] = {
 #if defined AT_EACCESS
