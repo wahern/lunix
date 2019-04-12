@@ -51,6 +51,7 @@
 #include <netinet/in.h>   /* __KAME__ IPPROTO_* */
 #include <netdb.h>        /* NI_* AI_* gai_strerror(3) getaddrinfo(3) getnameinfo(3) freeaddrinfo(3) */
 #include <poll.h>         /* struct pollfd poll(2) */
+#include <regex.h>        /* REG_* regex_t regcomp(3) regerror(3) regexec(3) regfree(3) */
 
 #define LUA_COMPAT_5_2 1
 #include <lua.h>
@@ -127,6 +128,10 @@
 
 #ifndef HAVE__STATIC_ASSERT
 #define HAVE__STATIC_ASSERT (GNUC_PREREQ(4, 6) || __has_feature(c_static_assert) || __has_extension(c_static_assert))
+#endif
+
+#ifndef HAVE_C_FLEXIBLE_ARRAY_MEMBER
+#define HAVE_C_FLEXIBLE_ARRAY_MEMBER (__STDC_VERSION__ >= 199901L || __GNUC__)
 #endif
 
 #ifndef HAVE_C_STATEMENT_EXPRESSION
@@ -678,6 +683,22 @@ static void compatL_setfuncs(lua_State *L, const luaL_Reg *l, int nup) {
 #if LUA_VERSION_NUM < 503
 
 #define lua_isinteger(L, index) 0
+
+#define lua_geti(...) compatL_geti(__VA_ARGS__)
+static int compatL_geti(lua_State *L, int index, lua_Integer i) {
+	index = lua_absindex(L, index);
+	lua_pushinteger(L, i);
+	lua_gettable(L, index);
+	return lua_type(L, -1);
+}
+
+#define lua_seti(...) compatL_seti(__VA_ARGS__)
+static void compatL_seti(lua_State *L, int index, lua_Integer i) {
+	index = lua_absindex(L, index);
+	lua_pushinteger(L, i);
+	lua_insert(L, -2);
+	lua_settable(L, index);
+}
 
 #endif /* LUA_VERSION_NUM < 503 */
 
@@ -8393,6 +8414,324 @@ static const luaL_Reg sa_metamethods[] = {
 }; /* sa_metamethods[] */
 
 
+struct u_regex {
+	regex_t regex;
+	int cflags;
+	_Bool closed;
+
+	/* allocated array length will be at least re.re_nsub + 1 */
+#if HAVE_C_FLEXIBLE_ARRAY_MEMBER
+	regmatch_t match[];
+#else
+	regmatch_t match[1];
+#endif
+};
+
+#define REGCOMP_ESCAPE 0x100
+#define REGCOMP_BRACKET 0x200
+#define REGCOMP_ESCAPED(ch) ((ch) | REGCOMP_ESCAPE)
+#define REGCOMP_BRACKETED(ch) ((ch) | REGCOMP_BRACKET)
+
+static size_t
+regcomp_nsub(const char *cp, const int cflags)
+{
+	const char *obp = NULL;
+	int state = 0, ch;
+	size_t n = 0;
+
+	for (; (ch = (*cp)? (state | *cp) : 0); cp++) {
+		state &= ~REGCOMP_ESCAPE;
+
+		switch (ch) {
+		case '\\':
+			state |= REGCOMP_ESCAPE;
+			break;
+		case '[':
+			obp = cp;
+			state |= REGCOMP_BRACKET;
+			break;
+		case REGCOMP_BRACKETED(']'):
+			if (cp == &obp[1])
+				break;
+			if (cp == &obp[2] && obp[1] == '^')
+				break;
+			obp = NULL;
+			state &= ~REGCOMP_BRACKET;
+			break;
+		case '(':
+			n += !!(cflags & REG_EXTENDED);
+			break;
+		case REGCOMP_ESCAPED('('):
+			n += !(cflags & REG_EXTENDED);
+			break;
+		default:
+			break;
+		}
+	}
+
+	return n;
+}
+
+static struct u_regex *
+regcomp_prepregex(lua_State *L, int index, size_t nsub)
+{
+	struct u_regex *re;
+	size_t size;
+
+	/* +1 for 0th match */
+	if (nsub + 1 > (SIZE_MAX - offsetof(struct u_regex, match)) / sizeof re->match[0])
+		luaL_error(L, "too many subexpressions in regular expression");
+
+	size = offsetof(struct u_regex, match) + ((nsub + 1) * sizeof re->match[0]);
+	re = lua_newuserdata(L, size);
+	memset(re, 0, sizeof *re);
+	re->closed = 1; /* starts off closed because not yet compiled */
+	luaL_setmetatable(L, "regex_t");
+
+#if LUA_VERSION_NUM > 502
+	lua_pushvalue(L, index);
+	lua_setuservalue(L, -2);
+#else
+	lua_createtable(L, 1, 0);
+	lua_pushvalue(L, index);
+	lua_rawseti(L, -2, 1);
+#if LUA_VERSION_NUM > 501
+	lua_setuservalue(L, -2);
+#else
+	lua_setfenv(L, -2);
+#endif
+#endif
+
+	return re;
+}
+
+static int
+regex_pusherrstr(lua_State *L, int error, regex_t *preg)
+{
+	luaL_Buffer errbuf;
+	size_t n;
+
+	luaL_buffinit(L, &errbuf);
+	n = regerror(error, preg, luaL_prepbuffer(&errbuf), LUAL_BUFFERSIZE);
+	if (n > LUAL_BUFFERSIZE) {
+#if LUA_VERSION_NUM >= 502
+		n = regerror(error, preg, luaL_prepbuffsize(&errbuf, n), n);
+#else
+		n = LUAL_BUFFERSIZE;
+#endif
+	}
+
+	luaL_addsize(&errbuf, n - (n > 0));
+	luaL_pushresult(&errbuf);
+
+	return 1;
+}
+
+static int
+regex_pusherror(lua_State *L, int error, regex_t *preg)
+{
+	lua_pushnil(L);
+	regex_pusherrstr(L, error, preg);
+	lua_pushinteger(L, error);
+
+	return 3;
+}
+
+static int
+regex_pushmatch(lua_State *L, const char *s, regmatch_t rm)
+{
+	if (rm.rm_so < 0 || rm.rm_eo < rm.rm_so)
+		luaL_error(L, "unexpected regular expression match offsets");
+	lua_pushlstring(L, &s[rm.rm_so], rm.rm_eo - rm.rm_so);
+	return 1;
+}
+
+static struct u_regex *
+regex_checkself(lua_State *L, int index)
+{
+	struct u_regex *re = luaL_checkudata(L, index, "regex_t");
+
+	luaL_argcheck(L, !re->closed, index, "attempt to use freed regular expression");
+
+	return re;
+}
+
+static int
+regex__index(lua_State *L)
+{
+	struct u_regex *re = regex_checkself(L, 1);
+	const char *k = luaL_checkstring(L, 2);
+
+	if (!strcmp(k, "nsub")) {
+		lua_pushinteger(L, re->regex.re_nsub);
+		return 1;
+	}
+
+	return 0;
+}
+
+static int
+regex__tostring(lua_State *L)
+{
+	struct u_regex *re = regex_checkself(L, 1);
+
+#if LUA_VERSION_NUM > 502
+	lua_getuservalue(L, 1);
+#elif LUA_VERSION_NUM > 501
+	lua_getuservalue(L, 1);
+	lua_rawgeti(L, -1, 1);
+#else
+	lua_getfenv(L, 1);
+	lua_rawgeti(L, -1, 1);
+#endif
+
+	return 1;
+}
+
+static int
+regex__gc(lua_State *L)
+{
+	struct u_regex *re = luaL_checkudata(L, 1, "regex_t");
+
+	if (!re->closed) {
+		regfree(&re->regex);
+		re->closed = 1;
+	}
+
+	return 0;
+}
+
+static const luaL_Reg regex_metamethods[] = {
+	{ "__index",    &regex__index },
+	{ "__tostring", &regex__tostring },
+	{ "__gc",       &regex__gc },
+	{ NULL,         NULL }
+}; /* regex_metamethods[] */
+
+
+static int unix_regcomp(lua_State *L) {
+	const char *patt = luaL_checkstring(L, 1);
+	const int cflags = unixL_optint(L, 2, 0);
+	size_t nsub = regcomp_nsub(patt, cflags);
+	struct u_regex *re;
+	int error;
+
+	for (int i = 0; i < 2; i++) {
+		re = regcomp_prepregex(L, 1, nsub);
+		error = regcomp(&re->regex, patt, cflags);
+		if (error) {
+			return regex_pusherror(L, error, &re->regex);
+		} else if (nsub >= re->regex.re_nsub) {
+			re->cflags = cflags;
+			re->closed = 0;
+			return 1;
+		}
+
+		nsub = re->regex.re_nsub;
+		regfree(&re->regex);
+		lua_pop(L, 1);
+	}
+
+	return luaL_error(L, "unable to preallocate match array for regular expression");
+} /* unix_regcomp() */
+
+
+static int unix_regerror(lua_State *L) {
+	int error = unixL_checkint(L, 1);
+	struct u_regex *re = (lua_isnoneornil(L, 2))? NULL : luaL_checkudata(L, 2, "regex_t");
+
+	return regex_pusherrstr(L, error, (re)? &re->regex : NULL);
+} /* unix_regerror() */
+
+
+/* regexec(regex [[, i][, table], eflags]) */
+static int unix_regexec(lua_State *L) {
+	struct u_regex *re = regex_checkself(L, 1);
+	const char *subj = luaL_checkstring(L, 2);
+	int tindex = 0, eflags = 0;
+	int top = lua_gettop(L);
+	int error;
+
+	luaL_argcheck(L, top <= 5, top, "too many arguments");
+
+	if (top > 2 && lua_isnumber(L, top)) {
+		eflags = unixL_checkint(L, top--);
+	}
+
+	if (top > 2 && lua_istable(L, top)) {
+		luaL_argcheck(L, !(re->cflags & REG_NOSUB), top, "match array specified but regular expression compiled with REG_NOSUB");
+		tindex = top--;
+	}
+
+	if (top > 2 && lua_isnumber(L, top)) {
+		lua_Integer i = luaL_checkinteger(L, top--);
+		size_t len = lua_rawlen(L, 2);
+
+		if (i > 0) {
+			subj += MIN((unixL_Unsigned)(i - 1), len);
+		} else if (i < 0) {
+			subj += len - MIN(-(unixL_Unsigned)i, len);
+		}
+	}
+
+	luaL_argcheck(L, top == 2, top, lua_pushfstring(L, "expected integer or table, got %s", luaL_typename(L, top)));
+
+	if ((error = regexec(&re->regex, subj, re->regex.re_nsub + 1, re->match, eflags)))
+		return regex_pusherror(L, error, &re->regex);
+
+	if (re->cflags & REG_NOSUB) {
+		lua_pushboolean(L, 1);
+
+		return 1;
+	} else if (tindex) {
+		lua_pushvalue(L, tindex);
+
+		for (size_t i = 0; i < re->regex.re_nsub + 1; i++) {
+			if (LUA_TNIL == lua_geti(L, -1, i)) {
+				lua_pop(L, 1);
+				lua_createtable(L, 0, 2);
+				lua_pushvalue(L, -1);
+				lua_seti(L, -3, i);
+			}
+
+			lua_pushinteger(L, re->match[i].rm_so);
+			lua_setfield(L, -2, "so");
+			lua_pushinteger(L, re->match[i].rm_eo);
+			lua_setfield(L, -2, "eo");
+			lua_pop(L, 1);
+		}
+
+		return 1;
+	} else if (re->regex.re_nsub) {
+		if (re->regex.re_nsub > (size_t)(INT_MAX - lua_gettop(L)) || !lua_checkstack(L, re->regex.re_nsub))
+			luaL_error(L, "stack overflow returning regular expression matches");
+
+		for (size_t i = 0; i < re->regex.re_nsub; i++) {
+			regmatch_t rm = re->match[i + 1];
+			if (rm.rm_so == -1) {
+				lua_pushnil(L);
+			} else {
+				regex_pushmatch(L, subj, rm);
+			}
+		}
+
+		return re->regex.re_nsub;
+	} else {
+		return regex_pushmatch(L, subj, re->match[0]);
+	}
+} /* unix_regexec() */
+
+
+static int unix_regfree(lua_State *L) {
+	struct u_regex *re = regex_checkself(L, 1);
+
+	regfree(&re->regex);
+	re->closed = 1;
+
+	return 0;
+} /* unix_regfree() */
+
+
 static int unix_rename(lua_State *L) {
 	const char *opath = luaL_checkstring(L, 1);
 	const char *npath = luaL_checkstring(L, 2);
@@ -9693,6 +10032,10 @@ static const luaL_Reg unix_routines[] = {
 	{ "recv",               &unix_recv },
 	{ "recvfrom",           &unix_recvfrom },
 	{ "recvfromto",         &unix_recvfromto },
+	{ "regcomp",            &unix_regcomp },
+	{ "regerror",           &unix_regerror },
+	{ "regexec",            &unix_regexec },
+	{ "regfree",            &unix_regfree },
 	{ "rename",             &unix_rename },
 #if HAVE_RENAMEAT
 	{ "renameat",           &unix_renameat },
@@ -10196,6 +10539,30 @@ static const struct unix_const const_wait[] = {
 #endif
 }; /* const_wait[] */
 
+static const struct unix_const const_regex[] = {
+	UNIX_CONST(REG_EXTENDED),
+	UNIX_CONST(REG_ICASE),
+	UNIX_CONST(REG_NOSUB),
+	UNIX_CONST(REG_NEWLINE),
+
+	UNIX_CONST(REG_NOTBOL),
+	UNIX_CONST(REG_NOTEOL),
+
+	UNIX_CONST(REG_BADBR),
+	UNIX_CONST(REG_BADPAT),
+	UNIX_CONST(REG_BADRPT),
+	UNIX_CONST(REG_EBRACE),
+	UNIX_CONST(REG_EBRACK),
+	UNIX_CONST(REG_ECOLLATE),
+	UNIX_CONST(REG_ECTYPE),
+	UNIX_CONST(REG_EESCAPE),
+	UNIX_CONST(REG_EPAREN),
+	UNIX_CONST(REG_ERANGE),
+	UNIX_CONST(REG_ESPACE),
+	UNIX_CONST(REG_ESUBREG),
+	UNIX_CONST(REG_NOMATCH),
+}; /* const_regex[] */
+
 static const struct unix_const const_resource[] = {
 	UNIX_CONST(RLIMIT_CORE), UNIX_CONST(RLIMIT_CPU),
 	UNIX_CONST(RLIMIT_DATA), UNIX_CONST(RLIMIT_FSIZE),
@@ -10461,6 +10828,7 @@ static const struct {
 	{ const_wait,     countof(const_wait) },
 	{ const_signal,   countof(const_signal) },
 	{ const_syslog,   countof(const_syslog) },
+	{ const_regex,    countof(const_regex) },
 	{ const_resource, countof(const_resource) },
 	{ const_fcntl,    countof(const_fcntl) },
 	{ const_ioctl,    countof(const_ioctl) },
@@ -10508,6 +10876,13 @@ int luaopen_unix(lua_State *L) {
 	 */
 	lua_pushvalue(L, -1);
 	unixL_newmetatable(L, "DIR*", dir_methods, dir_metamethods, 1);
+	lua_pop(L, 1);
+
+	/*
+	 * add regex_t class
+	 */
+	lua_pushvalue(L, -1);
+	unixL_newmetatable(L, "regex_t", NULL, regex_metamethods, 1);
 	lua_pop(L, 1);
 
 	/*
