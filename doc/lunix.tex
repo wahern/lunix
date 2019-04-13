@@ -311,6 +311,10 @@ Returns a time value as a Lua floating point number, otherwise returns \nil, an 
 
 Closes the DIR handle, releasing the underlying file descriptor.
 
+\subsubsection[\fn{closelog}]{\fn{closelog()}}
+
+Closes any (internal) file descriptors opened by \fn{openlog} or \fn{syslog}.
+
 \subsubsection[\fn{connect}]{\fn{connect($file$[,$sockaddr$])}}
 
 FIXME.
@@ -661,6 +665,14 @@ Returns \true if the process environment is considered unsafe because of setuid,
 
 Sends signal $signo$ to process or process group $pid$. Returns \true on success, otherwise \false, an error string, and an integer system error.
 
+\subsubsection[\fn{LOG\_MASK}]{\fn{LOG\_MASK($priority$)}}
+
+Derive a \fn{setlogmask} priority mask integer bitfield that matches all log messages of the specified priority integer constant. The mask passed to \fn{setlogmask} is usually derived by OR'ing multiple single-priority masks.
+
+\subsubsection[\fn{LOG\_UPTO}]{\fn{LOG\_UPTO($priority$)}}
+
+Derive a \fn{setlogmask} priority mask integer bitfield that matches all log message with greater or equal priority.
+
 \subsubsection[\fn{lchown}]{\fn{lchown($path1$[, $uid$][, $gid$])}}
 
 FIXME.
@@ -734,6 +746,10 @@ Returns an integer file descriptor on success, otherwise \nil, an error string, 
 Creates a DIR handle for reading directory entries. Caller may specify a path string, a Lua FILE handle, another DIR handle, or an integer descriptor. In the latter three cases, the underlying descriptor is duplicated using \syscall{dup3} (if available) or \syscall{dup2} because there's no safe way to steal the descriptor from existing FILE or DIR handles. But it's not a good idea to mix reads between the two original and duplicated descriptors as they will normally share the same open file entry in the kernel, including the same position cursor.\footnote{In the future may add ability to open /proc/self/fd or /dev/fd entries, which should create a new open file entry.}
 
 Returns a DIR handle on success, otherwise nil, an error string, and an integer system error.
+
+\subsubsection[\fn{openlog}]{\fn{openlog($ident$[, $logopt$[, $facility$]])}}
+
+Set process attributes that affect subsequent calls to \fn{syslog}. $ident$ is string prefix for log messages, $logopt$ an integer bitfield of flags (e.g. \texttt{LOG\_PID}, and $facility$ an integer constant (e.g. \texttt{LOG\_LOCAL1}, \texttt{LOG\_MAIL}) used for tagging and routing of messages.
 
 \subsubsection[\fn{pipe}]{\fn{pipe($mode$)}}
 
@@ -840,6 +856,32 @@ NOTES:
 \item Not all platforms support this interface. AIX (confirmed 7.1) supports IPv6 but not IPv4.
 \item The descriptor \mustbe initialized by enabling a specialized socket option. The option varies by platform and socket protocol family. See \seefn{setrecvaddr} example in Appendix.
 \end{itemize}
+
+\subsubsection[\fn{regcomp}]{\fn{regcomp($pattern$, $cflags$)}}
+
+Compile string $pattern$ according to the specified $cflags$ integer bitfield. Returns a userdata value wrapping a \texttt{regex\_t} object on success, otherwise \nil, an error string, and an integer error code. The error codes are those from \texttt{<regex.h>}, not \texttt{<errno.h>}.
+
+The ``nsub'' field of the returned userdata value evaluates to the ``re\_nsub'' field value of the C \texttt{regex\_t} object. Note that the userdata value contains additional metadata and members for internal use.
+
+\subsubsection[\fn{regerror}]{\fn{regerror($error$[, $regex$])}}
+
+Returns a string describing the specified integer $error$ code. Optional $regex$ is a userdata value as returned by \fn{regcomp} and may be used by some systems to generate more informative error strings.
+
+This routine should usually not be needed as the return discipline of \fn{regcomp} and \fn{regexec} includes the string representation of any error conditions.
+
+\subsubsection[\fn{regexec}]{\fn{regexec($regex$, $subject$[[, $init$][, $table$], $eflags$])}}
+
+Attempt to match $regex$ to the $subject$ string. $eflags$ is an integer bitfield of flags that modify the matching behavior. $init$ is an integer position (1-indexed) for matching a suffix of $subject$, as with \fn{string.find}. To more closely match the calling convention of the C routine, parameter disambiguation favors $eflags$; $init$ can only be specified if $eflags$ or $table$ are also specified.
+
+On a success, subexpressions (or the entire matching expression if no subexpressions) are returned as a list, as with \fn{string.find}. Matching subexpressions are returned as string values, but non-matching subexpressions as \nil. This is necessary to disambiguate zero-length matches from alternatives not part of the actual match.
+
+If $table$ is provided the behavior is a more literal binding to the C routine---table is treated as an array of matches (i.e. \texttt{regmatch\_t} structures) in $subject$ that record the 0-indexed start offset (``so'' field) and end offset (``eo'' field) in subtables. Offsets of the entire matching expression are stored at index 0, and of subexpressions starting at index 1. As in C, offsets of non-matching subexpressions are represented with the constant -1. Any existing subtables are used \textit{in situ} to minimize generation of garbage. Any other array indices, and any fields other than ``so'' and ``eo'' in match subtables, are left unmodified.
+
+On failure (including a non-match), \nil, an error string, and an integer error code are returned. The error code \texttt{REG\_NOMATCH} represents a non-match condition. $table$, if provided, is not modified.
+
+\subsubsection[\fn{regfree}]{\fn{regfree($regex$)}}
+
+Explicitly destroy the $regex$ userdata value. The $regex$ \texttt{\_\_gc} metamethod performs this implicitly in an idempotent manner, but an attempt to invoke \fn{regfree} on $regex$ more than once throws an error.
 
 \subsubsection[\fn{rename}]{\fn{rename($from$, $to$)}}
 
@@ -967,6 +1009,10 @@ Set or query the program locale. $category$ is an integer constant which specifi
 $locale$ can be either a string identifier for the locale, or \nil to query the specified category. An empty locale string selects the system's native locale.
 
 Returns a locale string identifier on success, otherwise \nil if the specified $category$ and $locale$ could not be honored.
+
+\subsubsection[\fn{setlogmask}]{\fn{setlogmask($mask$)}}
+
+Set the log priority mask for the current process. $mask$ is an integer bitmask derived by applying \fn{LOG\_MASK} or \fn{LOG\_UPTO} to priority constants.
 
 \subsubsection[\fn{setpgid}]{\fn{setpgid($pid$, $pgid$)}}
 
@@ -1112,6 +1158,10 @@ Returns a string describing the specified signal number.
 Creates a new directory entry at $path2$ as a symbolic link to $path1$.
 
 Returns \true on success, otherwise \false, an error string, and an integer system error. 
+
+\subsubsection[\fn{syslog}]{\fn{syslog($priority$, $message$)}}
+
+Send string message to system's logging facility. $priority$ is an integer flag (see \fn{setlogmask}) and $message$ a string (not a format string).
 
 \subsubsection[\fn{tcgetpgrp}]{\fn{tcgetpgrp($file$)}}
 
