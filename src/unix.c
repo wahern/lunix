@@ -9807,6 +9807,11 @@ static int unixL_wait(lua_State *L, const char *fn) {
 	} else if (WIFSTOPPED(status)) {
 		lua_pushliteral(L, "stopped");
 		lua_pushinteger(L, WSTOPSIG(status));
+#if defined WIFCONTINUED
+	} else if (WIFCONTINUED(status)) {
+		lua_pushliteral(L, "continued");
+		lua_pushinteger(L, SIGCONT);
+#endif
 	}
 
 	return lua_gettop(L);
