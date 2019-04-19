@@ -44,7 +44,7 @@ getopt_err(int argc, char *const argv[], const char *shortopts, struct u_getopt_
 
 #define GETOPT_ENTER                                                    \
 	do {                                                            \
-	static const int pc0 = __LINE__;                                \
+	enum { pc0 = __LINE__ };                                        \
 	switch (pc0 + K->pc) {                                          \
 	case __LINE__: (void)0
 
