@@ -3833,6 +3833,33 @@ static u_error_t fd_reopen(int *fd, int ofd, const char *fspath, u_flags_t flags
 	return 0;
 } /* fd_reopen() */
 
+static u_error_t fd_reopendir(int *fd, int ofd, u_flags_t flags) {
+#if HAVE_OPENAT
+	struct stat st = { 0 };
+	int error;
+
+	if ((error = u_getaccmode(ofd, &flags, flags)))
+		return error;
+
+	if (-1 == (*fd = openat(ofd, ".", U_SYSFLAGS & flags)))
+		return errno;
+
+	flags &= ~(U_CLOEXEC & U_SYSFLAGS);
+
+	if ((error = u_fixflags(*fd, flags))) {
+		u_close(fd);
+		return error;
+	}
+
+	return 0;
+#else
+	(void)fd;
+	(void)ofd;
+	(void)flags;
+	return ENOTSUP;
+#endif
+} /* fd_reopendir() */
+
 static u_error_t fd_isdiff(int *diff, int fd1, int fd2, int flag) {
 	int flags1, flags2;
 
@@ -3982,12 +4009,17 @@ static u_error_t unixL_reopen(lua_State *L, int *fd, int ofd, u_flags_t flags) {
 	*fd = -1;
 
 	if ((error = fd_init(L, U)))
-		return error;
+		goto error;
 
 	if ((error = fd_reopen(fd, ofd, U->fd.path, flags)))
-		return error;
+		goto error;
 
 	return 0;
+error:
+	if (0 == fd_reopendir(fd, ofd, flags))
+		return 0;
+
+	return error;
 } /* unixL_reopen() */
 
 
