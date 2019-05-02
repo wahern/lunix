@@ -16,7 +16,7 @@
  * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
 #include <limits.h>       /* INT_MAX INT_MIN NL_TEXTMAX */
 #include <stdarg.h>       /* va_list va_start va_arg va_end */
-#include <stdint.h>       /* SIZE_MAX intmax_t uintmax_t */
+#include <stdint.h>       /* INTPTR_MIN INTPTR_MAX SIZE_MAX intmax_t uintmax_t */
 #include <stdlib.h>       /* arc4random(3) calloc(3) _exit(2) exit(3) free(3) getenv(3) getenv_r(3) getexecname(3) getprogname(3) grantpt(3) posix_openpt(3) ptsname(3) realloc(3) setenv(3) strtoul(3) unlockpt(3) unsetenv(3) */
 #include <stdio.h>        /* fileno(3) flockfile(3) ftrylockfile(3) funlockfile(3) snprintf(3) */
 #include <string.h>       /* memset(3) strcmp(3) strerror_r(3) strsignal(3) strspn(3) strcspn(3) */
@@ -3691,6 +3691,19 @@ static void unixL_pushoff(lua_State *L, off_t off) {
 	unixL_pushunsigned(L, off);
 } /* unixL_pushoff() */
 
+
+static struct iovec unixL_checkstring(lua_State *L, int index, size_t min, size_t max) {
+	struct iovec iov;
+
+	iov.iov_base = (void *)luaL_checklstring(L, index, &iov.iov_len);
+
+	luaL_argcheck(L, iov.iov_len >= min, index, "string too short");
+	luaL_argcheck(L, iov.iov_len <= max, index, "string too long");
+
+	return iov;
+} /* unixL_checkstring() */
+
+
 static struct sockaddr *unixL_newsockaddr(lua_State *L, const void *addr, size_t addrlen) {
 	void *ud;
 
@@ -5944,6 +5957,56 @@ error:
 } /* unix_fcntl() */
 
 
+static int unsafe_fcntl(lua_State *L) {
+	int fd = unixL_checkfileno(L, 1);
+	int cmd = luaL_checkint(L, 2);
+	int n, r, error;
+
+	n = lua_gettop(L);
+	luaL_argcheck(L, n <= 3, 4, lua_pushfstring(L, "expected 3 arguments, got %d", n));
+
+	switch (lua_type(L, 3)) {
+	case LUA_TNONE: {
+		if (-1 == (r = fcntl(fd, cmd, (intptr_t)0)))
+			goto syerr;
+
+		lua_pushinteger(L, r);
+		return 1;
+	}
+	case LUA_TNUMBER: {
+		intptr_t arg = unixL_checkinteger(L, 3, INTPTR_MIN, INTPTR_MAX);
+
+		if (-1 == (r = fcntl(fd, cmd, arg)))
+			goto syerr;
+
+		lua_pushinteger(L, r);
+		return 1;
+	}
+	case LUA_TSTRING: {
+		const struct iovec iov = unixL_checkstring(L, 3, 0, SIZE_MAX);
+		unixL_State *U = unixL_getstate(L);
+
+		if (U->bufsiz < iov.iov_len && (error = u_realloc(&U->buf, &U->bufsiz, iov.iov_len)))
+			goto error;
+		memcpy(U->buf, iov.iov_base, iov.iov_len);
+
+		if (-1 == (r = fcntl(fd, cmd, U->buf)))
+			goto syerr;
+
+		lua_pushinteger(L, r);
+		lua_pushlstring(L, U->buf, iov.iov_len);
+		return 2;
+	}
+	}
+
+	return luaL_argerror(L, 3, lua_pushfstring(L, "expected integer or string, got %s", luaL_typename(L, 3)));
+syerr:
+	error = errno;
+error:
+	return unixL_pusherror(L, error, "fcntl", "~$#");
+} /* unsafe_fcntl() */
+
+
 #if HAVE_FDATASYNC
 static int unix_fdatasync(lua_State *L) {
 	int fd = unixL_checkfileno(L, 1);
@@ -7320,6 +7383,35 @@ static int unix_getsockname(lua_State *L) {
 } /* unix_getsockname() */
 
 
+static int unsafe_getsockopt(lua_State *L) {
+	unixL_State *U = unixL_getstate(L);
+	int fd = unixL_checkfileno(L, 1);
+	int level = unixL_checkint(L, 2);
+	int type = unixL_checkint(L, 3);
+	const struct iovec iov = unixL_checkstring(L, 4, 0, INT_MAX); /* length must fit socklen_t */
+	socklen_t bufsiz;
+	int n, error;
+
+	n = lua_gettop(L);
+	luaL_argcheck(L, n <= 4, 5, lua_pushfstring(L, "expected 4 arguments, got %d", n));
+
+	if (U->bufsiz < iov.iov_len && (error = u_realloc(&U->buf, &U->bufsiz, iov.iov_len)))
+		goto error;
+	memcpy(U->buf, iov.iov_base, iov.iov_len);
+	bufsiz = iov.iov_len;
+
+	if (0 != getsockopt(fd, level, type, U->buf, &bufsiz))
+		goto syerr;
+
+	lua_pushlstring(L, U->buf, bufsiz);
+	return 1;
+syerr:
+	error = errno;
+error:
+	return unixL_pusherror(L, error, "getsockopt", "~$#");
+} /* unsafe_getsockopt() */
+
+
 static int unix_getuid(lua_State *L) {
 	lua_pushinteger(L, getuid());
 
@@ -7378,6 +7470,8 @@ static int unix_ioctl(lua_State *L) {
 		 * cannot know the argument type that ioctl expects. If it's
 		 * a pointer then this interface becomes a vector for
 		 * reading or writing random process memory.
+		 *
+		 * But see unsafe_ioctl, below.
 		 */
 		return luaL_error(L, "%d: unsupported ioctl operation", cmd);
 	} /* switch () */
@@ -7385,6 +7479,56 @@ syerr:
 	error = errno;
 	return unixL_pusherror(L, error, "ioctl", "~$#");
 } /* unix_ioctl() */
+
+
+static int unsafe_ioctl(lua_State *L) {
+	int fd = unixL_checkfileno(L, 1);
+	int cmd = luaL_checkint(L, 2);
+	int n, r, error;
+
+	n = lua_gettop(L);
+	luaL_argcheck(L, n <= 3, 4, lua_pushfstring(L, "expected 3 arguments, got %d", n));
+
+	switch (lua_type(L, 3)) {
+	case LUA_TNONE: {
+		if (-1 == (r = ioctl(fd, cmd, (intptr_t)0)))
+			goto syerr;
+
+		lua_pushinteger(L, r);
+		return 1;
+	}
+	case LUA_TNUMBER: {
+		intptr_t arg = unixL_checkinteger(L, 3, INTPTR_MIN, INTPTR_MAX);
+
+		if (-1 == (r = ioctl(fd, cmd, arg)))
+			goto syerr;
+
+		lua_pushinteger(L, r);
+		return 1;
+	}
+	case LUA_TSTRING: {
+		const struct iovec iov = unixL_checkstring(L, 3, 0, SIZE_MAX);
+		unixL_State *U = unixL_getstate(L);
+
+		if (U->bufsiz < iov.iov_len && (error = u_realloc(&U->buf, &U->bufsiz, iov.iov_len)))
+			goto error;
+		memcpy(U->buf, iov.iov_base, iov.iov_len);
+
+		if (-1 == (r = ioctl(fd, cmd, U->buf)))
+			goto syerr;
+
+		lua_pushinteger(L, r);
+		lua_pushlstring(L, U->buf, iov.iov_len);
+		return 2;
+	}
+	}
+
+	return luaL_argerror(L, 3, lua_pushfstring(L, "expected integer or string, got %s", luaL_typename(L, 3)));
+syerr:
+	error = errno;
+error:
+	return unixL_pusherror(L, error, "ioctl", "~$#");
+} /* unsafe_ioctl() */
 
 
 static int unix_isatty(lua_State *L) {
@@ -9095,6 +9239,24 @@ error:
 } /* unix_setsockopt() */
 
 
+static int unsafe_setsockopt(lua_State *L) {
+	int fd = unixL_checkfileno(L, 1);
+	int level = unixL_checkint(L, 2);
+	int type = unixL_checkint(L, 3);
+	const struct iovec iov = unixL_checkstring(L, 4, 0, INT_MAX); /* length must fit socklen_t */
+	int n, error;
+
+	n = lua_gettop(L);
+	luaL_argcheck(L, n <= 4, 5, lua_pushfstring(L, "expected 4 arguments, got %d", n));
+
+	if (0 != setsockopt(fd, level, type, iov.iov_base, (socklen_t)iov.iov_len))
+		return unixL_pusherror(L, errno, "setsockopt", "~$#");
+
+	lua_pushboolean(L, 1);
+	return 1;
+} /* unsafe_setsockopt() */
+
+
 static int unix_setsid(lua_State *L) {
 	pid_t pg;
 
@@ -10141,6 +10303,13 @@ static const luaL_Reg unix_routines[] = {
 	{ NULL,                 NULL }
 }; /* unix_routines[] */
 
+static const luaL_Reg unsafe_routines[] = {
+	{ "fcntl",      &unsafe_fcntl },
+	{ "getsockopt", &unsafe_getsockopt },
+	{ "ioctl",      &unsafe_ioctl },
+	{ "setsockopt", &unsafe_setsockopt },
+	{ NULL,         NULL }
+}; /* unsafe_routines[] */
 
 #define UNIX_CONST(x) { #x, x }
 
@@ -11014,3 +11183,34 @@ int luaopen_unix(lua_State *L) {
 	return 1;
 } /* luaopen_unix() */
 
+
+int luaopen_unix_unsafe(lua_State *L) {
+	unixL_State *U;
+	int error;
+
+	/*
+	 * setup unixL_State context
+	 *
+	 * TODO: share same context with luaopen_unix
+	 */
+	U = lua_newuserdata(L, sizeof *U);
+	*U = unixL_initializer;
+
+	lua_newtable(L);
+	lua_pushcfunction(L, &unix__gc);
+	lua_setfield(L, -2, "__gc");
+
+	lua_setmetatable(L, -2);
+
+	if ((error = unixL_init(L, U)))
+		return luaL_error(L, "%s", unixL_strerror3(L, U, error));
+
+	/*
+	 * insert unix routines into module table with unixL_State as upvalue
+	 */
+	luaL_newlibtable(L, unsafe_routines);
+	lua_pushvalue(L, -2);
+	luaL_setfuncs(L, unsafe_routines, 1);
+
+	return 1;
+} /* luaopen_unix_unsafe() */
