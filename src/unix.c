@@ -10494,6 +10494,14 @@ static const struct unix_const const_ni[] = {
 	UNIX_CONST(NI_DGRAM),
 }; /* const_ni[] */
 
+/* historical BSD constants */
+static const struct unix_const const_param[] = {
+#if defined MAXPATHLEN
+	UNIX_CONST(MAXPATHLEN),
+#endif
+	{ "0", 0 }, /* in case empty (see entry in unix_const table) */
+}; /* const_param[] */
+
 static const struct unix_const const_poll[] = {
 	UNIX_CONST(POLLERR), 
 	UNIX_CONST(POLLHUP),
@@ -11088,6 +11096,7 @@ static const struct {
 	{ const_eai,      countof(const_eai) },
 	{ const_msg,      countof(const_msg) },
 	{ const_ni,       countof(const_ni) },
+	{ const_param,    countof(const_param) - 1 },
 	{ const_poll,     countof(const_poll) },
 	{ const_clock,    countof(const_clock) },
 	{ const_errno,    countof(const_errno) },
