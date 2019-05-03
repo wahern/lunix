@@ -41,7 +41,7 @@
 #include <syslog.h>       /* LOG_* closelog(3) openlog(3) setlogmask(3) syslog(3) */
 #include <termios.h>      /* tcgetsid(3) */
 #include <net/if.h>       /* IF_NAMESIZE struct ifconf struct ifreq */
-#include <unistd.h>       /* _PC_NAME_MAX alarm(3) chdir(2) chroot(2) close(2) chdir(2) chown(2) chroot(2) dup2(2) execve(2) execl(2) execlp(2) execvp(2) fork(2) fpathconf(3) getegid(2) geteuid(2) getgid(2) getgroups(2) gethostname(3) getpgid(2) getpgrp(2) getpid(2) getppid(2) getuid(2) isatty(3) issetugid(2) lchown(2) lockf(3) link(2) pread(2) pwrite(2) rename(2) rmdir(2) setegid(2) seteuid(2) setgid(2) setgroups(2) setpgid(2) setuid(2) setsid(2) symlink(2) tcgetpgrp(3) tcsetpgrp(3) truncate(2) umask(2) unlink(2) unlinkat(2) */
+#include <unistd.h>       /* _PC_NAME_MAX alarm(3) chdir(2) chroot(2) close(2) chdir(2) chown(2) chroot(2) dup2(2) execve(2) execl(2) execlp(2) execvp(2) fork(2) fpathconf(3) getegid(2) geteuid(2) getgid(2) getgroups(2) gethostname(3) getpgid(2) getpgrp(2) getpid(2) getppid(2) getuid(2) isatty(3) issetugid(2) lchown(2) lockf(3) link(2) pathconf(3) pread(2) pwrite(2) rename(2) rmdir(2) setegid(2) seteuid(2) setgid(2) setgroups(2) setpgid(2) setuid(2) setsid(2) symlink(2) sysconf(3) tcgetpgrp(3) tcsetpgrp(3) truncate(2) umask(2) unlink(2) unlinkat(2) */
 #include <fcntl.h>        /* AT_* F_* O_* fcntl(2) open(2) openat(2) */
 #include <fnmatch.h>      /* FNM_* fnmatch(3) */
 #include <pwd.h>          /* struct passwd getpwnam_r(3) */
@@ -8201,6 +8201,30 @@ static int unix_openlog(lua_State *L) {
 } /* unix_openlog() */
 
 
+static int unix_pathconf(lua_State *L) {
+	int name = unixL_checkint(L, 2);
+	int fd;
+	long v;
+
+	if (-1 != (fd = unixL_optfileno(L, 1, -1))) {
+		errno = 0;
+		v = fpathconf(fd, name);
+	} else {
+		const char *path = luaL_checkstring(L, 1);
+
+		errno = 0;
+		v = pathconf(path, name);
+	}
+
+	if (v == -1 && errno)
+		return unixL_pusherror(L, errno, "pathconf", "~$#");
+
+	lua_pushinteger(L, v);
+
+	return 1;
+} /* unix_pathconf() */
+
+
 static int unix_pipe(lua_State *L) {
 	int fd[2] = { -1, -1 }, error;
 	u_flags_t flags;
@@ -9778,6 +9802,20 @@ static int unix_symlinkat(lua_State *L) {
 #endif
 
 
+static int unix_sysconf(lua_State *L) {
+	int name = unixL_checkint(L, 1);
+	long v;
+
+	errno = 0;
+	if (-1 == (v = sysconf(name)) && errno)
+		return unixL_pusherror(L, errno, "sysconf", "~$#");
+
+	lua_pushinteger(L, v);
+
+	return 1;
+} /* unix_sysconf() */
+
+
 static int unix_syslog(lua_State *L) {
 	int priority = unixL_checkint(L, 1);
 	const char *msg = luaL_checkstring(L, 2);
@@ -10213,6 +10251,7 @@ static const luaL_Reg unix_routines[] = {
 #if HAVE_OPENAT
 	{ "fopenat",            &unix_fopenat },
 #endif
+	{ "fpathconf",          &unix_pathconf },
 	{ "fpipe",              &unix_fpipe },
 	{ "fork",               &unix_fork },
 	{ "gai_strerror",       &unix_gai_strerror },
@@ -10270,6 +10309,7 @@ static const luaL_Reg unix_routines[] = {
 #endif
 	{ "opendir",            &unix_opendir },
 	{ "openlog",            &unix_openlog },
+	{ "pathconf",           &unix_pathconf },
 	{ "pipe",               &unix_pipe },
 	{ "poll",               &unix_poll },
 #if HAVE_POSIX_FADVISE
@@ -10343,6 +10383,7 @@ static const luaL_Reg unix_routines[] = {
 #if HAVE_SYMLINKAT
 	{ "symlinkat",          &unix_symlinkat },
 #endif
+	{ "sysconf",            &unix_sysconf },
 	{ "syslog",             &unix_syslog },
 	{ "tcgetpgrp",          &unix_tcgetpgrp },
 	{ "tcgetsid",           &unix_tcgetsid },
@@ -11081,6 +11122,15 @@ static const struct unix_const const_unistd[] = {
 
 	UNIX_CONST(F_ULOCK), UNIX_CONST(F_LOCK),
 	UNIX_CONST(F_TLOCK), UNIX_CONST(F_TEST),
+
+	UNIX_CONST(_PC_FILESIZEBITS),
+	UNIX_CONST(_PC_NAME_MAX),
+	UNIX_CONST(_PC_PATH_MAX),
+	UNIX_CONST(_PC_PIPE_BUF),
+
+	UNIX_CONST(_SC_LINE_MAX),
+	UNIX_CONST(_SC_OPEN_MAX),
+	UNIX_CONST(_SC_PAGE_SIZE), UNIX_CONST(_SC_PAGESIZE),
 }; /* const_unistd[] */
 
 static const struct {
