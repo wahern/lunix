@@ -633,6 +633,15 @@ static int lua_absindex(lua_State *L, int index) {
 
 #define lua_rawlen lua_objlen
 
+#define lua_rawsetp(...) compatL_rawsetp(__VA_ARGS__)
+static void compatL_rawsetp(lua_State *L, int index, const void *p) {
+	index = lua_absindex(L, index);
+	lua_pushlightuserdata(L, (void *)p);
+	lua_pushvalue(L, -2);
+	lua_rawset(L, index);
+	lua_pop(L, 1);
+} /* compatL_rawsetp() */
+
 #define luaL_testudata(...) compatL_testudata(__VA_ARGS__)
 static void *compatL_testudata(lua_State *L, int index, const char *tname) {
 	void *p = lua_touserdata(L, index);
@@ -699,6 +708,19 @@ static void compatL_seti(lua_State *L, int index, lua_Integer i) {
 	lua_insert(L, -2);
 	lua_settable(L, index);
 }
+
+#define lua_rawget(...) compatL_rawget(__VA_ARGS__)
+static int compatL_rawget(lua_State *L, int index) {
+	(lua_rawget)(L, index);
+	return lua_type(L, -1);
+} /* compatL_rawget() */
+
+#define lua_rawgetp(...) compatL_rawgetp(__VA_ARGS__)
+static int compatL_rawgetp(lua_State *L, int index, const void *p) {
+	index = lua_absindex(L, index);
+	lua_pushlightuserdata(L, (void *)p);
+	return lua_rawget(L, index);
+} /* compatL_rawgetp() */
 
 #endif /* LUA_VERSION_NUM < 503 */
 
@@ -3327,6 +3349,24 @@ static unixL_State *unixL_newstate(lua_State *L) {
 
 	return U;
 } /* unixL_newstate() */
+
+static unixL_State *unixL_loadstate(lua_State *L) {
+	static int cachekey;
+	unixL_State *U;
+
+	if (LUA_TNIL == lua_rawgetp(L, LUA_REGISTRYINDEX, &cachekey)) {
+		lua_pop(L, 1);
+		U = unixL_newstate(L);
+		lua_pushvalue(L, -1);
+		lua_rawsetp(L, LUA_REGISTRYINDEX, &cachekey);
+	} else {
+		if (lua_type(L, -1) != LUA_TUSERDATA)
+			return luaL_error(L, "bad cached unix state context (expected userdata, got %s)", luaL_typename(L, -1)), (void *)NULL;
+		U = lua_touserdata(L, -1);
+	}
+
+	return U;
+} /* unixL_loadstate() */
 
 
 static struct sockaddr *unixL_newsockaddr(lua_State *, const void *, size_t);
@@ -11072,7 +11112,7 @@ int luaopen_unix(lua_State *L) {
 	/*
 	 * unixL_State context upvalue
 	 */
-	U = unixL_newstate(L);
+	U = unixL_loadstate(L);
 
 	/*
 	 * add struct ifaddrs* class
@@ -11200,10 +11240,8 @@ int luaopen_unix_unsafe(lua_State *L) {
 
 	/*
 	 * unixL_State context upvalue
-	 *
-	 * TODO: share same context with luaopen_unix
 	 */
-	U = unixL_newstate(L);
+	U = unixL_loadstate(L);
 
 	/*
 	 * insert unix routines into module table with unixL_State as upvalue
