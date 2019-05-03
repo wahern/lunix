@@ -5287,9 +5287,9 @@ static int unix_arc4random_buf(lua_State *L) {
 
 static int unix_arc4random_stir(lua_State *L) {
 #if HAVE_ARC4RANDOM
-#if (__APPLE__ || (__FreeBSD__ && !FREEBSD_PREREQ(10,0))) && HAVE_ARC4RANDOM_ADDRANDOM
+#if ((__APPLE__ && !MACOS_PREREQ(10,12,0)) || (__FreeBSD__ && !FREEBSD_PREREQ(10,0))) && HAVE_ARC4RANDOM_ADDRANDOM
 	/*
-	 * Apple's arc4random always uses /dev/urandom, whereas the BSDs
+	 * Apple's arc4random uses /dev/urandom before 10.12, whereas the BSDs
 	 * support a chroot-safe sysctl method.
 	 */
 	char junk[128];
