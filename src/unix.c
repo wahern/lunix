@@ -3301,6 +3301,34 @@ static unixL_State *unixL_getstate(lua_State *L) {
 	return lua_touserdata(L, lua_upvalueindex(1));
 } /* unixL_getstate() */
 
+static int state__gc(lua_State *L) {
+	unixL_destroy(lua_touserdata(L, 1));
+
+	return 0;
+} /* state__gc() */
+
+static const char *unixL_strerror3(lua_State *, unixL_State *, int);
+
+static unixL_State *unixL_newstate(lua_State *L) {
+	unixL_State *U;
+	int error;
+
+	U = lua_newuserdata(L, sizeof *U);
+	*U = unixL_initializer;
+
+	lua_newtable(L);
+	lua_pushcfunction(L, &state__gc);
+	lua_setfield(L, -2, "__gc");
+
+	lua_setmetatable(L, -2);
+
+	if ((error = unixL_init(L, U)))
+		return luaL_error(L, "%s", unixL_strerror3(L, U, error)), (void *)NULL;
+
+	return U;
+} /* unixL_newstate() */
+
+
 static struct sockaddr *unixL_newsockaddr(lua_State *, const void *, size_t);
 
 static u_error_t unixL_getsockname(lua_State *L, int fd, int (*getname)(int, struct sockaddr *, socklen_t *)) {
@@ -10044,12 +10072,6 @@ static int unix_xor(lua_State *L) {
 } /* unix_xor() */
 
 
-static int unix__gc(lua_State *L) {
-	unixL_destroy(lua_touserdata(L, 1));
-
-	return 0;
-} /* unix__gc() */
-
 static int unix__index(lua_State *L) {
 	unixL_State *U = unixL_getstate(L);
 	const char *k = luaL_checkstring(L, 2);
@@ -11046,22 +11068,11 @@ static const struct {
 int luaopen_unix(lua_State *L) {
 	unixL_State *U;
 	size_t i, j;
-	int error;
 
 	/*
-	 * setup unixL_State context
+	 * unixL_State context upvalue
 	 */
-	U = lua_newuserdata(L, sizeof *U);
-	*U = unixL_initializer;
-
-	lua_newtable(L);
-	lua_pushcfunction(L, &unix__gc);
-	lua_setfield(L, -2, "__gc");
-
-	lua_setmetatable(L, -2);
-
-	if ((error = unixL_init(L, U)))
-		return luaL_error(L, "%s", unixL_strerror3(L, U, error));
+	U = unixL_newstate(L);
 
 	/*
 	 * add struct ifaddrs* class
@@ -11186,24 +11197,13 @@ int luaopen_unix(lua_State *L) {
 
 int luaopen_unix_unsafe(lua_State *L) {
 	unixL_State *U;
-	int error;
 
 	/*
-	 * setup unixL_State context
+	 * unixL_State context upvalue
 	 *
 	 * TODO: share same context with luaopen_unix
 	 */
-	U = lua_newuserdata(L, sizeof *U);
-	*U = unixL_initializer;
-
-	lua_newtable(L);
-	lua_pushcfunction(L, &unix__gc);
-	lua_setfield(L, -2, "__gc");
-
-	lua_setmetatable(L, -2);
-
-	if ((error = unixL_init(L, U)))
-		return luaL_error(L, "%s", unixL_strerror3(L, U, error));
+	U = unixL_newstate(L);
 
 	/*
 	 * insert unix routines into module table with unixL_State as upvalue
