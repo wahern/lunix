@@ -56,8 +56,8 @@ end -- panic
 
 local verbose = false
 
-for _, v in ipairs(arg or {}) do
-	if v == "-v" then
+for optc, optarg in unix.getopt(arg or {}, "v") do
+	if optc == "v" then
 		verbose = true
 	end
 end
@@ -75,6 +75,27 @@ function regress.check(v, ...)
 		regress.panic(...)
 	end
 end -- check
+
+-- regress.testerror
+do
+	local errmt = {
+		__tostring = function (self)
+			return self.text
+		end,
+	}
+
+	function regress.testerror(v, ...)
+		if not v then
+			local err = { ... }
+			err.n = select("#", ...)
+			err.text = err[1] or "?"
+			err.code = tonumber(err[2]) or 0
+			return setmetatable(err, errmt)
+		else
+			return nil, v, ...
+		end
+	end
+end
 
 function regress.import(t, ...)
 	for _, pat in ipairs{ ... } do
