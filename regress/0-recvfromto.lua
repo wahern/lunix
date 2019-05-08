@@ -113,8 +113,19 @@ local function do_recvfromto(family, port)
 		return false
 	end
 
+	local function skipit(ifa)
+		if ifa.family ~= family then
+			return true
+		elseif 0 ~= unix.bitand(ifa.flags, unix.IFF_POINTOPOINT or 0) then
+			info("skipping %s (IFF_POINTOPOINT)", ifa.addr)
+			return true
+		end
+
+		return false
+	end
+
 	for ifa in unix.getifaddrs() do
-		if ifa.family == family then
+		if not skipit(ifa) then
 			local to = { family = family, addr = ifa.addr, port = port }
 			local from = { family = family, addr = ifa.addr, port = port + 1 }
 
