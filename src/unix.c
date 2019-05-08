@@ -9578,6 +9578,22 @@ static int unix_socket(lua_State *L) {
 } /* unix_socket() */
 
 
+static int unix_socketpair(lua_State *L) {
+	int family = unixL_checkint(L, 1);
+	int socktype = unixL_checkint(L, 2);
+	int protocol = unixL_optint(L, 3, 0);
+	int fd[2];
+
+	if (0 != socketpair(family, socktype, protocol, fd))
+		return unixL_pusherror(L, errno, "socketpair", "~$#");
+
+	lua_pushinteger(L, fd[0]);
+	lua_pushinteger(L, fd[1]);
+
+	return 2;
+} /* unix_socketpair() */
+
+
 enum st_field {
 	STF_DEV,
 	STF_INO,
@@ -10376,6 +10392,7 @@ static const luaL_Reg unix_routines[] = {
 	{ "sigwait",            &unix_sigwait },
 	{ "sleep",              &unix_sleep },
 	{ "socket",             &unix_socket },
+	{ "socketpair",         &unix_socketpair },
 	{ "stat",               &unix_stat },
 	{ "strerror",           &unix_strerror },
 	{ "strsignal",          &unix_strsignal },
