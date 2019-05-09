@@ -51,7 +51,11 @@ end -- say
 
 function regress.panic(...)
 	regress.say(...)
-	os.exit(false, true)
+	if _VERSION:match"5.1" then
+		os.exit(1)
+	else
+		os.exit(false, true)
+	end
 end -- panic
 
 local verbose = false
