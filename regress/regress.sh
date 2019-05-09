@@ -21,12 +21,11 @@ export LUA_CPATH_5_2="${lua52cpath}/?.so;;"
 export LUA_PATH_5_3="${lua53path}/?.lua;${SRCDIR}/regress/?.lua;;"
 export LUA_CPATH_5_3="${lua53cpath}/?.so;;"
 
-for V in ${REGRESS_R:-5.1 5.2 5.3}; do
-	[ "${REGRESS_B:-0}" = "0" ] || continue
-	(cd "${SRCDIR}" && make -s install${V} \
+if [ "${REGRESS_B:-0}" = "0" ]; then
+	(cd "${SRCDIR}" && ${MAKE:-make} -s LUA_APIS="${REGRESS_R-}" install \
 		lua51path="${lua51path}" lua51cpath="${lua51cpath}" \
 		lua52path="${lua52path}" lua52cpath="${lua52cpath}" \
 		lua53path="${lua53path}" lua53cpath="${lua53cpath}")
-done
+fi
 
 export PROGNAME="${0##*/}"
