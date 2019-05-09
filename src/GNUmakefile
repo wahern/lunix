@@ -42,10 +42,10 @@ LDFLAGS_$(d) += -lm
 define BUILD_$(d)
 
 $$(d)/$(1)/%.so: $$(d)/%.c $$(d)/unix-getopt.c
-	@test '$$(notdir $$(@D))' = '$$(call LUAPATH_$$(<D), $$(notdir $$(@D)), version)' \
-	|| (printf '%s'"\n" 'Unable to find Lua $(1) API headers (CPPFLAGS = $$(strip $$(call LUAPATH_$$(<D), $$(notdir $$(@D)), cppflags) $(CPPFLAGS)))' >&2; false)
+	@test '$$(notdir $$(@D))' = '$$(call LUAPATH_FN, $$(notdir $$(@D)), version)' \
+	|| (printf '%s'"\n" 'Unable to find Lua $(1) API headers (CPPFLAGS = $$(strip $$(call LUAPATH_FN, $$(notdir $$(@D)), cppflags) $(CPPFLAGS)))' >&2; false)
 	$$(MKDIR) -p $$(@D)
-	$$(CC) $$(CFLAGS_$$(<D)) $$(CFLAGS) $$(call LUAPATH_$$(<D), $$(notdir $$(@D)), cppflags) $$(CPPFLAGS_$$(<D)) $$(CPPFLAGS) -o $$@ $$< $$(SOFLAGS_$$(abspath $$(@D)/..)) $$(SOFLAGS) $$(LDFLAGS_$$(abspath $$(@D)/..)) $$(LDFLAGS)
+	$$(CC) $$(CFLAGS_$$(<D)) $$(CFLAGS) $$(call LUAPATH_FN, $$(notdir $$(@D)), cppflags) $$(CPPFLAGS_$$(<D)) $$(CPPFLAGS) -o $$@ $$< $$(SOFLAGS_$$(abspath $$(@D)/..)) $$(SOFLAGS) $$(LDFLAGS_$$(abspath $$(@D)/..)) $$(LDFLAGS)
 
 .SECONDARY: liblua$(1)-unix unix$(1)
 
@@ -65,7 +65,7 @@ $(eval $(call BUILD_$(d),5.3))
 #
 define INSTALL_$(d)
 
-LUAC$(1)_$(d) = $$(or $$(call LUAPATH_$(d), $(1), luac), true)
+LUAC$(1)_$(d) = $$(or $$(call LUAPATH_FN, $(1), luac), true)
 
 MODS$(1)_$(d) = $$(DESTDIR)$(2)/unix.so
 
@@ -110,7 +110,7 @@ all5.2: liblua5.2-unix
 
 all5.3: liblua5.3-unix
 
-all: all5.1 all5.2
+all: $(LUA_APIS:%=all%)
 
 .SECONDARY: install5.1 install5.2 install5.3 install
 
@@ -120,7 +120,7 @@ install5.2: liblua5.2-unix-install
 
 install5.3: liblua5.3-unix-install
 
-install: install5.1 install5.2
+install: $(LUA_APIS:%=install%)
 
 .PHONY: uninstall5.1 uninstall5.2 uninstall5.3 uninstall
 
@@ -130,7 +130,7 @@ uninstall5.2: liblua5.2-unix-uninstall
 
 uninstall5.3: liblua5.3-unix-uninstall
 
-uninstall: uninstall5.1 uninstall5.2
+uninstall: $(LUA_APIS:%=uninstall%)
 
 endif
 

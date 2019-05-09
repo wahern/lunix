@@ -9,6 +9,25 @@ GUARD_$(d) := 1
 
 $(d)/help: # default target
 
+#
+# G N U  M A K E  F U N C T I O N S
+#
+KNOWN_APIS = 5.1 5.2 5.3
+
+# template for invoking luapath script
+LUAPATH := $(d)/mk/luapath
+LUAPATH_FN = $(shell env CC='$(subst ',\\',$(CC))' CPPFLAGS='$(subst ',\\',$(CPPFLAGS))' LDFLAGS='$(subst ',\\',$(LDFLAGS))' $(LUAPATH) -krxm3 -I '$(subst ',\\',$(DESTDIR)$(includedir))' -I/usr/include -I/usr/local/include -P '$(subst ',\\',$(DESTDIR)$(bindir))' -P '$(subst ',\\',$(bindir))' -L '$(subst ',\\',$(DESTDIR)$(libdir))' -L '$(subst ',\\',$(libdir))' -v$(1) $(2))
+
+# check whether luapath can locate Lua $(1) headers
+HAVE_API_FN = $(and $(filter $(1),$(call LUAPATH_FN,$(1),version)),$(1)$(info enabling Lua $(1)))
+
+# check whether $(1) in LUA_APIS or $(LUA$(1:.=)_CPPFLAGS) is non-empty
+WITH_API_FN = $$(and $$(or $$(filter $(1),$$(LUA_APIS)),$$(LUA$(subst .,,$(1))_CPPFLAGS)),$(1))
+
+# set LUA_APIS if empty or "?"
+ifeq ($(or $(strip $(LUA_APIS)),?),?)
+override LUA_APIS := $(foreach API,$(KNOWN_APIS),$(and $(call HAVE_API_FN,$(API)), $(API)))
+endif
 
 #
 # E N V I R O N M E N T  C O N F I G U R A T I O N
@@ -151,11 +170,11 @@ distclean: $(d)/distclean
 $(d)/help: # default target
 	@echo 'Module targets:'
 	@echo '  config     - store all variables for subsequent make invocations'
-	@echo '  all        - build Lua 5.1 and 5.2 modules'
+	@echo '  all        - $(LUA_APIS:%=all%)'
 	@echo '  all5.1     - build Lua 5.1 module'
 	@echo '  all5.2     - build Lua 5.2 module'
 	@echo '  all5.3     - build Lua 5.3 module'
-	@echo '  install    - install Lua 5.1 and 5.2 modules'
+	@echo '  install    - $(LUA_APIS:%=install%)'
 	@echo '  install5.1 - install Lua 5.1 module'
 	@echo '  install5.2 - install Lua 5.2 module'
 	@echo '  install5.3 - install Lua 5.3 module'
