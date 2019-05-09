@@ -12,6 +12,7 @@ include $(d)/../GNUmakefile
 .PHONY: $(KNOWN_APIS:%=$(d)/check%) $(d)/check check
 
 $(d)/.local/lib/%/unix.so: $(abspath $(d)/..)/src/%/unix.so
+	$(MKDIR) -p $(@D)
 	cp -p $< $@
 
 $(KNOWN_APIS:%=$(d)/check%): $(d)/check%: $(d)/.local/lib/%/unix.so
