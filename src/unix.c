@@ -74,6 +74,10 @@
 #define __has_extension(...) 0
 #endif
 
+#ifndef __has_warning
+#define __has_warning(...) 0
+#endif
+
 #ifndef __NetBSD_Prereq__
 #define __NetBSD_Prereq__(M, m, p) 0
 #endif
@@ -746,22 +750,13 @@ static int compatL_rawgetp(lua_State *L, int index, const void *p) {
 #define u___extension__
 #endif
 
-#if __clang__
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wmissing-braces"
-#pragma clang diagnostic ignored "-Wmissing-field-initializers"
-#elif GNUC_PREREQ(4, 6)
+#if __clang__ || GNUC_PREREQ(4, 6)
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wmissing-braces"
 #pragma GCC diagnostic ignored "-Wmissing-field-initializers"
 #endif
 
-#if defined __clang__
-#define U_WARN_PUSH _Pragma("clang diagnostic push")
-#define U_WARN_NO_DEPRECATED_DECLARATIONS _Pragma("clang diagnostic ignored \"-Wdeprecated-declarations\"")
-#define U_WARN_NO_SIGN_COMPARE _Pragma("clang diagnostic ignored \"-Wsign-compare\"")
-#define U_WARN_POP _Pragma("clang diagnostic pop")
-#elif GNUC_PREREQ(4, 6)
+#if __clang__ || GNUC_PREREQ(4, 6)
 #define U_WARN_PUSH _Pragma("GCC diagnostic push")
 #define U_WARN_NO_DEPRECATED_DECLARATIONS _Pragma("GCC diagnostic ignored \"-Wdeprecated-declarations\"")
 #define U_WARN_NO_SIGN_COMPARE _Pragma("GCC diagnostic ignored \"-Wsign-compare\"")
@@ -771,6 +766,12 @@ static int compatL_rawgetp(lua_State *L, int index, const void *p) {
 #define U_WARN_NO_DEPRECATED_DECLARATIONS
 #define U_WARN_NO_SIGN_COMPARE
 #define U_WARN_POP
+#endif
+
+#if __has_warning("-Walloc-size-larger-than=") || GNUC_PREREQ(7, 0)
+#define U_WARN_NO_ALLOC_SIZE_LARGER_THAN _Pragma("GCC diagnostic ignored \"-Walloc-size-larger-than=\"")
+#else
+#define U_WARN_NO_ALLOC_SIZE_LARGER_THAN
 #endif
 
 
@@ -941,8 +942,16 @@ static u_error_t u_reallocarray(void **arr, size_t *arrsiz, size_t count, size_t
 		tmpsiz = u_power2(tmpsiz);
 	}
 
+	/*
+	 * NOTE: -Walloc-size-larger-than diagnostic complains because
+	 * u_power2 will saturate to SIZE_MAX on overflow (a path it can
+	 * statically trace) and it triggers on anything over SSIZE_MAX.
+	 */
+	U_WARN_PUSH
+	U_WARN_NO_ALLOC_SIZE_LARGER_THAN
 	if (!(tmp = realloc(*arr, tmpsiz)))
 		return (tmpsiz)? errno : 0;
+	U_WARN_POP
 
 	*arr = tmp;
 	*arrsiz = tmpsiz;
