@@ -5497,6 +5497,15 @@ static int unix_chroot(lua_State *L) {
 } /* unix_chroot() */
 
 
+static int unix_clearerr(lua_State *L) {
+	clearerr(unixL_checkfile(L, 1));
+
+	lua_pushvalue(L, 1);
+
+	return 1;
+} /* unix_clearerr() */
+
+
 static int unix_clock_gettime(lua_State *L) {
 #if __APPLE__
 	unixL_State *U = unixL_getstate(L);
@@ -10436,6 +10445,7 @@ static const luaL_Reg unix_routines[] = {
 	{ "chmod",              &unix_chmod },
 	{ "chown",              &unix_chown },
 	{ "chroot",             &unix_chroot },
+	{ "clearerr",           &unix_clearerr },
 	{ "clock_gettime",      &unix_clock_gettime },
 	{ "close",              &unix_close },
 	{ "closedir",           &unix_closedir },
