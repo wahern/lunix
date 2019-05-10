@@ -29,6 +29,7 @@
 #include <float.h>        /* DBL_HUGE DBL_MANT_DIG FLT_HUGE FLT_MANT_DIG FLT_RADIX LDBL_HUGE LDBL_MANT_DIG */
 #include <locale.h>       /* LC_* setlocale(3) */
 
+#include <sys/mman.h>     /* MAP_* PROT_* mmap(2) munmap(2) */
 #include <sys/types.h>    /* gid_t mode_t off_t pid_t uid_t */
 #include <sys/resource.h> /* RLIMIT_* RUSAGE_SELF struct rlimit struct rusage getrlimit(2) getrusage(2) setrlimit(2) */
 #include <sys/socket.h>   /* AF_* SOCK_* struct sockaddr socket(2) */
@@ -3769,6 +3770,18 @@ static void unixL_pushoff(lua_State *L, off_t off) {
 } /* unixL_pushoff() */
 
 
+static void *unixL_checklightuserdata(lua_State *L, int index) {
+	luaL_checktype(L, index, LUA_TLIGHTUSERDATA);
+	return lua_touserdata(L, index);
+} /* unixL_checklightuserdata() */
+
+static void *unixL_optlightuserdata(lua_State *L, int index) {
+	if (lua_isnoneornil(L, index))
+		return NULL;
+	return unixL_checklightuserdata(L, index);
+} /* unixL_optlightuserdata */
+
+
 static struct iovec unixL_checkstring(lua_State *L, int index, size_t min, size_t max) {
 	struct iovec iov;
 
@@ -5370,6 +5383,19 @@ static int unix_bitor(lua_State *L) {
 } /* unix_bitor() */
 
 
+static int unsafe_calloc(lua_State *L) {
+	size_t count = unixL_checksize(L, 1);
+	size_t size = unixL_checksize(L, 2);
+	void *addr;
+
+	if (!(addr = calloc(count, size)) && count > 0 && size > 0)
+		return unixL_pusherror(L, errno, "calloc", "~$#");
+
+	lua_pushlightuserdata(L, addr);
+	return 1;
+} /* unsafe_calloc() */
+
+
 static int unix_chdir(lua_State *L) {
 	int fd;
 
@@ -6201,6 +6227,12 @@ static int unix_fnmatch(lua_State *L) {
 		return unixL_pusherror(L, errno, "fnmatch", "~$#");
 	}
 } /* unix_fnmatch() */
+
+
+static int unsafe_free(lua_State *L) {
+	free(unixL_checklightuserdata(L, 1));
+	return 0;
+} /* unsafe_free() */
 
 
 #if HAVE_FSTATAT
@@ -7782,6 +7814,50 @@ static int unix_lstat(lua_State *L) {
 } /* unix_lstat() */
 
 
+static int unsafe_malloc(lua_State *L) {
+	size_t size = unixL_checksize(L, 1);
+	void *addr;
+
+	if (!(addr = malloc(size)) && size > 0)
+		return unixL_pusherror(L, errno, "malloc", "~$#");
+
+	lua_pushlightuserdata(L, addr);
+	return 1;
+} /* unsafe_malloc() */
+
+
+static int unsafe_memcpy(lua_State *L) {
+	void *dst = unixL_checklightuserdata(L, 1);
+
+	if (lua_type(L, 2) == LUA_TSTRING) {
+		struct iovec src = unixL_checkstring(L, 2, 0, SIZE_MAX);
+		size_t len = (lua_isnoneornil(L, 3))? src.iov_len : unixL_checksize(L, 3);
+
+		luaL_argcheck(L, len <= src.iov_len, 3, "string too short");
+
+		memcpy(dst, src.iov_base, len);
+	} else {
+		void *src = unixL_checklightuserdata(L, 2);
+		size_t len = unixL_checksize(L, 3);
+
+		memcpy(dst, src, len);
+	}
+
+	lua_pushlightuserdata(L, dst);
+	return 1;
+} /* unsafe_memcpy() */
+
+
+static int unsafe_memset(lua_State *L) {
+	void *addr = (luaL_checktype(L, 1, LUA_TLIGHTUSERDATA), lua_touserdata(L, 1));
+	int c = unixL_checkint(L, 2);
+	size_t len = unixL_checksize(L, 3);
+
+	lua_pushlightuserdata(L, memset(addr, c, len));
+	return 1;
+} /* unsafe_memset() */
+
+
 /*
  * Emulate mkdir except with well-defined SUID, SGID, SVTIX behavior. If you
  * want to set bits restricted by the umask you must manually use chmod.
@@ -7923,6 +7999,41 @@ static int unix_mkpath(lua_State *L) {
 
 	return 1;
 } /* unix_mkpath() */
+
+
+static int mman_optfileno(lua_State *L, int index, int def) {
+	if (lua_type(L, index) == LUA_TNUMBER)
+		return unixL_checkint(L, index);
+	return unixL_optfileno(L, index, def);
+}
+
+static int unsafe_mmap(lua_State *L) {
+	void *addr0 = unixL_optlightuserdata(L, 1);
+	size_t len = unixL_checksize(L, 2);
+	int prot = unixL_checkint(L, 3);
+	int flags = unixL_checkint(L, 4);
+	int fd = mman_optfileno(L, 5, -1);
+	off_t off = unixL_optoff(L, 6, 0);
+	void *addr;
+
+	if (MAP_FAILED == (addr = mmap(addr0, len, prot, flags, fd, off)))
+		return unixL_pusherror(L, errno, "mmap", "~$#");
+
+	lua_pushlightuserdata(L, addr);
+	return 1;
+} /* unsafe_mmap() */
+
+
+static int unsafe_munmap(lua_State *L) {
+	void *addr = unixL_checklightuserdata(L, 1);
+	size_t len = unixL_checksize(L, 2);
+
+	if (0 != munmap(addr, len))
+		return unixL_pusherror(L, errno, "munmap", "~$#");
+
+	lua_pushboolean(L, 1);
+	return 1;
+} /* unsafe_munmap() */
 
 
 static int unix_open(lua_State *L) {
@@ -8516,6 +8627,36 @@ static int unix_readlinkat(lua_State *L) {
 	return 1;
 } /* unix_readlinkat() */
 #endif
+
+
+static int unsafe_realloc(lua_State *L) {
+	void *addr0 = unixL_checklightuserdata(L, 1);
+	size_t size = unixL_checksize(L, 2);
+	void *addr;
+
+	if (!(addr = realloc(addr0, size)) && size > 0)
+		return unixL_pusherror(L, errno, "realloc", "~$#");
+
+	lua_pushlightuserdata(L, addr);
+	return 1;
+} /* unsafe_realloc() */
+
+
+static int unsafe_reallocarray(lua_State *L) {
+	void *addr0 = unixL_checklightuserdata(L, 1);
+	size_t count = unixL_checksize(L, 2);
+	size_t size = unixL_checksize(L, 3);
+	void *addr;
+
+	if (count > 0 && SIZE_MAX / count < size)
+		return unixL_pusherror(L, ENOMEM, "reallocarray", "~$#");
+
+	if (!(addr = realloc(addr0, count * size)) && count > 0 && size > 0)
+		return unixL_pusherror(L, errno, "reallocarray", "~$#");
+
+	lua_pushlightuserdata(L, addr);
+	return 1;
+} /* unsafe_reallocarray() */
 
 
 static int unix_recv(lua_State *L) {
@@ -9791,6 +9932,18 @@ static int unix_strerror(lua_State *L) {
 } /* unix_strerror() */
 
 
+static int unsafe_strlen(lua_State *L) {
+	unixL_pushsize(L, strlen(unixL_checklightuserdata(L, 1)));
+	return 1;
+} /* unsafe_strlen() */
+
+
+static int unsafe_strnlen(lua_State *L) {
+	unixL_pushsize(L, strnlen(unixL_checklightuserdata(L, 1), unixL_checksize(L, 2)));
+	return 1;
+} /* unsafe_strnlen() */
+
+
 static int unix_strsignal(lua_State *L) {
 	lua_pushstring(L, unixL_strsignal(L, luaL_checkint(L, 1)));
 
@@ -10433,10 +10586,21 @@ static const luaL_Reg unix_routines[] = {
 }; /* unix_routines[] */
 
 static const luaL_Reg unsafe_routines[] = {
-	{ "fcntl",      &unsafe_fcntl },
-	{ "getsockopt", &unsafe_getsockopt },
-	{ "ioctl",      &unsafe_ioctl },
-	{ "setsockopt", &unsafe_setsockopt },
+	{ "calloc",       &unsafe_calloc },
+	{ "fcntl",        &unsafe_fcntl },
+	{ "free",         &unsafe_free },
+	{ "getsockopt",   &unsafe_getsockopt },
+	{ "ioctl",        &unsafe_ioctl },
+	{ "malloc",       &unsafe_malloc },
+	{ "memcpy",       &unsafe_memcpy },
+	{ "memset",       &unsafe_memset },
+	{ "mmap",         &unsafe_mmap },
+	{ "munmap",       &unsafe_munmap },
+	{ "realloc",      &unsafe_realloc },
+	{ "reallocarray", &unsafe_reallocarray },
+	{ "setsockopt",   &unsafe_setsockopt },
+	{ "strlen",       &unsafe_strlen },
+	{ "strnlen",      &unsafe_strnlen },
 	{ NULL,         NULL }
 }; /* unsafe_routines[] */
 
@@ -10528,6 +10692,26 @@ static const struct unix_const const_eai[] = {
 	UNIX_CONST(EAI_OVERFLOW),
 #endif
 }; /* const_eai[] */
+
+static const struct unix_const const_mman[] = {
+#if defined MAP_ANON
+	UNIX_CONST(MAP_ANON),
+#endif
+#if defined MAP_ANONYMOUS
+	UNIX_CONST(MAP_ANONYMOUS),
+#endif
+#if defined MAP_FILE
+	UNIX_CONST(MAP_FILE),
+#endif
+	UNIX_CONST(MAP_FIXED),
+	UNIX_CONST(MAP_PRIVATE),
+	UNIX_CONST(MAP_SHARED),
+
+	UNIX_CONST(PROT_EXEC),
+	UNIX_CONST(PROT_NONE),
+	UNIX_CONST(PROT_READ),
+	UNIX_CONST(PROT_WRITE),
+}; /* const_mman[] */
 
 static const struct unix_const const_msg[] = {
 #if defined MSG_EOR
@@ -11170,6 +11354,7 @@ static const struct {
 	{ const_ipv6,     countof(const_ipv6) },
 	{ const_ai,       countof(const_ai) },
 	{ const_eai,      countof(const_eai) },
+	{ const_mman,     countof(const_mman) },
 	{ const_msg,      countof(const_msg) },
 	{ const_ni,       countof(const_ni) },
 	{ const_param,    countof(const_param) - 1 },
