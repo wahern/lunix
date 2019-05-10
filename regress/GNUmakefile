@@ -13,7 +13,7 @@ include $(d)/../GNUmakefile
 
 $(d)/.local/lib/%/unix.so: $(abspath $(d)/..)/src/%/unix.so
 	$(MKDIR) -p $(@D)
-	cp -p $< $@
+	cp -fp $< $@
 
 $(KNOWN_APIS:%=$(d)/check%): $(d)/check%: $(d)/.local/lib/%/unix.so
 	@V="$(@:$(@D)/check%=%)"; \
