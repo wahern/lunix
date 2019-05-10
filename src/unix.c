@@ -6195,6 +6195,35 @@ error:
 } /* unix_fdup() */
 
 
+static int unix_feof(lua_State *L) {
+	lua_pushboolean(L, feof(unixL_checkfile(L, 1)));
+	return 1;
+} /* unix_feof() */
+
+
+static int unix_ferror(lua_State *L) {
+	lua_pushboolean(L, ferror(unixL_checkfile(L, 1)));
+	return 1;
+} /* unix_ferror() */
+
+
+static int unix_fgetc(lua_State *L) {
+	FILE *fp = unixL_checkfile(L, 1);
+	int c;
+
+	if (EOF == (c = fgetc(fp))) {
+		if (ferror(fp))
+			return unixL_pusherror(L, errno, "fgetc", "~$#");
+
+		return 0;
+	}
+
+	lua_pushinteger(L, c);
+
+	return 1;
+} /* unix_fgetc() */
+
+
 static int unix_fileno(lua_State *L) {
 	int fd = unixL_checkfileno(L, 1);
 
@@ -10435,6 +10464,9 @@ static const luaL_Reg unix_routines[] = {
 	{ "fdopendir",          &unix_fdopendir },
 #endif
 	{ "fdup",               &unix_fdup },
+	{ "feof",               &unix_feof },
+	{ "ferror",             &unix_ferror },
+	{ "fgetc",              &unix_fgetc },
 	{ "fileno",             &unix_fileno },
 	{ "flockfile",          &unix_flockfile },
 	{ "fnmatch",            &unix_fnmatch },
@@ -10454,6 +10486,7 @@ static const luaL_Reg unix_routines[] = {
 	{ "fork",               &unix_fork },
 	{ "gai_strerror",       &unix_gai_strerror },
 	{ "getaddrinfo",        &unix_getaddrinfo },
+	{ "getc",               &unix_fgetc },
 	{ "getegid",            &unix_getegid },
 	{ "geteuid",            &unix_geteuid },
 	{ "getenv",             &unix_getenv },
