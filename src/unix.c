@@ -365,7 +365,7 @@
 #endif
 
 #ifndef HAVE_ACCEPT4
-#define HAVE_ACCEPT4 (HAVE_DECL_SOCK_CLOEXEC && !__NetBSD__)
+#define HAVE_ACCEPT4 (HAVE_DECL_SOCK_CLOEXEC && (!__NetBSD__ || NETBSD_PREREQ(8,0)))
 #endif
 
 #ifndef HAVE_ARC4RANDOM
