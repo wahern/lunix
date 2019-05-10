@@ -405,6 +405,10 @@
 #define HAVE_FDOPENDIR ((!__APPLE__ || MACOS_PREREQ(10,10,0) || IPHONE_PREREQ(8,0)) && (!__NetBSD__ || NETBSD_PREREQ(6,0)))
 #endif
 
+#ifndef HAVE_FMEMOPEN
+#define HAVE_FMEMOPEN (!_AIX && !__sun && (!__NetBSD__ || NETBSD_PREREQ(6,0)))
+#endif
+
 #ifndef HAVE_FSTATAT
 #define HAVE_FSTATAT HAVE_OPENAT
 #endif
@@ -6209,6 +6213,22 @@ static int unix_flockfile(lua_State *L) {
 } /* unix_flockfile() */
 
 
+#if HAVE_FMEMOPEN
+static int unsafe_fmemopen(lua_State *L) {
+	void *addr = unixL_checklightuserdata(L, 1);
+	size_t size = unixL_checksize(L, 2);
+	const char *mode = luaL_checkstring(L, 3);
+	luaL_Stream *fh;
+
+	fh = unixL_prepfile(L);
+	if (!(fh->f = fmemopen(addr, size, mode)))
+		return unixL_pusherror(L, errno, "fmemopen", "~$#");
+
+	return 1;
+} /* unsafe_fmemopen() */
+#endif
+
+
 static int unix_fnmatch(lua_State *L) {
 	const char *patt = luaL_checkstring(L, 1);
 	const char *subject = luaL_checkstring(L, 2);
@@ -10588,6 +10608,9 @@ static const luaL_Reg unix_routines[] = {
 static const luaL_Reg unsafe_routines[] = {
 	{ "calloc",       &unsafe_calloc },
 	{ "fcntl",        &unsafe_fcntl },
+#if HAVE_FMEMOPEN
+	{ "fmemopen",     &unsafe_fmemopen },
+#endif
 	{ "free",         &unsafe_free },
 	{ "getsockopt",   &unsafe_getsockopt },
 	{ "ioctl",        &unsafe_ioctl },
