@@ -10,6 +10,7 @@ local regress = require"regress".export".*"
 regress.setmpsafe(true)
 
 local fmt = string.format
+local pow = math.pow or function (x, y) return x^y end
 
 local function checkf(what, v, ...)
 	if v then
@@ -35,7 +36,7 @@ local function stroflags(flags)
 
 	-- NB: on AIX flags can be greater than 2^32-1
 	for i=0,31 do
-		local flag = math.pow(2, i)
+		local flag = pow(2, i)
 		if 0 ~= unix.bitand(flag, flags) then
 			names[#names + 1] = fmt("0x%.8x", flag)
 		end
