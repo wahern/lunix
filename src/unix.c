@@ -29,7 +29,7 @@
 #include <float.h>        /* DBL_HUGE DBL_MANT_DIG FLT_HUGE FLT_MANT_DIG FLT_RADIX LDBL_HUGE LDBL_MANT_DIG */
 #include <locale.h>       /* LC_* setlocale(3) */
 
-#include <sys/mman.h>     /* MAP_* PROT_* mmap(2) munmap(2) */
+#include <sys/mman.h>     /* MAP_* MCL_* PROT_* mlock(2) mlockall(2) mmap(2) munlock(2) munlockall(2) munmap(2) */
 #include <sys/types.h>    /* gid_t mode_t off_t pid_t uid_t */
 #include <sys/resource.h> /* RLIMIT_* RUSAGE_SELF struct rlimit struct rusage getrlimit(2) getrusage(2) setrlimit(2) */
 #include <sys/socket.h>   /* AF_* SOCK_* struct sockaddr socket(2) */
@@ -8059,6 +8059,29 @@ static int unix_mkpath(lua_State *L) {
 } /* unix_mkpath() */
 
 
+static int unsafe_mlock(lua_State *L) {
+	void *addr = unixL_optlightuserdata(L, 1);
+	size_t len = unixL_checksize(L, 2);
+
+	if (0 != mlock(addr, len))
+		return unixL_pusherror(L, errno, "mlock", "0$#");
+
+	lua_pushboolean(L, 1);
+	return 1;
+} /* unsafe_mlock() */
+
+
+static int unsafe_mlockall(lua_State *L) {
+	int flags = unixL_checkint(L, 1);
+
+	if (0 != mlockall(flags))
+		return unixL_pusherror(L, errno, "mlockall", "0$#");
+
+	lua_pushboolean(L, 1);
+	return 1;
+} /* unsafe_mlockall() */
+
+
 static int mman_optfileno(lua_State *L, int index, int def) {
 	if (lua_type(L, index) == LUA_TNUMBER)
 		return unixL_checkint(L, index);
@@ -8080,6 +8103,27 @@ static int unsafe_mmap(lua_State *L) {
 	lua_pushlightuserdata(L, addr);
 	return 1;
 } /* unsafe_mmap() */
+
+
+static int unsafe_munlock(lua_State *L) {
+	void *addr = unixL_optlightuserdata(L, 1);
+	size_t len = unixL_checksize(L, 2);
+
+	if (0 != munlock(addr, len))
+		return unixL_pusherror(L, errno, "munlock", "0$#");
+
+	lua_pushboolean(L, 1);
+	return 1;
+} /* unsafe_munlock() */
+
+
+static int unsafe_munlockall(lua_State *L) {
+	if (0 == munlockall())
+		return unixL_pusherror(L, errno, "munlockall", "0$#");
+
+	lua_pushboolean(L, 1);
+	return 1;
+} /* unsafe_munlockall() */
 
 
 static int unsafe_munmap(lua_State *L) {
@@ -10660,7 +10704,11 @@ static const luaL_Reg unsafe_routines[] = {
 	{ "malloc",       &unsafe_malloc },
 	{ "memcpy",       &unsafe_memcpy },
 	{ "memset",       &unsafe_memset },
+	{ "mlock",        &unsafe_mlock },
+	{ "mlockall",     &unsafe_mlockall },
 	{ "mmap",         &unsafe_mmap },
+	{ "munlock",      &unsafe_munlock },
+	{ "munlockall",   &unsafe_munlockall },
 	{ "munmap",       &unsafe_munmap },
 	{ "realloc",      &unsafe_realloc },
 	{ "reallocarray", &unsafe_reallocarray },
@@ -10772,6 +10820,9 @@ static const struct unix_const const_mman[] = {
 	UNIX_CONST(MAP_FIXED),
 	UNIX_CONST(MAP_PRIVATE),
 	UNIX_CONST(MAP_SHARED),
+
+	UNIX_CONST(MCL_CURRENT),
+	UNIX_CONST(MCL_FUTURE),
 
 	UNIX_CONST(PROT_EXEC),
 	UNIX_CONST(PROT_NONE),
