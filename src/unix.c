@@ -3942,7 +3942,6 @@ static u_error_t fd_reopen(int *fd, int ofd, const char *fspath, u_flags_t flags
 
 static u_error_t fd_reopendir(int *fd, int ofd, u_flags_t flags) {
 #if HAVE_OPENAT
-	struct stat st = { 0 };
 	int error;
 
 	if ((error = u_getaccmode(ofd, &flags, flags)))
