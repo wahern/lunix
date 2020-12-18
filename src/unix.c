@@ -4751,7 +4751,13 @@ static struct luaL_Stream *unixL_prepfile(lua_State *L) {
 		if (U->lua.openf == LUA_NOREF || U->lua.openf == LUA_REFNIL)
 			luaL_error(L, "unable to create new file handle: LuaJIT io.open function not available");
 
-		for (path = &local[0]; path < endof(local); ppath = path++) {
+		lua_settop(L, lua_gettop(L) + 2);
+
+		for (path = &local[0]; path < endof(local); path++) {
+			ppath = path;
+
+			lua_pop(L, 2);
+
 			lua_rawgeti(L, LUA_REGISTRYINDEX, U->lua.openf);
 			lua_pushstring(L, *path);
 			lua_pushstring(L, "r");
@@ -4759,8 +4765,6 @@ static struct luaL_Stream *unixL_prepfile(lua_State *L) {
 
 			if (!lua_isnil(L, -2))
 				break;
-
-			lua_pop(L, 2);
 		}
 
 		if (lua_isnil(L, -2))
