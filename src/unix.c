@@ -10733,6 +10733,34 @@ static const struct unix_const const_af[] = {
 	UNIX_CONST(AF_INET6),
 }; /* const_af[] */
 
+static const struct unix_const const_so[] = {
+	UNIX_CONST(SO_ACCEPTCONN),
+	UNIX_CONST(SO_BROADCAST),
+	UNIX_CONST(SO_DEBUG),
+	UNIX_CONST(SO_DONTROUTE),
+	UNIX_CONST(SO_ERROR),
+	UNIX_CONST(SO_KEEPALIVE),
+	UNIX_CONST(SO_LINGER),
+#if defined SO_NOSIGPIPE
+	UNIX_CONST(SO_NOSIGPIPE),
+#endif
+	UNIX_CONST(SO_OOBINLINE),
+	UNIX_CONST(SO_RCVBUF),
+	UNIX_CONST(SO_RCVLOWAT),
+	UNIX_CONST(SO_RCVTIMEO),
+	UNIX_CONST(SO_REUSEADDR),
+	UNIX_CONST(SO_SNDBUF),
+	UNIX_CONST(SO_SNDLOWAT),
+	UNIX_CONST(SO_SNDTIMEO),
+	UNIX_CONST(SO_TYPE),
+
+#if defined SOMAXCONN
+	UNIX_CONST(SOMAXCONN),
+#endif
+
+	UNIX_CONST(SOL_SOCKET),
+}; /* const_so[] */
+
 static const struct unix_const const_sock[] = {
 	UNIX_CONST(SOCK_DGRAM), UNIX_CONST(SOCK_STREAM),
 #if defined SOCK_RAW
@@ -11347,6 +11375,15 @@ static const struct unix_const const_fcntl[] = {
 #if defined F_GETPATH
 	UNIX_CONST(F_GETPATH),
 #endif
+#if defined F_GETPATH_NOFIRMLINK
+	UNIX_CONST(F_GETPATH_NOFIRMLINK),
+#endif
+#if defined F_GETNOSIGPIPE
+	UNIX_CONST(F_GETNOSIGPIPE),
+#endif
+#if defined F_SETNOSIGPIPE
+	UNIX_CONST(F_SETNOSIGPIPE),
+#endif
 #if defined F_CLOSEM
 	UNIX_CONST(F_CLOSEM),
 #endif
@@ -11394,6 +11431,9 @@ static const struct unix_const const_fcntl[] = {
 #endif
 #if defined O_SEARCH
 	UNIX_CONST(O_SEARCH),
+#endif
+#if defined O_NOSIGPIPE
+	UNIX_CONST(O_NOSIGPIPE),
 #endif
 
 #if defined POSIX_FADV_DONTNEED
@@ -11468,6 +11508,7 @@ static const struct {
 	size_t size;
 } unix_const[] = {
 	{ const_af,       countof(const_af) },
+	{ const_so,       countof(const_so) },
 	{ const_sock,     countof(const_sock) },
 	{ const_ipproto,  countof(const_ipproto) },
 	{ const_ip,       countof(const_ip) },
