@@ -9343,6 +9343,19 @@ static int unix_rmdir(lua_State *L) {
 } /* unix_rmdir() */
 
 
+static int unix_shutdown(lua_State *L) {
+	int fd = unixL_checkfileno(L, 1);
+	int how = unixL_checkint(L, 2);
+
+	if (0 != shutdown(fd, how))
+		return unixL_pusherror(L, errno, "shutdown", "~$#");
+
+	lua_pushboolean(L, 1);
+
+	return 1;
+} /* unix_shutdown() */
+
+
 static int unix_send(lua_State *L) {
 	int fd = unixL_checkfileno(L, 1);
 	size_t size;
@@ -10638,6 +10651,7 @@ static const luaL_Reg unix_routines[] = {
 	{ "S_ISREG",            &unix_S_ISREG },
 	{ "S_ISLNK",            &unix_S_ISLNK },
 	{ "S_ISSOCK",           &unix_S_ISSOCK },
+	{ "shutdown",           &unix_shutdown },
 	{ "send",               &unix_send },
 	{ "sendto",             &unix_sendto },
 	{ "sendtofrom",         &unix_sendtofrom },
@@ -10732,6 +10746,12 @@ static const struct unix_const const_af[] = {
 	UNIX_CONST(AF_UNSPEC), UNIX_CONST(AF_UNIX), UNIX_CONST(AF_INET),
 	UNIX_CONST(AF_INET6),
 }; /* const_af[] */
+
+static const struct unix_const const_shut[] = {
+	UNIX_CONST(SHUT_RD),
+	UNIX_CONST(SHUT_RDWR),
+	UNIX_CONST(SHUT_WR),
+}; /* const_shut[] */
 
 static const struct unix_const const_so[] = {
 	UNIX_CONST(SO_ACCEPTCONN),
@@ -11508,6 +11528,7 @@ static const struct {
 	size_t size;
 } unix_const[] = {
 	{ const_af,       countof(const_af) },
+	{ const_shut,     countof(const_shut) },
 	{ const_so,       countof(const_so) },
 	{ const_sock,     countof(const_sock) },
 	{ const_ipproto,  countof(const_ipproto) },
