@@ -35,7 +35,7 @@ integer descriptors.
 
 # Lua Versions
 
-`lunix` supports the Lua 5.1, 5.2, and 5.3 APIs. `lunix` supports LuaJIT wth
+`lunix` supports the Lua 5.1, 5.2, 5.3 and 5.4 APIs. `lunix` supports LuaJIT with
 the caveat that when creating custom `FILE` handles using `fdopen` (directly
 or indirectly through, e.g., `fdup`) the process must have read access to an
 existing filesystem resource (presently `.` or `/dev/null`) in order to

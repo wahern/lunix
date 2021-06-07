@@ -12,7 +12,7 @@ $(d)/help: # default target
 #
 # G N U  M A K E  F U N C T I O N S
 #
-KNOWN_APIS = 5.1 5.2 5.3
+KNOWN_APIS = 5.1 5.2 5.3 5.4
 
 # template for invoking luapath script
 LUAPATH := $(d)/mk/luapath
@@ -47,6 +47,8 @@ lua52cpath ?= $(libdir)/lua/5.2
 lua52path ?= $(datadir)/lua/5.2
 lua53cpath ?= $(libdir)/lua/5.3
 lua53path ?= $(datadir)/lua/5.3
+lua54cpath ?= $(libdir)/lua/5.4
+lua54path ?= $(datadir)/lua/5.4
 
 AR ?= ar
 RANLIB ?= ranlib
@@ -74,6 +76,8 @@ $(d)/config:
 	printf 'lua52path ?= $(value lua52path)'"\n" >> $(@D)/.config
 	printf 'lua53cpath ?= $(value lua53cpath)'"\n" >> $(@D)/.config
 	printf 'lua53path ?= $(value lua53path)'"\n" >> $(@D)/.config
+	printf 'lua54cpath ?= $(value lua54cpath)'"\n" >> $(@D)/.config
+	printf 'lua54path ?= $(value lua54path)'"\n" >> $(@D)/.config
 	printf 'CC ?= $(CC)'"\n" >> $(@D)/.config
 	printf 'CPPFLAGS ?= $(value CPPFLAGS)'"\n" >> $(@D)/.config
 	printf 'CFLAGS ?= $(value CFLAGS)'"\n" >> $(@D)/.config
@@ -175,10 +179,12 @@ $(d)/help: # default target
 	@echo '  all5.1     - build Lua 5.1 module'
 	@echo '  all5.2     - build Lua 5.2 module'
 	@echo '  all5.3     - build Lua 5.3 module'
+	@echo '  all5.4     - build Lua 5.4 module'
 	@echo '  install    - $(LUA_APIS:%=install%)'
 	@echo '  install5.1 - install Lua 5.1 module'
 	@echo '  install5.2 - install Lua 5.2 module'
 	@echo '  install5.3 - install Lua 5.3 module'
+	@echo '  install5.4 - install Lua 5.4 module'
 	@echo '  clean      - remove generated files'
 	@echo '  clean~     - remove *~ files'
 	@echo '  help       - display this help message'
@@ -195,6 +201,8 @@ $(d)/help: # default target
 	@echo '  lua52path  - Lua 5.2 module installation path'
 	@echo '  lua53cpath - Lua 5.3 C module installation path'
 	@echo '  lua53path  - Lua 5.3 module installation path'
+	@echo '  lua54cpath - Lua 5.4 C module installation path'
+	@echo '  lua54path  - Lua 5.4 module installation path'
 	@echo '  CC         - C compiler path'
 	@echo '  CFLAGS     - C compiler flags'
 	@echo '  CPPFLAGS   - C preprocessor flags, particularly -I paths for Lua headers'

@@ -55,6 +55,7 @@
 #include <regex.h>        /* REG_* regex_t regcomp(3) regerror(3) regexec(3) regfree(3) */
 
 #define LUA_COMPAT_5_2 1
+#define LUA_COMPAT_5_3 1
 #include <lua.h>
 #include <lualib.h>
 #include <lauxlib.h>
