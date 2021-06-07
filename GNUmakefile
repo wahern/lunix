@@ -209,7 +209,7 @@ $(d)/help: # default target
 	@echo '  LDFLAGS    - C compiler linker flags'
 	@echo '  SOFLAGS    - C compiler flags necessary for creating loadable module'
 	@echo 'Debian package targets:'
-	@echo '  debian           - build Debian package containing 5.1 and 5.2 modules'
+	@echo '  debian           - build Debian package containing 5.1, 5.2, 5.3 and 5.4 modules'
 	@echo '  debian-clean     - make debian/rules clean'
 	@echo '  debian-distclean - removed all unversioned files in debian/'
 
