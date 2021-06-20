@@ -574,7 +574,11 @@
 #endif
 
 #if HAVE_SYS_SYSCTL_H
-#include <sys/sysctl.h> /* CTL_KERN KERN_RANDOM RANDOM_UUID sysctl(2) */
+#ifdef __linux__
+#include <linux/sysctl.h> /* CTL_KERN KERN_RANDOM RANDOM_UUID sysctl(2) */
+#else
+#include <sys/sysctl.h>
+#endif
 #endif
 
 #if HAVE_IFADDRS_H
