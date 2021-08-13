@@ -218,7 +218,7 @@
 #endif
 
 #ifndef HAVE_SYS_SYSCTL_H /* missing on musl libc */
-#define HAVE_SYS_SYSCTL_H (BSD || GLIBC_PREREQ(0,0) || UCLIBC_PREREQ(0,0,0))
+#define HAVE_SYS_SYSCTL_H (BSD || (__GLIBC__ && !GLIBC_PREREQ(2,32)) || UCLIBC_PREREQ(0,0,0))
 #endif
 
 #ifndef HAVE_STRUCT_IN_PKTINFO
