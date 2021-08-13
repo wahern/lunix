@@ -531,7 +531,7 @@
 #endif
 
 #ifndef HAVE_SYS_SIGLIST
-#define HAVE_SYS_SIGLIST (!MUSL_MAYBE && !__sun && !_AIX)
+#define HAVE_SYS_SIGLIST (!MUSL_MAYBE && !__sun && !_AIX && !__UCLIBC__)
 #endif
 
 #ifndef HAVE_UNLINKAT
