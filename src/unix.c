@@ -679,6 +679,12 @@ static void compatL_setfuncs(lua_State *L, const luaL_Reg *l, int nup) {
 
 #define lua_isinteger(L, index) 0
 
+#define lua_getfield(...) compatL_getfield(__VA_ARGS__)
+static int compatL_getfield(lua_State *L, int index, const char *k) {
+	(lua_getfield)(L, index, k);
+	return lua_type(L, -1);
+}
+
 #define lua_geti(...) compatL_geti(__VA_ARGS__)
 static int compatL_geti(lua_State *L, int index, lua_Integer i) {
 	index = lua_absindex(L, index);
@@ -3358,14 +3364,14 @@ static u_error_t unixL_getsockname(lua_State *L, int fd, int (*getname)(int, str
 	do {
 		if (U->bufsiz < salen && (error = u_realloc(&U->buf, &U->bufsiz, salen)))
 			return error;
-		salen = MAX(INT_MAX, U->bufsiz);
+		salen = MIN(INT_MAX, U->bufsiz);
 		if (0 != getname(fd, (struct sockaddr *)U->buf, &salen))
 			return errno;
 	} while (salen > U->bufsiz);
 
 	unixL_newsockaddr(L, U->buf, salen);
 
-	return 1;
+	return 0;
 } /* unixL_getsockname() */
 
 
@@ -3777,7 +3783,34 @@ static struct sockaddr *unixL_tosockaddr(lua_State *L, int index, size_t *len) {
 	if (luaL_testudata(L, index, "struct sockaddr")) {
 		*len = lua_rawlen(L, index);
 		return lua_touserdata(L, index);
-	} else if (lua_istable(L, index)) {
+	} else if (!lua_istable(L, index)) {
+null:
+		*len = 0;
+		return NULL;
+	} else if (AF_UNIX == unixL_optfint(L, index, "family", AF_UNSPEC)) {
+		struct sockaddr_un *addr;
+		const char *path;
+		size_t pathlen, addrlen;
+		int error;
+
+		index = lua_absindex(L, index);
+
+		if (LUA_TSTRING != lua_getfield(L, index, "path"))
+			return luaL_error(L, "no path specified for AF_UNIX address"), (void *)NULL;
+		path = lua_tolstring(L, -1, &pathlen);
+
+		addrlen = offsetof(struct sockaddr_un, sun_path) + pathlen + 1;
+		addr = lua_newuserdata(L, addrlen);
+		memset(addr, '\0', addrlen);
+		addr->sun_family = AF_UNIX;
+		memcpy(addr->sun_path, path, pathlen);
+		*len = addrlen;
+
+		lua_replace(L, index);
+		lua_pop(L, 1);
+
+		return (struct sockaddr *)addr;
+	} else {
 		unixL_State *U = unixL_getstate(L);
 		int otop = lua_gettop(L);
 		struct addrinfo hints = { 0 };
@@ -3808,10 +3841,6 @@ static struct sockaddr *unixL_tosockaddr(lua_State *L, int index, size_t *len) {
 		lua_settop(L, otop);
 
 		return addr;
-	} else {
-null:
-		*len = 0;
-		return NULL;
 	}
 } /* unixL_tosockaddr() */
 
@@ -5203,10 +5232,10 @@ static int unix_accept(lua_State *L) {
 
 	u_close(&U->net.fd);
 
-	if (U->bufsiz < sizeof (struct sockaddr) && (error = u_realloc(&U->buf, &U->bufsiz, sizeof (struct sockaddr))))
+	if (U->bufsiz < sizeof (struct sockaddr_storage) && (error = u_realloc(&U->buf, &U->bufsiz, sizeof (struct sockaddr_storage))))
 		return unixL_pusherror(L, error, "accept", "~$#");
 
-	salen = MAX(INT_MAX, U->bufsiz);
+	salen = MIN(INT_MAX, U->bufsiz);
 #if HAVE_ACCEPT4
 	U->net.fd = accept4(fd, (struct sockaddr *)U->buf, &salen, flags);
 #elif HAVE_PACCEPT
@@ -8847,7 +8876,7 @@ static int sa__index_un(lua_State *L, const struct sockaddr_un *un, size_t unlen
 
 		if (unlen < offsetof(struct sockaddr_un, sun_path))
 			return 0;
-		pathsiz = un->sun_path[unlen - offsetof(struct sockaddr_un, sun_path)];
+		pathsiz = unlen - offsetof(struct sockaddr_un, sun_path);
 		pathlen = strnlen(un->sun_path, pathsiz);
 		if (pathlen == 0) {
 #if __linux__
@@ -8875,7 +8904,7 @@ static int sa__index(lua_State *L) {
 
 	if (!strcmp(k, "family")) {
 		lua_pushinteger(L, addr->sa_family);
-		return 0;
+		return 1;
 	} else if (addr->sa_family == AF_INET) {
 		return sa__index_in(L, (struct sockaddr_in *)addr, k);
 	} else if (addr->sa_family == AF_INET6) {
