@@ -58,7 +58,7 @@ function regress.panic(...)
 	end
 end -- panic
 
-local verbose = false
+local verbose = (os.getenv"REGRESS_V" or ""):match"^[1Yy]" and true
 
 for optc, optarg in unix.getopt(arg or {}, "v") do
 	if optc == "v" then
@@ -192,5 +192,9 @@ end })
 function regress.atexit(f)
 	onexit[#onexit + 1] = f
 end -- regress.atexit
+
+do
+	regress.info("running %s", _VERSION or "Lua ?.?")
+end
 
 return regress
