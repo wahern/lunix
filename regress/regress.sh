@@ -4,6 +4,10 @@ set -f # disable pathname expansion
 set -C # noclobber
 unset IFS
 
+say() {
+	printf "%s: %.0s${1}\n" "${PROGNAME:-${0##*/}}" "$@" >&2
+}
+
 SRCDIR="$(cd "${0%/*}/.." && pwd -L)"
 PATH="${PATH:-$(command -p getconf PATH)}:${SRCDIR}/mk"
 

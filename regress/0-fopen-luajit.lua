@@ -1,6 +1,10 @@
 #!/bin/sh
 _=[[
 	. "${0%/*}/regress.sh"
+	if ! runlua -j- -p >/dev/null 2>&1; then
+		say "SKIPPED (unable to find LuaJIT interpreter)"
+		exit 0
+	fi
 	exec runlua -j- "$0" "$@"
 ]]
 

@@ -58,10 +58,13 @@ function regress.panic(...)
 	end
 end -- panic
 
+local nojit = (os.getenv"REGRESS_J" or ""):match"^[1Yy]" and true
 local verbose = (os.getenv"REGRESS_V" or ""):match"^[1Yy]" and true
 
-for optc, optarg in unix.getopt(arg or {}, "v") do
-	if optc == "v" then
+for optc, optarg in unix.getopt(arg or {}, "Jv") do
+	if optc == "J" then
+		nojit = true
+	elseif optc == "v" then
 		verbose = true
 	end
 end
@@ -194,7 +197,11 @@ function regress.atexit(f)
 end -- regress.atexit
 
 do
-	regress.info("running %s", _VERSION or "Lua ?.?")
+	regress.info("running %s%s", _VERSION or "Lua ?.?", jit and " (LuaJIT)" or "")
+	if nojit and jit and jit.off then
+		regress.info("disabling JIT engine")
+		jit.off()
+	end
 end
 
 return regress
