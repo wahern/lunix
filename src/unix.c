@@ -217,10 +217,6 @@
 #define HAVE_SYS_SYSCALL_H (BSD || __linux__ || __sun)
 #endif
 
-#ifndef HAVE_SYS_SYSCTL_H /* missing on musl libc */
-#define HAVE_SYS_SYSCTL_H (BSD || GLIBC_PREREQ(0,0) || UCLIBC_PREREQ(0,0,0))
-#endif
-
 #ifndef HAVE_STRUCT_IN_PKTINFO
 #define HAVE_STRUCT_IN_PKTINFO HAVE_DECL_IP_PKTINFO
 #endif
@@ -281,14 +277,6 @@
 #define HAVE_STRUCT_STAT_ST_CTIMESPEC HAVE_STRUCT_STAT_ST_ATIMESPEC
 #endif
 
-#ifndef HAVE_DECL_CTL_KERN
-#define HAVE_DECL_CTL_KERN (HAVE_SYS_SYSCTL_H && __linux)
-#endif
-
-#ifndef HAVE_DECL_KERN_RANDOM
-#define HAVE_DECL_KERN_RANDOM (HAVE_SYS_SYSCTL_H && __linux)
-#endif
-
 #ifndef HAVE_DECL_IP_PKTINFO
 #if defined IP_PKTINFO
 #define HAVE_DECL_IP_PKTINFO 1
@@ -327,10 +315,6 @@
 #else
 #define HAVE_DECL_IPV6_RECVPKTINFO 0
 #endif
-#endif
-
-#ifndef HAVE_DECL_RANDOM_UUID
-#define HAVE_DECL_RANDOM_UUID (HAVE_SYS_SYSCTL_H && __linux)
 #endif
 
 #ifndef HAVE_DECL_RLIM_SAVED_CUR
@@ -518,10 +502,6 @@
 #define HAVE_SYSCALL HAVE_SYS_SYSCALL_H
 #endif
 
-#ifndef HAVE_SYSCTL
-#define HAVE_SYSCTL HAVE_SYS_SYSCTL_H
-#endif
-
 #ifndef HAVE_STRSIGNAL
 #define HAVE_STRSIGNAL 1
 #endif
@@ -571,10 +551,6 @@
 
 #if HAVE_SYS_SYSCALL_H
 #include <sys/syscall.h> /* SYS_getrandom syscall(2) */
-#endif
-
-#if HAVE_SYS_SYSCTL_H
-#include <sys/sysctl.h> /* CTL_KERN KERN_RANDOM RANDOM_UUID sysctl(2) */
 #endif
 
 #if HAVE_IFADDRS_H
@@ -2981,18 +2957,6 @@ static void arc4_stir(unixL_Random *R, int force) {
 		int n = syscall(SYS_getrandom, &bytes[count], sizeof bytes - count, 0);
 
 		if (n == -1)
-			break;
-
-		count += n;
-	}
-#endif
-
-#if HAVE_SYSCTL && HAVE_DECL_CTL_KERN && HAVE_DECL_KERN_RANDOM && HAVE_DECL_RANDOM_UUID
-	while (count < sizeof bytes) {
-		int mib[] = { CTL_KERN, KERN_RANDOM, RANDOM_UUID };
-		size_t n = sizeof bytes - count;
-
-		if (0 != sysctl(mib, countof(mib), &bytes[count], &n, (void *)0, 0))
 			break;
 
 		count += n;
