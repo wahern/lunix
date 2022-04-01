@@ -42,7 +42,7 @@
 #include <syslog.h>       /* LOG_* closelog(3) openlog(3) setlogmask(3) syslog(3) */
 #include <termios.h>      /* tcgetsid(3) */
 #include <net/if.h>       /* IF_NAMESIZE struct ifconf struct ifreq */
-#include <unistd.h>       /* _PC_NAME_MAX alarm(3) chdir(2) chroot(2) close(2) chdir(2) chown(2) chroot(2) dup2(2) execve(2) execl(2) execlp(2) execvp(2) fork(2) fpathconf(3) getegid(2) geteuid(2) getgid(2) getgroups(2) gethostname(3) getpgid(2) getpgrp(2) getpid(2) getppid(2) getuid(2) isatty(3) issetugid(2) lchown(2) lockf(3) link(2) pathconf(3) pread(2) pwrite(2) rename(2) rmdir(2) setegid(2) seteuid(2) setgid(2) setgroups(2) setpgid(2) setuid(2) setsid(2) symlink(2) sysconf(3) tcgetpgrp(3) tcsetpgrp(3) truncate(2) umask(2) unlink(2) unlinkat(2) */
+#include <unistd.h>       /* _PC_NAME_MAX alarm(3) chdir(2) chroot(2) close(2) chdir(2) chown(2) chroot(2) dup2(2) execve(2) execl(2) execlp(2) execvp(2) fork(2) fpathconf(3) getcwd(3) getegid(2) geteuid(2) getgid(2) getgroups(2) gethostname(3) getpgid(2) getpgrp(2) getpid(2) getppid(2) getuid(2) isatty(3) issetugid(2) lchown(2) lockf(3) link(2) pathconf(3) pread(2) pwrite(2) realpath(3) rename(2) rmdir(2) setegid(2) seteuid(2) setgid(2) setgroups(2) setpgid(2) setuid(2) setsid(2) symlink(2) sysconf(3) tcgetpgrp(3) tcsetpgrp(3) truncate(2) umask(2) unlink(2) unlinkat(2) */
 #include <fcntl.h>        /* AT_* F_* O_* fcntl(2) open(2) openat(2) */
 #include <fnmatch.h>      /* FNM_* fnmatch(3) */
 #include <pwd.h>          /* struct passwd getpwnam_r(3) */
@@ -907,6 +907,28 @@ static u_error_t u_appendc(char **buf, size_t *size, size_t *p, int c) {
 
 	return 0;
 } /* u_appendc() */
+
+
+static u_error_t u_appends(char **buf, size_t *bufsiz, size_t *p, const void *src, size_t srclen) {
+	size_t r;
+	int error;
+
+	/*
+	 * NB: u_appendc seems to allow *p beyond the buffer size, but
+	 * that's probably coincidental.
+	 */
+	if (*p > *bufsiz)
+		return EINVAL;
+
+	r = *bufsiz - *p;
+	if (r < srclen && (error = u_growby(buf, bufsiz, srclen - r)))
+		return error;
+
+	memcpy(*buf + *p, src, srclen);
+	*p += srclen;
+
+	return 0;
+}
 
 
 static u_error_t u_reallocarray(void **arr, size_t *arrsiz, size_t count, size_t size) {
@@ -6656,6 +6678,31 @@ static const luaL_Reg gai_metamethods[] = {
 }; /* gai_metamethods[] */
 
 
+static int unix_getcwd(lua_State *L) {
+	unixL_State *U = unixL_getstate(L);
+	char *path;
+	int error;
+
+	if (U->bufsiz == 0 && (error = u_growby(&U->buf, &U->bufsiz, 255)))
+		goto error;
+
+	while (!(path = getcwd(U->buf, U->bufsiz))) {
+		if (errno != ERANGE)
+			goto syerr;
+		if ((error = u_growby(&U->buf, &U->bufsiz, 255)))
+			goto error;
+	}
+
+	lua_pushstring(L, path);
+
+	return 1;
+syerr:
+	error = errno;
+error:
+	return unixL_pusherror(L, error, "getcwd", "~$#");
+} /* unix_getcwd() */
+
+
 static int unix_getegid(lua_State *L) {
 	lua_pushinteger(L, getegid());
 
@@ -8758,6 +8805,26 @@ static int unsafe_reallocarray(lua_State *L) {
 } /* unsafe_reallocarray() */
 
 
+static int unix_realpath(lua_State *L) {
+	unixL_State *U = unixL_getstate(L);
+	char *path;
+	size_t len;
+	int error;
+
+	if (!(path = realpath(luaL_checkstring(L, 1), NULL)))
+		return unixL_pusherror(L, errno, "realpath", "~$#");
+
+	len = 0; // cursor argument will be updated to the passed strlen
+	error = u_appends(&U->buf, &U->bufsiz, &len, path, strlen(path));
+	free(path);
+	if (error)
+		return unixL_pusherror(L, error, "realpath", "~$#");
+
+	lua_pushlstring(L, U->buf, len);
+	return 1;
+} /* unix_realpath() */
+
+
 static int unix_recv(lua_State *L) {
 	unixL_State *U = unixL_getstate(L);
 	int fd = unixL_checkfileno(L, 1);
@@ -10551,6 +10618,7 @@ static const luaL_Reg unix_routines[] = {
 	{ "gai_strerror",       &unix_gai_strerror },
 	{ "getaddrinfo",        &unix_getaddrinfo },
 	{ "getc",               &unix_fgetc },
+	{ "getcwd",             &unix_getcwd },
 	{ "getegid",            &unix_getegid },
 	{ "geteuid",            &unix_geteuid },
 	{ "getenv",             &unix_getenv },
@@ -10625,6 +10693,7 @@ static const luaL_Reg unix_routines[] = {
 #if HAVE_READLINKAT
 	{ "readlinkat",         &unix_readlinkat },
 #endif
+	{ "realpath",           &unix_realpath },
 	{ "recv",               &unix_recv },
 	{ "recvfrom",           &unix_recvfrom },
 	{ "recvfromto",         &unix_recvfromto },
