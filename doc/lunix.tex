@@ -39,7 +39,7 @@
 \newcommand*{\otherwise}[1]{otherwise #1, an error string, and an integer system error}
 \newcommand*{\sockaddr}[0]{\texttt{sockaddr}\xspace}
 \newcommand*{\mustbe}[0]{\texttt{must be}\xspace}
-\newcommand*{\seefn}[1]{\hyperref[#1]{\fn{#1}}\xspace}
+\newcommand*{\seefn}[1]{\hyperref[#1]{\fn{#1}}}
 
 %
 % ENVIRONMENTS
@@ -232,7 +232,7 @@ Install Lua 5.3 module.
 
 \begin{Module}{unix}
 
-At present \lunix provides a single module of routines.
+The main \lunix module through which most routines and constants are exported. These bindings are type-safe---none operate on or return memory addresses (pointers). For lower-level bindings, see the \seefn{unix.unsafe} submodule.
 
 \subsubsection[\fn{environ[]}]{\fn{environ[]}}
 
@@ -255,6 +255,14 @@ Identical to the \_\_pairs metamethod, to be used to create an iterator directly
 
 FIXME.
 
+\subsubsection[\fn{access}]{\fn{accept($path$, $mode$)}}
+
+FIXME.
+
+\subsubsection[\fn{alarm}]{\fn{alarm($seconds$)}}
+
+FIXME.
+
 \subsubsection[\fn{arc4random}]{\fn{arc4random()}}
 
 Returns a cryptographically strong uniformly random 32-bit integer as a Lua number. On Linux the \const{RANDOM\_UUID} \fn{sysctl} feature is used to seed the generator if available; or on more recent Linux and Solaris kernels the \syscall{getrandom} interface.\footnote{Some Linux distributions, such as Red Hat, disable \syscall{sysctl}.} This avoids fiddling with file descriptors, and also works in a chroot jail. On other platforms without a native \fn{arc4random} interface, such as Solaris 11.2 or earlier, the implementation must resort to /dev/urandom for seeding.
@@ -274,6 +282,14 @@ Stir the arc4random entropy pool using the best available resources. This normal
 Returns a cryptographically strong uniform random integer in the interval $[0, n-1]$ where $n \leq 2^{32}$. If $n$ is omitted the interval is $[0, 2^{32}-1]$ and effectively behaves like \fn{arc4random}.
 
 \subsubsection[\fn{bind}]{\fn{bind($file$[,$sockaddr$])}}
+
+FIXME.
+
+\subsubsection[\fn{bitand}]{\fn{bitand($x$, $y$)}}
+
+FIXME.
+
+\subsubsection[\fn{bitor}]{\fn{bitor($x$, $y$)}}
 
 FIXME.
 
@@ -301,11 +317,19 @@ Attempt to \syscall{chroot} to the specified string $path$.
 
 Returns \true on success, otherwise returns \false, an error string, and an integer system error.
 
+\subsubsection[\fn{clearerr}]{\fn{clearerr($fh$)}}
+
+FIXME.
+
 \subsubsection[\fn{clock\_gettime}]{\fn{clock\_gettime($id$)}}
 
 $id$ should be the string ``realtime'' or ``monotonic'', or the integer constant CLOCK\_REALTIME or CLOCK\_MONOTONIC.
 
 Returns a time value as a Lua floating point number, otherwise returns \nil, an error string, and an integer system error.
+
+\subsubsection[\fn{close}]{\fn{close($fd$)}}
+
+FIXME.
 
 \subsubsection[\fn{closedir}]{\fn{closedir($dir$)}}
 
@@ -314,6 +338,10 @@ Closes the DIR handle, releasing the underlying file descriptor.
 \subsubsection[\fn{closelog}]{\fn{closelog()}}
 
 Closes any (internal) file descriptors opened by \fn{openlog} or \fn{syslog}.
+
+\subsubsection[\fn{compl}]{\fn{compl($x$)}}
+
+FIXME.
 
 \subsubsection[\fn{connect}]{\fn{connect($file$[,$sockaddr$])}}
 
@@ -367,6 +395,18 @@ Exits the process immediately without first flushing and closing open streams, o
 
 Like \fn{\_exit}, but first flushes and closes open streams, and calls \syscall{atexit} handlers.
 
+\subsubsection[\fn{faccessat}]{\fn{faccessat($fd$, $path$, $mode$, $flags$)}}
+
+FIXME.
+
+\subsubsection[\fn{fchmod}]{\fn{fchmod($file$, $mode$)}}
+
+See \fn{chmod}.
+
+\subsubsection[\fn{fchown}]{\fn{fchown($file$[, $uid$][, $gid$])}}
+
+See \fn{chown}.
+
 \subsubsection[\fn{fcntl}]{\fn{fcntl($file$|$dir$|$fd$, \ldots)}}
 
 FIXME
@@ -389,6 +429,18 @@ $file$ may be either a FILE handle or integer file descriptor. $flags$ is an opt
 
 Returns a FILE handle on success, otherwise returns \nil, an error string, and an integer system error.
 
+\subsubsection[\fn{feof}]{\fn{feof($file$)}}
+
+FIXME.
+
+\subsubsection[\fn{ferror}]{\fn{ferror($file$)}}
+
+FIXME.
+
+\subsubsection[\fn{fgetc}]{\fn{fgetc($file$)}}
+
+FIXME.
+
 \subsubsection[\fn{fileno}]{\fn{fileno($file$|$dir$|$fd$)}}
 
 Resolves the specified FILE handle or DIR handle to an integer file descriptor. An integer descriptor is returned as-is.
@@ -399,9 +451,17 @@ Locks the FILE handle $fh$, blocking the current thread if already locked. Retur
 
 This function only works on FILE handles and not DIR handlers or integer descriptors.
 
+\subsubsection[\fn{fnmatch}]{\fn{fnmatch($pattern$, $subject$, $flags$)}}
+
+FIXME.
+
 \subsubsection[\fn{fstat}]{\fn{fstat($path$|$file$|$dir$|$fd$[, $field$ \ldots])}}
 
-See \fn{stat}.
+See \seefn{stat}.
+
+\subsubsection[\fn{fstatat}]{\fn{fstatat($fd$, $path$, $flags$[, $field$ \ldots])}}
+
+Like \seefn{stat}. See also \seefn{openat}.
 
 \subsubsection[\fn{fsync}]{\fn{fsync($file$|$dir$|$fd$)}}
 
@@ -424,11 +484,15 @@ Returns a FILE handle on success, otherwise \nil, an error string, and an intege
 
 The difference between calling \syscall{fopen} versus \syscall{open}+\syscall{fdopen} is that the \syscall{fopen} binding ensures that a descriptor is not leaked if \syscall{fdopen} fails or throws an exception.
 
-\subsubsection[\fn{fopenat}]{\fn{fopenat($path$[, $mode$][, $perm$])}}
+\subsubsection[\fn{fopenat}]{\fn{fopenat($fd$, $path$[, $mode$][, $perm$])}}
 
 See \syscall{openat} and \syscall{fopen}.
 
 Returns a FILE handle on success, otherwise \nil, an error string, and an integer system error.
+
+\subsubsection[\fn{fpathconf}]{\fn{fpathconf($fd$, $name$)}}
+
+FIXME.
 
 \subsubsection[\fn{fpipe}]{\fn{fpipe([$mode$])}}
 
@@ -480,7 +544,11 @@ Integer port.
 
 If fields are specified, the iterator returns a list of fields in the order specified.
 
-\subsubsection[\fn{getnameinfo}]{\fn{getnameinfo($sockaddr$[, $flags$])}}
+\subsubsection[\fn{getc}]{\fn{getc($file$)}}
+
+FIXME.
+
+\subsubsection[\fn{getcwd}]{\fn{getcwd()}}
 
 FIXME.
 
@@ -498,21 +566,17 @@ Returns the value of the environment variable $name$ as a string, or \nil if it 
 
 Returns the effective process UID as a Lua number.
 
-\subsubsection[\fn{getgroups}]{\fn{getgroups()}}
-
-Queries supplement group list. On success returns an array of supplement GIDs. Otherwise returns \nil, an error string, and an integer system error.
-
-\subsubsection[\fn{getmode}]{\fn{getmode($mode$[, $omode$])}}
-
-The \fn{getmode} interface derives from the routine so-named in almost every \texttt{chmod(1)} utility implementation and which exposes the parser for symbolic file permissions.
-
-$mode$ should be a symbolic mode value with a valid syntax as described by POSIX within the \syscall{chmod(1)} utility man page. If specified, $omode$ should be an integer or a string in decimal, hexidecimal, or octal notation, and represents the original mode value used by the symbolic syntax for inheritance.
-
 \subsubsection[\fn{getgid}]{\fn{getgid()}}
 
 Returns the real process GID as a Lua number.
 
+\subsubsection[\fn{getgrgid}]{\fn{getgrgid($gid$[, $\ldots$])}}
+
+See \seefn{getgrnam}.
+
 \subsubsection[\fn{getgrnam}]{\fn{getgrnam($grp$[, $\ldots$])}}
+
+\label{getgrnam}
 
 $grp$ is an integer GID or string symbolic group name suitable for use by either \syscall{getgrgid(3)} or \syscall{getgrnam(3)}, respectively.
 
@@ -570,6 +634,20 @@ Interface broadcast address, or \nil if absent or of an unknown address family.
 
 If arguments are given, each field specified (as named above) is returned as part of the return value list on every invocation of the iterator.
 
+\subsubsection[\fn{getmode}]{\fn{getmode($mode$[, $omode$])}}
+
+The \fn{getmode} interface derives from the routine so-named in almost every \texttt{chmod(1)} utility implementation and which exposes the parser for symbolic file permissions.
+
+$mode$ should be a symbolic mode value with a valid syntax as described by POSIX within the \syscall{chmod(1)} utility man page. If specified, $omode$ should be an integer or a string in decimal, hexidecimal, or octal notation, and represents the original mode value used by the symbolic syntax for inheritance.
+
+\subsubsection[\fn{getnameinfo}]{\fn{getnameinfo($sockaddr$[, $flags$])}}
+
+FIXME.
+
+\subsubsection[\fn{getopt}]{\fn{getopt($args$, $optstring$)}}
+
+FIXME.
+
 \subsubsection[\fn{getpeername}]{\fn{getpeername($file$)}}
 
 FIXME.
@@ -595,6 +673,8 @@ Returns the parent process ID as a Lua number.
 Returns the program name as a string, otherwise \nil, an error string, and an integer system error.
 
 \subsubsection[\fn{getpwnam}]{\fn{getpwnam($usr$[, $\ldots$])}}
+
+\label{getpwnam}
 
 $usr$ is an integer UID or string symbolic user name suitable for use by either \syscall{getpwuid(3)} or \syscall{getpwnam(3)}, respectively.
 
@@ -622,6 +702,10 @@ If additional arguments are given, on success each field specified (as named abo
 If no user was found, returns \nil followed by the error string ``no such user''.
 
 If a system error occurred, returns \nil, an error string, and an integer system error.
+
+\subsubsection[\fn{getpwuid}]{\fn{getpwuid($uid$[, $ldots$])}}
+
+See \seefn{getpwnam}.
 
 \subsubsection[\fn{getrlimit}]{\fn{getrlimit([$what$])}}
 
@@ -683,6 +767,10 @@ Creates a new directory entry at $path2$ as a hard link to $path1$.
 
 Returns \true on success, otherwise \false, an error string, and an integer system error. 
 
+\subsubsection[\fn{listen}]{\fn{listen($fd$[, $backlog$])}}
+
+FIXME.
+
 \subsubsection[\fn{lockf}]{\fn{lockf($file$, $cmd$[, $size$])}}
 
 FIXME.
@@ -693,7 +781,7 @@ FIXME.
 
 \subsubsection[\fn{lstat}]{\fn{lstat($path$[, $field$ \ldots])}}
 
-Identical to \fn{stat}, except only accepts string paths and uses the \syscall{lstat} system call.
+Identical to \seefn{stat}, except only accepts string paths and uses the \syscall{lstat} system call.
 
 \subsubsection[\fn{mkdir}]{\fn{mkdir($path$[, $mode$])}}
 
@@ -737,6 +825,8 @@ Returns an integer file descriptor on success, otherwise \nil, an error string, 
 
 \subsubsection[\fn{openat}]{\fn{openat($file$|$dir$|$fd$, $path$[, $mode$][, $perm$])}}
 
+\label{openat}
+
 Similar to \syscall{open} except the first parameter should resolve to an open directory file descriptor.
 
 Returns an integer file descriptor on success, otherwise \nil, an error string, and an integer system error.
@@ -750,6 +840,10 @@ Returns a DIR handle on success, otherwise nil, an error string, and an integer 
 \subsubsection[\fn{openlog}]{\fn{openlog($ident$[, $logopt$[, $facility$]])}}
 
 Set process attributes that affect subsequent calls to \fn{syslog}. $ident$ is string prefix for log messages, $logopt$ an integer bitfield of flags (e.g. \texttt{LOG\_PID}, and $facility$ an integer constant (e.g. \texttt{LOG\_LOCAL1}, \texttt{LOG\_MAIL}) used for tagging and routing of messages.
+
+\subsubsection[\fn{pathconf}]{\fn{pathconf($path$, $name$)}}
+
+FIXME.
 
 \subsubsection[\fn{pipe}]{\fn{pipe($mode$)}}
 
@@ -832,6 +926,18 @@ If additional arguments are given, on success each field specified (as named abo
 If the end of directory entries has been reached, returns \nil.
 
 If a system error occurred, returns \nil, an error string, and an integer system error.
+
+\subsubsection[\fn{readlink}]{\fn{readlink($path$)}}
+
+FIXME.
+
+\subsubsection[\fn{readlinkat}]{\fn{readlinkat($fd$, $path$)}}
+
+FIXME.
+
+\subsubsection[\fn{realpath}]{\fn{realpath($path$)}}
+
+FIXME.
 
 \subsubsection[\fn{recv}]{\fn{recv($file$, $size$[, $flags$])}}
 
@@ -1028,7 +1134,7 @@ Create a new session and process group.
 
 Returns the new process group ID on success, otherwise \nil, an error string, and an integer system error.
 
-\subsubsection[\fn{setsockopt}]{\fn{setsockopt($file$, $level$, $type$, \ldots)}}
+\subsubsection[\fn{setsockopt}]{\fn{setsockopt($fd$, $level$, $optname$, $optval$)}}
 
 FIXME.
 
@@ -1037,6 +1143,10 @@ FIXME.
 Set the real process UID to $uid$. $uid$ must be an integer or symbolic user name.
 
 Returns \true on success, otherwise \false, an error string, and an integer system error.
+
+\subsubsection[\fn{shutdown}]{\fn{shutdown($fd$, $how$)}}
+
+FIXME.
 
 \subsubsection[\fn{sigaction}]{\fn{sigaction($signo$, [$action$], [$oaction$])}}
 
@@ -1106,7 +1216,17 @@ FIXME.
 
 FIXME.
 
+\subsubsection[\fn{socket}]{\fn{socket($family$, $socktype$, $protocol$)}}
+
+FIXME.
+
+\subsubsection[\fn{socketpair}]{\fn{socketpair($family$, $socktype$, $protocol$)}}
+
+FIXME.
+
 \subsubsection[\fn{stat}]{\fn{stat($path$|$file$|$dir$|$fd$[, $field$ $\ldots$])}}
+
+\label{stat}
 
 Stats the specified file. Caller may specify a path string, a Lua FILE handle, a DIR handle (see \fn{opendir}), or an integer descriptor.
 
@@ -1155,15 +1275,29 @@ Returns a string describing the specified signal number.
 
 \subsubsection[\fn{symlink}]{\fn{symlink($path1$, $path2$)}}
 
+\label{symlink}
+
 Creates a new directory entry at $path2$ as a symbolic link to $path1$.
 
 Returns \true on success, otherwise \false, an error string, and an integer system error. 
+
+\subsubsection[\fn{symlinkat}]{\fn{symlinkat($path1$, $atfd$, $path2$)}}
+
+Like \seefn{symlink}, but $path2$ is resolved relative to $atfd$.
+
+\subsubsection[\fn{sysconf}]{\fn{sysconf($name$)}}
+
+FIXME.
 
 \subsubsection[\fn{syslog}]{\fn{syslog($priority$, $message$)}}
 
 Send string message to system's logging facility. $priority$ is an integer flag (see \fn{setlogmask}) and $message$ a string (not a format string).
 
 \subsubsection[\fn{tcgetpgrp}]{\fn{tcgetpgrp($file$)}}
+
+FIXME.
+
+\subsubsection[\fn{tcgetsid}]{\fn{tcgetsid($fd$)}}
 
 FIXME.
 
@@ -1254,6 +1388,10 @@ Writes $data$ to $file$. $file$ may be either a FILE handle or integer file desc
 
 Returns an integer representing the number of bytes written (which may be less than \texttt{\#data}) on success, \otherwise{\nil}.
 
+\subsubsection[\fn{xor}]{\fn{xor($x$, $y$)}}
+
+FIXME.
+
 \end{Module}
 
 \begin{Module}{unix.dir}
@@ -1275,6 +1413,95 @@ Identical to \fn{unix.rewinddir}.
 \subsubsection[\fn{dir:close}]{\fn{dir:close()}}
 
 Identical to \fn{unix.closedir}.
+
+\end{Module}
+
+\begin{Module}{unix.unsafe}
+
+\label{unix.unsafe}
+
+The \module{unix.unsafe} module binds routines that can take or return pointers.
+Pointer arguments might be taken directly as lightuserdata or integers (intptr\_t), or indirectly as a string, depending on the routine. In the latter case, if it's not known whether a syscall might write through a pointer (e.g. \fn{fcntl}, \fn{getsockopt}), a string argument will be copied into an internal buffer, a pointer to this buffer passed to the routine, and then the contents of this buffer (possibly modified) returned as a string to the caller in the return list; otherwise (e.g. \fn{strlen}) a pointer to the string obtained via \fn{lua\_tostring} is passed.
+
+\subsubsection[\fn{calloc}]{\fn{calloc($count$, $size$)}}
+
+FIXME
+
+\subsubsection[\fn{fcntl}]{\fn{fcntl($fd$, $cmd$[, $arg$])}}
+
+FIXME
+
+\subsubsection[\fn{fmemopen}]{\fn{fmemopen($addr$, $size$, $mode$)}}
+
+FIXME
+
+\subsubsection[\fn{free}]{\fn{free($addr$)}}
+
+FIXME
+
+\subsubsection[\fn{getsockopt}]{\fn{getsockopt($fd$, $level$, $optname$, $arg$)}}
+
+FIXME
+
+\subsubsection[\fn{ioctl}]{\fn{ioctl($fd$, $cmd$, $arg$)}}
+
+FIXME
+
+\subsubsection[\fn{malloc}]{\fn{malloc($size$)}}
+
+FIXME
+
+\subsubsection[\fn{memcpy}]{\fn{memcpy($dst$, $src$, $size$)}}
+
+FIXME
+
+\subsubsection[\fn{memset}]{\fn{memset($addr$, $c$, $len$)}}
+
+FIXME
+
+\subsubsection[\fn{mlock}]{\fn{mlock($addr$, $len$)}}
+
+FIXME
+
+\subsubsection[\fn{mlockall}]{\fn{mlockall($flags$)}}
+
+FIXME
+
+\subsubsection[\fn{mmap}]{\fn{mmap($addr$, $len$, $prot$, $flags$, $fd$, $offset$)}}
+
+FIXME
+
+\subsubsection[\fn{munlock}]{\fn{munlock($addr$, $len$)}}
+
+FIXME
+
+\subsubsection[\fn{munlockall}]{\fn{munlockall()}}
+
+FIXME
+
+\subsubsection[\fn{munmap}]{\fn{munmap($addr$, $len$)}}
+
+FIXME
+
+\subsubsection[\fn{realloc}]{\fn{realloc($addr$, $size$)}}
+
+FIXME
+
+\subsubsection[\fn{reallocarray}]{\fn{reallocarray($addr$, $count$, $size$)}}
+
+FIXME
+
+\subsubsection[\fn{setsockopt}]{\fn{setsockopt($fd$, $level$, $optname$, $arg$)}}
+
+FIXME
+
+\subsubsection[\fn{strlen}]{\fn{strlen($addr$)}}
+
+FIXME
+
+\subsubsection[\fn{strnlen}]{\fn{strlen($addr$, $maxlen$)}}
+
+FIXME
 
 \end{Module}
 

@@ -20,8 +20,8 @@ unexpected permissions.
 Unlike `luaposix`, the library does not restrict itself to POSIX, and where
 possible emulates an interface when not available natively on a supported
 platform. For example, the library provides `arc4random` (absent on Linux
-and Solaris), `clock_gettime` (absent on OS X), and a thread-safe `timegm`
-(absent on Solaris).
+and older Solaris releases), `clock_gettime` (absent on older macOS
+releases), and a thread-safe `timegm` (absent on Solaris).
 
 ## Leak-safety
 
@@ -56,7 +56,8 @@ TODO. See [`lunix` Userguide PDF](http://25thandclement.com/~william/projects/lu
 ### Namespace
 
 Unlike recent versions of `luaposix`, interfaces are not grouped into
-submodules. Both Unix and POSIX evolved organically over time and neither
+submodules. (But see `unix.unsafe` submodule.)
+Both Unix and POSIX evolved organically over time and neither
 consistently group interfaces, either by header or any other singular
 convention. And while theoretically it could done _de_ _novo_ I feel that
 might add confusion and is otherwise wasted effort. In C the interfaces
@@ -108,6 +109,10 @@ TODO. See [`lunix` Userguide PDF](http://25thandclement.com/~william/projects/lu
 All of the following routines are implemented though they may not yet be
 documented. Descriptions for some interfaces may be in the
 [original PDF userguide](http://25thandclement.com/~william/projects/lunix.pdf).
+
+### accept
+
+### access
 
 ### alarm
 
@@ -206,6 +211,8 @@ Attempt to chroot to the specified string $path$.
 Returns `true` on success, otherwise returns `false`, an error string, and
 an integer system error.
 
+### clearerr
+
 ### clock_gettime
 
 ```
@@ -227,6 +234,8 @@ closedir : (DIR) -> (true) | (false, string, integer)
 ```
 
 Closes the DIR handle, releasing the underlying file descriptor.
+
+### closelog
 
 ### compl
 
@@ -319,17 +328,38 @@ exit : (status:boolean?|status:integer?) -> ()
 Like `_exit`, but first flushes and closes open streams and calls
 `atexit(3)` handlers.
 
+### faccessat
 ### fchmod
 ### fchown
 ### fcntl
 ### fdatasync
 ### fdopen
+
+```
+fdopen : (fd:integer, mode:string|integer) -> (FILE) | (nil, string, integer)
+```
+
+Returns a FILE object wrapping the specified descriptor. $mode$ can be an
+`fopen`-style string mode or `open`-style integer flags bit set.
+
 ### fdopendir
 ### fdup
+
+```
+fdup : (fh:FILE|DIR|integer, mode:string|integer) -> (FILE) | (nil, string, integer)
+```
+
+Atomic dup + fdopen, without the possibility of a descriptor leak upon OOM
+or similar error (exception) while calling these in succession. $mode$ can
+be an `fopen`-style string mode or `open`-style integer flags bit set.
+
+### feof
+### ferror
+### fgetc
 ### fileno
 
 ```
-fileno -> (FILE|DIR|integer) -> (integer)
+fileno : (fh:FILE|DIR|integer) -> (integer)
 ```
 
 Resolves the specified FILE handle or DIR handle to an integer file
@@ -347,12 +377,14 @@ Returns `true`.
 This function only works on FILE handles and not DIR handles or integer
 descriptors.
 
+### fnmatch
 ### fstat
+### fstatat
 ### fsync
 ### ftrylockfile
 
 ```
-ftrylockfile : (fd:FILE) -> (true|false)
+ftrylockfile : (fh:FILE) -> (true|false)
 ```
 
 Attempts to lock the FILE handle $fh$. Returns `true` on success or `false`
@@ -361,13 +393,14 @@ if $fh$ was locked by another thread.
 ### funlockfile
 
 ```
-funlockfile : (fd:FILE) -> (true)
+funlockfile : (fh:FILE) -> (true)
 ```
 
 Unlocks the FILE handle $fh$. Returns `true`.
 
 ### fopen
 ### fopenat
+### fpathconf
 ### fpipe
 ### fork
 
@@ -381,6 +414,8 @@ string, and an integer system error.
 
 ### gai_strerror
 ### getaddrinfo
+### getc
+### getcwd
 ### getegid
 ### geteuid
 ### getenv
@@ -391,6 +426,7 @@ string, and an integer system error.
 ### getgroups
 ### gethostname
 ### getifaddrs
+### getnameinfo
 ### getopt
 ### getpeername
 ### getpgid
@@ -402,6 +438,7 @@ string, and an integer system error.
 ### getpwuid
 ### getrlimit
 ### getrusage
+### getsockname
 ### gettimeofday
 ### getuid
 ### grantpt
@@ -413,6 +450,8 @@ string, and an integer system error.
 ### link
 ### listen
 ### lockf
+### LOG_MASK
+### LOG_UPTO
 ### lseek
 ### lstat
 ### mkdir
@@ -423,6 +462,8 @@ string, and an integer system error.
 ### open
 ### openat
 ### opendir
+### openlog
+### pathconf
 ### pipe
 ### poll
 ### posix_fadvise
@@ -435,9 +476,16 @@ string, and an integer system error.
 ### raise
 ### read
 ### readdir
+### readlink
+### readlinkat
+### realpath
 ### recv
 ### recvfrom
 ### recvfromto
+### regcomp
+### regerror
+### regexec
+### regfree
 ### rename
 ### renameat
 ### rewinddir
@@ -458,11 +506,13 @@ string, and an integer system error.
 ### setgid
 ### setgroups
 ### setlocale
+### setlogmask
 ### setpgid
 ### setrlimit
 ### setsockopt
 ### setsid
 ### setuid
+### shutdown
 ### sigaction
 ### sigfillset
 ### sigemptyset
@@ -474,11 +524,16 @@ string, and an integer system error.
 ### sigwait
 ### sleep
 ### socket
+### socketpair
 ### stat
 ### strerror
 ### strsignal
 ### symlink
+### symlinkat
+### sysconf
+### syslog
 ### tcgetpgrp
+### tcgetsid
 ### tcsetpgrp
 ### timegm
 ### truncate
@@ -493,5 +548,38 @@ string, and an integer system error.
 ### waitpid
 ### write
 ### xor
+
+## Unsafe Routines
+
+The `unix.unsafe` module binds routines that can take or return pointers.
+Pointer arguments might be taken directly as lightuserdata or integers
+(`intptr_t`), or indirectly as a string, depending on the routine.
+In the latter case, if it's not known whether a syscall might write through
+a pointer (e.g. `fcntl`, `getsockopt`), a string argument will be copied
+into an internal buffer, a pointer to this buffer passed to the routine, and
+then the contents of this buffer (possibly modified) returned as a string to
+the caller in the return list; otherwise (e.g. `strlen`) a pointer to the
+string obtained via `lua_tostring` is passed.
+
+### calloc
+### fcntl
+### fmemopen
+### free
+### getsockopt
+### ioctl
+### malloc
+### memcpy
+### memset
+### mlock
+### mlockall
+### mmap
+### munlock
+### munlockall
+### munmap
+### realloc
+### reallocarray
+### setsockopt
+### strlen
+### strnlen
 
 <!-- Markdeep: --><style class="fallback">body{visibility:hidden;white-space:pre;font-family:monospace}</style><script src="markdeep.min.js"></script><script src="https://casual-effects.com/markdeep/latest/markdeep.min.js"></script><script>window.alreadyProcessedMarkdeep||(document.body.style.visibility="visible")</script>
