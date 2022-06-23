@@ -42,7 +42,7 @@
 #include <syslog.h>       /* LOG_* closelog(3) openlog(3) setlogmask(3) syslog(3) */
 #include <termios.h>      /* tcgetsid(3) */
 #include <net/if.h>       /* IF_NAMESIZE struct ifconf struct ifreq */
-#include <unistd.h>       /* _PC_NAME_MAX alarm(3) chdir(2) chroot(2) close(2) chdir(2) chown(2) chroot(2) dup2(2) execve(2) execl(2) execlp(2) execvp(2) fork(2) fpathconf(3) getcwd(3) getegid(2) geteuid(2) getgid(2) getgroups(2) gethostname(3) getpgid(2) getpgrp(2) getpid(2) getppid(2) getuid(2) isatty(3) issetugid(2) lchown(2) lockf(3) link(2) pathconf(3) pread(2) pwrite(2) realpath(3) rename(2) rmdir(2) setegid(2) seteuid(2) setgid(2) setgroups(2) setpgid(2) setuid(2) setsid(2) symlink(2) sysconf(3) tcgetpgrp(3) tcsetpgrp(3) truncate(2) umask(2) unlink(2) unlinkat(2) */
+#include <unistd.h>       /* _PC_NAME_MAX access(2) alarm(3) chdir(2) chroot(2) close(2) chdir(2) chown(2) chroot(2) dup2(2) execve(2) execl(2) execlp(2) execvp(2) faccessat(2) fork(2) fpathconf(3) getcwd(3) getegid(2) geteuid(2) getgid(2) getgroups(2) gethostname(3) getpgid(2) getpgrp(2) getpid(2) getppid(2) getuid(2) isatty(3) issetugid(2) lchown(2) lockf(3) link(2) pathconf(3) pread(2) pwrite(2) realpath(3) rename(2) rmdir(2) setegid(2) seteuid(2) setgid(2) setgroups(2) setpgid(2) setuid(2) setsid(2) symlink(2) sysconf(3) tcgetpgrp(3) tcsetpgrp(3) truncate(2) umask(2) unlink(2) unlinkat(2) */
 #include <fcntl.h>        /* AT_* F_* O_* fcntl(2) open(2) openat(2) */
 #include <fnmatch.h>      /* FNM_* fnmatch(3) */
 #include <pwd.h>          /* struct passwd getpwnam_r(3) */
@@ -5286,6 +5286,19 @@ error:
 } /* unix_accept() */
 
 
+static int unix_access(lua_State *L) {
+	const char *path = luaL_checkstring(L, 1);
+	int mode = luaL_checkint(L, 2);
+
+	if (0 != access(path, mode))
+		return unixL_pusherror(L, errno, "access", "~$#");
+
+	lua_pushboolean(L, 1);
+
+	return 1;
+} /* unix_access() */
+
+
 static int unix_alarm(lua_State *L) {
 	unsigned n = unixL_checkunsigned(L, 1, 0, U_TMAX(unsigned));
 
@@ -5899,6 +5912,21 @@ static int unix_exit(lua_State *L) {
 
 	return 0;
 } /* unix_exit() */
+
+
+static int unix_faccessat(lua_State *L) {
+	int fd = unixL_checkatfileno(L, 1);
+	const char *path = luaL_checkstring(L, 2);
+	int mode = luaL_checkint(L, 3);
+	int flags = luaL_checkint(L, 4);
+
+	if (0 != faccessat(fd, path, mode, flags))
+		return unixL_pusherror(L, errno, "faccessat", "~$#");
+
+	lua_pushboolean(L, 1);
+
+	return 1;
+} /* unix_faccessat() */
 
 
 static int fcntl_flock(lua_State *L, int fd, int cmd, int index) {
@@ -10554,6 +10582,7 @@ static int unix__newindex(lua_State *L) {
 
 static const luaL_Reg unix_routines[] = {
 	{ "accept",             &unix_accept },
+	{ "access",             &unix_access },
 	{ "alarm",              &unix_alarm },
 	{ "arc4random",         &unix_arc4random },
 	{ "arc4random_buf",     &unix_arc4random_buf },
@@ -10584,6 +10613,7 @@ static const luaL_Reg unix_routines[] = {
 	{ "execvp",             &unix_execvp },
 	{ "_exit",              &unix__exit },
 	{ "exit",               &unix_exit },
+	{ "faccessat",          &unix_faccessat },
 	{ "fchmod",             &unix_chmod },
 	{ "fchown",             &unix_chown },
 	{ "fcntl",              &unix_fcntl },
@@ -11428,8 +11458,17 @@ static const struct unix_const const_fcntl[] = {
 #if defined AT_EACCESS
 	UNIX_CONST(AT_EACCESS),
 #endif
+#if defined AT_EMPTY_PATH
+	UNIX_CONST(AT_EMPTY_PATH),
+#endif
 #if defined AT_FDCWD
 	UNIX_CONST(AT_FDCWD),
+#endif
+#if defined AT_NO_AUTOMOUNT
+	UNIX_CONST(AT_NO_AUTOMOUNT),
+#endif
+#if defined AT_RECURSIVE
+	UNIX_CONST(AT_RECURSIVE),
 #endif
 #if defined AT_REMOVEDIR
 	UNIX_CONST(AT_REMOVEDIR),
@@ -11439,6 +11478,9 @@ static const struct unix_const const_fcntl[] = {
 #endif
 #if defined AT_SYMLINK_NOFOLLOW
 	UNIX_CONST(AT_SYMLINK_NOFOLLOW),
+#endif
+#if defined AT_SYMLINK_NOFOLLOW_ANY
+	UNIX_CONST(AT_SYMLINK_NOFOLLOW_ANY),
 #endif
 
 	UNIX_CONST(F_DUPFD),
@@ -11584,6 +11626,11 @@ static const struct unix_const const_unistd[] = {
 	UNIX_CONST(_SC_LINE_MAX),
 	UNIX_CONST(_SC_OPEN_MAX),
 	UNIX_CONST(_SC_PAGE_SIZE), UNIX_CONST(_SC_PAGESIZE),
+
+	UNIX_CONST(R_OK),
+	UNIX_CONST(W_OK),
+	UNIX_CONST(X_OK),
+	UNIX_CONST(F_OK),
 }; /* const_unistd[] */
 
 static const struct {
