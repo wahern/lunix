@@ -9152,7 +9152,10 @@ regex_pusherrstr(lua_State *L, int error, regex_t *preg)
 	n = regerror(error, preg, luaL_prepbuffer(&errbuf), LUAL_BUFFERSIZE);
 	if (n > LUAL_BUFFERSIZE) {
 #if LUA_VERSION_NUM >= 502
-		n = regerror(error, preg, luaL_prepbuffsize(&errbuf, n), n);
+		/* NB: regerror might not be idempotent if locale changed */
+		size_t bufsiz = n;
+		n = regerror(error, preg, luaL_prepbuffsize(&errbuf, bufsiz), bufsiz);
+		n = MIN(n, bufsiz);
 #else
 		n = LUAL_BUFFERSIZE;
 #endif
