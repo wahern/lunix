@@ -468,7 +468,7 @@
 #endif
 
 #ifndef HAVE_MKFIFOAT
-#define HAVE_MKFIFOAT (!__APPLE__ && (!__NetBSD__ || NETBSD_PREREQ(7,0)))
+#define HAVE_MKFIFOAT ((!__APPLE__ || MACOS_PREREQ(13,0,0) || IPHONE_PREREQ(16,0)) && (!__NetBSD__ || NETBSD_PREREQ(7,0)))
 #endif
 
 #ifndef HAVE_OPENAT
