@@ -584,7 +584,7 @@ string obtained via `lua_tostring` is passed.
 
 # License
 
-Copyright (c) 2014-2017, 2019-2022  William Ahern &lt;william@25thandClement.com&gt;
+Copyright (c) 2014-2017, 2019-2023  William Ahern &lt;william@25thandClement.com&gt;
 
 Permission is hereby granted, free of charge, to any person obtaining a
 copy of this software and associated documentation files (the
