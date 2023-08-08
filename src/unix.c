@@ -3408,12 +3408,25 @@ static u_error_t unixL_getsockname(lua_State *L, int fd, int (*getname)(int, str
 	socklen_t salen = sizeof (struct sockaddr);
 	int error;
 
+	/*
+	 * NOTE: FreeBSD (confirmed 12.2) and NetBSD (confirmed 8.2) return
+	 * the untruncated sockaddr length in .sa_len; the third parameter
+	 * to getpeername and getsockname is clamped to the input size.
+	 */
 	do {
+		if (salen > INT_MAX - 1)
+			return ERANGE;
 		if (U->bufsiz < salen && (error = u_realloc(&U->buf, &U->bufsiz, salen)))
 			return error;
 		salen = MIN(INT_MAX, U->bufsiz);
+#if HAVE_SOCKADDR_SA_LEN
+		((struct sockaddr *)U->buf)->sa_len = 0;
+#endif
 		if (0 != getname(fd, (struct sockaddr *)U->buf, &salen))
 			return errno;
+#if HAVE_SOCKADDR_SA_LEN
+		salen = MAX(salen, ((struct sockaddr *)U->buf)->sa_len);
+#endif
 	} while (salen > U->bufsiz);
 
 	unixL_newsockaddr(L, U->buf, salen);
